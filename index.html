@@ -370,6 +370,7 @@ const STATUSES = {
   rest30: {label:'🪑 Resting (30 min)', dur:0.5,  act:'resting', deltas:{rest:-6}},
   med15:  {label:'🧘 Meditating (15 min)', dur:0.25, act:'resting', deltas:{rest:-8},  fs:true},
   med30:  {label:'🧘 Meditating (30 min)', dur:0.5,  act:'resting', deltas:{rest:-14}, fs:true, sleepCredit:0.25},
+  wash:   {label:'🛁 Washing (full wash)', dur:0.5, act:'resting', deltas:{hygiene:-HYG.wash}},
   sleep:  {label:'😴 Sleeping', dur:8, act:'sleeping', deltas:{}}
 };
 const SNACK_HUNGER=10;                    // snack: instant bite on the move
@@ -434,7 +435,7 @@ const AUTO_ITEMS = {
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Food','Medical','Other'];
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Gear (pack)','Food','Medical','Other'];
 /* Types that carry a wear/degradation track in the Weapons & Gear section */
 const DEGRADABLE = ['Weapon','Gear (worn)'];
 function isDegradable(type){ return DEGRADABLE.some(t=>t.toLowerCase()===(type||'').toLowerCase()); }
@@ -813,8 +814,12 @@ function clockStr(){
   return `Day ${dayNow()+1} — ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 const fmtDur = h => h>=1 ? `${(+h.toFixed(2))} hr` : `${Math.round(h*60)} min`;
-const invWeight = cs => cs.inv.reduce((a,it)=>a + (it.qty||0)*(it.wt||0), 0);
-const overload  = cs => cs.encThresh>0 ? Math.max(0, Math.ceil(invWeight(cs)) - cs.encThresh) : 0;
+// Gear (pack): counts 0 toward carried weight; its "Enc ea" value is capacity granted per pack.
+const isPack    = it => (it.type||'').toLowerCase()==='gear (pack)';
+const invWeight = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?0:(it.qty||0)*(it.wt||0)), 0);
+const packBonus = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
+const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
+const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
 function tierOf(x, tiers){ tiers=tiers||DTIERS; let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
@@ -1095,12 +1100,7 @@ function eatSnack(id){
   render();
 }
 /* ---- hygiene ---- */
-function wash(id){
-  const cs = st(id);
-  cs.hygiene = clamp(cs.hygiene - HYG.wash, 0, 100);
-  logMsg(`🛁 ${cfg(id).name} takes a full wash (−${HYG.wash} hygiene, 15–30 min). Requires ample water — GM approves.`);
-  render();
-}
+/* Full wash is a 30-min timed status (see STATUSES.wash) — started via startStatus. */
 function wipeDown(id){
   const cs = st(id), c = cfg(id);
   if(cs.canteen < HYG.wipeOz){ logMsg(`${c.name} needs ${HYG.wipeOz} oz of water for a wipe-down — canteen too low (a sonic shower works too; GM approves).`,'lw'); render(); return; }
@@ -1474,13 +1474,18 @@ function invSection(cs){
     const del  = it.auto ? '' : `<button class="mini" title="Remove item" onclick="delInv('${cs.id}',${i})">×</button>`;
     const qty  = it.auto==='canteen' ? `<span class="auto">${it.qty}</span>`
       : `<input type="number" min="0" step="0.5" value="${it.qty}" onchange="setInv('${cs.id}',${i},'qty',this.value)">`;
+    const pack = isPack(it);
+    const totCell = pack
+      ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${(it.qty*it.wt).toFixed(2)}</td>`
+      : `<td class="tot">${(it.qty*it.wt).toFixed(2)}</td>`;
     return `<tr><td>${name}</td><td>${type}</td>
       <td>${qty}</td>
-      <td><input type="number" min="0" step="0.05" value="${it.wt}" onchange="setInv('${cs.id}',${i},'wt',this.value)"></td>
-      <td class="tot">${(it.qty*it.wt).toFixed(2)}</td><td>${del}</td></tr>`;
+      <td><input type="number" min="0" step="0.05" value="${it.wt}" title="${pack?'Capacity granted per pack':'Encumbrance each'}" onchange="setInv('${cs.id}',${i},'wt',this.value)"></td>
+      ${totCell}<td>${del}</td></tr>`;
   }).join('');
+  const eff = effThresh(cs), pb = packBonus(cs);
   return `<details class="inv" ${cs.invOpen?'open':''} ontoggle="st('${cs.id}').invOpen=this.open">
-    <summary>🎒 Inventory — enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${cs.encThresh||'—'} threshold
+    <summary>🎒 Inventory — enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'} threshold${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
       &nbsp;<button class="mini" onclick="event.preventDefault();addInv('${cs.id}')">＋ add item</button></summary>
     <table class="invtable">
       <tr><th>Name</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
@@ -1601,7 +1606,7 @@ function organicCard(cs, c, div){
     ${needRow(cs,'hunger','🍞 Hunger',
       `<button class="mini" onclick="eatSnack('${cs.id}')">snack</button><button class="mini" onclick="startStatus('${cs.id}','ration')" title="Eat a field ration (15 min)">ration</button><button class="mini" onclick="startStatus('${cs.id}','meal')" title="Eat a prepared meal (30 min)">meal</button>`, tier('hunger'))}
     ${needRow(cs,'hygiene','🧼 Hygiene',
-      `<button class="mini" onclick="wash('${cs.id}')" title="Full wash / bath — 15–30 min, ample water (GM approves)">wash</button><button class="mini" onclick="wipeDown('${cs.id}')" title="Quick wipe-down / field clean — uses ${HYG.wipeOz} oz canteen water">wipe</button><button class="mini" onclick="cleanClothes('${cs.id}')" title="Change into clean clothing (GM approves)">👕</button>`, tier('hygiene'))}
+      `<button class="mini" onclick="startStatus('${cs.id}','wash')" title="Full wash / bath — 30-min timed status, ample water (GM approves)">wash</button><button class="mini" onclick="wipeDown('${cs.id}')" title="Quick wipe-down / field clean — uses ${HYG.wipeOz} oz canteen water">wipe</button><button class="mini" onclick="cleanClothes('${cs.id}')" title="Change into clean clothing (GM approves)">👕</button>`, tier('hygiene'))}
     ${needRow(cs,'sleep','😴 Sleep',
       `<input type="number" id="slp-${cs.id}" min="0.5" max="16" step="0.5" value="8" style="width:50px" title="Hours to sleep"><button class="mini" onclick="startSleep('${cs.id}')">sleep</button>`, tier('sleep'))}
     ${needRow(cs,'rest','⚡ Fatigue',
@@ -2023,13 +2028,14 @@ function buildRules(){
   <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>−${SNACK_HUNGER} hunger</td><td>1 snack</td></tr>
   <tr><td>🪑 Rest 15 / 30 min</td><td>15/30 min</td><td>−3 / −6 fatigue (plus resting recovery); sleep debt ticks at half rate while resting</td><td>—</td></tr>
   <tr><td>🧘 Meditate 15 / 30 min (Force sensitives)</td><td>15/30 min</td><td>−8 / −14 fatigue; the 30-min trance also counts as 15 min of sleep</td><td>—</td></tr>
+  <tr><td>🛁 Full wash / bath</td><td>30 min</td><td>−${HYG.wash} hygiene (two tiers, delivered over the 30 min)</td><td>ample water (GM approves)</td></tr>
   <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −12.5/hr (−10/hr for Kata); fatigue −10/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
   <p><b>Eating caps:</b> while <b>Dehydrated+ (thirst ≥ ${REHYDRATE.thresh})</b> the body can't process food — meals and snacks restore only <b>half</b> their points. At <b>Starving+ (hunger ≥ ${REFEED.thresh})</b> refeeding is gradual and dangerous: only ~<b>${REFEED.capPts} pts</b> absorbed per careful meal, spaced hours apart — gorging triggers <b>refeeding shock</b> (a 🤒 Sick stack, GM's call; the food is wasted). Climbing out of Emaciated takes days of careful eating and rest.</p>
 
-  <h2>🧼 Hygiene actions (instant)</h2>
-  <p>Getting clean needs water — which competes with drinking, so in scarcity washing is a real choice.</p>
+  <h2>🧼 Hygiene actions</h2>
+  <p>Getting clean needs water — which competes with drinking, so in scarcity washing is a real choice. A <b>full wash is a 30-min timed status</b> (see above); wipe-downs and clothing changes are instant.</p>
   <table><tr><th>Action</th><th>Effect</th><th>Requires</th></tr>
-  <tr><td>🛁 Full wash / bath (15–30 min)</td><td>−${HYG.wash} hygiene (two tiers) — a proper scrub resets toward Fresh</td><td>ample water (GM approves)</td></tr>
+  <tr><td>🛁 Full wash / bath (30-min timed status)</td><td>−${HYG.wash} hygiene (two tiers) — a proper scrub resets toward Fresh; delivered over 30 min as the clock advances</td><td>ample water (GM approves)</td></tr>
   <tr><td>🧻 Quick wipe-down / field clean</td><td>−${HYG.wipe} hygiene (one tier)</td><td>${HYG.wipeOz} oz canteen water (or a sonic shower — GM approves)</td></tr>
   <tr><td>👕 Change into clean clothing</td><td>−${HYG.clothes} hygiene</td><td>a clean change of clothes (GM approves)</td></tr>
   <tr><td>💊 Bacta / medical treatment</td><td>clears a 🤒 Sick stack — but not the grime; you still need to wash</td><td>medpac / bacta</td></tr></table>
@@ -2064,8 +2070,10 @@ function buildRules(){
   <tr><td>Comlink</td><td>Gear</td><td>0.1</td></tr>
   <tr><td>Datapad / grapnel / purifier / multitool</td><td>Gear</td><td>0.5</td></tr>
   <tr><td>Toolkit</td><td>Tool</td><td>1</td></tr>
-  <tr><td>Worn armor/clothing</td><td>Armor</td><td>0 (worn)</td></tr></table>
+  <tr><td>Worn armor/clothing</td><td>Armor</td><td>0 (worn)</td></tr>
+  <tr><td>Backpack / satchel / load-bearing rig</td><td>Gear (pack)</td><td>+cap (see below)</td></tr></table>
   <p>Each point over threshold: needs accrue <b>+${ENC_DRAIN_PER_PT*100}% faster</b> (sleep debt +${ENC_SLEEP_PER_PT*100}%); RAW: 1 Setback to Brawn/Agility checks per point over.</p>
+  <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; Gear — equipment wear</h2>
   <p>Any inventory row typed <b>Weapon</b> or <b>Gear (worn)</b> automatically appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from age &amp; exposure (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about a month of ownership — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(30/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b>. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
