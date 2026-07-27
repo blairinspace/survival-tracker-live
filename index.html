@@ -254,10 +254,7 @@
     <input type="number" id="customHrs" min="0.25" step="0.25" max="168" value="12">
     <button onclick="advance(parseFloat(document.getElementById('customHrs').value)||1)">Advance</button>
   </div>
-</div>
-
-<div class="topbar" style="justify-content:flex-start">
-  <div class="group">
+  <div class="group" style="margin-left:auto">
     <span class="label">📍 Location</span>
     <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+this.value);render()">
   </div>
