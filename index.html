@@ -126,7 +126,7 @@
   #rules th{background:var(--panel2);color:var(--accent)}
   #rules p{font-size:13px;color:var(--text);margin:6px 0}
   .dice{font-weight:700}
-  .setb{color:#a5a5a5}.chal{color:#f85149}.diff{color:#b57edc}
+  .setb{color:#a5a5a5}.chal{color:#f85149}.diff{color:#b57edc}.boost{color:#4fc3f7}
   /* ---- Ship card (Mantis) ---- */
   #ship{display:none}
   .shipwrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
@@ -207,51 +207,6 @@
 
 <h1>Survival Tracker</h1>
 
-<div class="topbar">
-  <div class="group">
-    <span class="clock" id="clock"></span>
-    <button class="primary" onclick="advance(0.25)">+15 min</button>
-    <button class="primary" onclick="advance(0.5)">+30 min</button>
-    <button class="primary" onclick="advance(1)">+1 hr</button>
-    <input type="number" id="customHrs" min="0.25" step="0.25" max="168" value="12">
-    <button onclick="advance(parseFloat(document.getElementById('customHrs').value)||1)">Advance</button>
-  </div>
-  <div class="group">
-    <span class="label">Environment</span>
-    <select id="envSel" onchange="setEnv(this.value)"></select>
-  </div>
-  <div class="group">
-    <button onclick="exportState()">💾 Save</button>
-    <button onclick="document.getElementById('importFile').click()">📂 Load</button>
-    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
-    <button id="resetBtn" onclick="resetAll()">↺ Reset</button>
-  </div>
-</div>
-
-<div class="topbar" style="justify-content:flex-start">
-  <div class="group">
-    <span class="label">📍 Location</span>
-    <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+this.value);render()">
-  </div>
-  <div class="group">
-    <span class="label">🧭 Travel to</span>
-    <input type="text" id="destIn" placeholder="destination" onchange="S.travelDest=this.value;render()">
-    <span class="label">in</span>
-    <input type="number" id="etaIn" min="0" step="0.25" onchange="S.travelEta=Math.max(0,parseFloat(this.value)||0);render()">
-    <span class="label">hrs</span>
-    <span id="etaNote" style="font-size:12px;color:var(--gold)"></span>
-  </div>
-  <div class="group">
-    <span class="label">👥 Party</span>
-    <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
-    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
-  </div>
-  <div class="group" style="margin-left:auto">
-    <span class="label">Show</span>
-    <span class="group" id="viewChips"></span>
-  </div>
-</div>
-
 <div class="topbar" id="roomBar" style="justify-content:flex-start">
   <div class="group">
     <span class="label">🔗 Live</span>
@@ -269,8 +224,52 @@
     <span class="label">You</span>
     <input type="text" id="playerIn" placeholder="your name" style="width:110px" onchange="setPlayerName(this.value)">
   </div>
-  <div class="group" style="margin-left:auto">
+  <div class="group">
     <span id="syncMsg" class="label" style="color:var(--dim)"></span>
+  </div>
+  <div class="group" style="margin-left:auto">
+    <span class="label">Show</span>
+    <span class="group" id="viewChips"></span>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="group">
+    <span class="clock" id="clock"></span>
+    <button class="primary" onclick="advance(0.25)">+15 min</button>
+    <button class="primary" onclick="advance(0.5)">+30 min</button>
+    <button class="primary" onclick="advance(1)">+1 hr</button>
+    <input type="number" id="customHrs" min="0.25" step="0.25" max="168" value="12">
+    <button onclick="advance(parseFloat(document.getElementById('customHrs').value)||1)">Advance</button>
+  </div>
+  <div class="group">
+    <button onclick="exportState()">💾 Save</button>
+    <button onclick="document.getElementById('importFile').click()">📂 Load</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
+  </div>
+</div>
+
+<div class="topbar" style="justify-content:flex-start">
+  <div class="group">
+    <span class="label">📍 Location</span>
+    <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+this.value);render()">
+  </div>
+  <div class="group">
+    <span class="label">Environment</span>
+    <select id="envSel" onchange="setEnv(this.value)"></select>
+  </div>
+  <div class="group">
+    <span class="label">🧭 Travel to</span>
+    <input type="text" id="destIn" placeholder="destination" onchange="S.travelDest=this.value;render()">
+    <span class="label">in</span>
+    <input type="number" id="etaIn" min="0" step="0.25" onchange="S.travelEta=Math.max(0,parseFloat(this.value)||0);render()">
+    <span class="label">hrs</span>
+    <span id="etaNote" style="font-size:12px;color:var(--gold)"></span>
+  </div>
+  <div class="group">
+    <span class="label">👥 Party</span>
+    <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
+    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
   </div>
 </div>
 
@@ -410,6 +409,13 @@ const CONDS = {
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
               fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
+  drunk:     {label:'🍺 Drunk', lvls:3, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},
+              hourly:(cs,l,ev)=>{ if(l>=2) cs.strain += (l-1); },
+              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Only time, water & rest sober you up.`
+                   : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">1 strain/hr.</b> +30% water use.`
+                   :        `🍺 Tipsy (1/3): loosened up. <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception. Mild dehydration (+15% water).`},
+  caffeinated:{label:'☕ Caffeinated', mult:{sleep:0.6, rest:0.85, water:1.1},
+              fx:()=> '☕ Caffeinated: <span class="dice boost">1 Boost ▲</span> to Vigilance & Perception and to checks made to resist sleep. Wired and alert — sleep debt accrues 40% slower and fatigue 15% slower. Mild diuretic (+10% water). Wears off after a few hours; a crash may follow (GM\'s call).'},
   // droid conditions
   ion:       {label:'⚡ Ion-scrambled', droid:true, mult:{charge:1.5},
               fx:()=> '⚡ Ion-scrambled: 1 Setback ■ to all checks; power drains 50% faster. Clears with a Mechanics check or reboot.'},
@@ -1577,7 +1583,7 @@ function organicCard(cs, c, div){
   div.innerHTML = `
     ${portraitSection(cs,c)}
     <div class="cardhead">
-      <div><span class="cname">${c.name}</span> ${dead?'☠':uncon?'💫':''}
+      <div><span class="cname">${c.name.split(' ')[0]}</span> ${dead?'☠':uncon?'💫':''}
         <div class="cmeta">${c.species} · ${c.h} · ${c.build} · ${c.waterOz} oz water/day · ${c.rations} rations/meal</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
@@ -1628,7 +1634,7 @@ function droidCard(cs, c, div){
   div.innerHTML = `
     ${portraitSection(cs,c)}
     <div class="cardhead">
-      <div><span class="cname">${c.name}</span> 🤖 ${wrecked?'☠':disabled?'💫':''}
+      <div><span class="cname">${c.name.split(' ')[0]}</span> 🤖 ${wrecked?'☠':disabled?'💫':''}
         <div class="cmeta">${c.species} · ${c.h} · ${c.build} · 1 pack ≈ ${c.packHrs} hrs light operation</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
