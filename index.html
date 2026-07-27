@@ -1290,7 +1290,7 @@ function fireTorp(){
 }
 function setAmmo(v){ S.ship.ammo=Math.max(0, parseInt(v)||0); render(); }
 function reloadTorp(){ S.ship.ammo=SHIP.torpedoes; logMsg(`🚀 Mantis torpedo magazine reloaded to ${SHIP.torpedoes} at port.`,'lg'); render(); }
-function setCrew(role, v){ S.ship.crew[role]=v; }
+function setCrew(role, v){ S.ship.crew[role]=v; render(); }
 /* ---- cargo holds (free-form inventory): main hold (100 enc) + hidden smuggling compartment (10 enc) ---- */
 const holdWeight = key => S.ship[key].reduce((a,it)=>a + (it.qty||0)*(it.wt||0), 0);
 function addCargo(hold){ S.ship[hold].push({name:'', type:'', qty:1, wt:0}); render(); }
@@ -1931,6 +1931,7 @@ function logMsg(msg, cls){
   S.log.unshift({t:clockStr(), m:msg, c:cls||''});
   S.log = S.log.slice(0,100);
   rebuildLog();
+  scheduleSync();   // log-only changes (notes, etc.) don't run render(); push them to the room
 }
 function rebuildLog(){
   document.getElementById('logEntries').innerHTML =
@@ -1944,7 +1945,7 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
   logMsg('📝 '+esc(text), 'ln');
   inp.focus();
 }
-function clearLog(){ S.log=[]; rebuildLog(); }
+function clearLog(){ S.log=[]; rebuildLog(); scheduleSync(); }
 
 function showTab(t){
   for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['rules','tabR']]){
@@ -2427,6 +2428,10 @@ function initCloud(){
   document.addEventListener('focusout', ()=> setTimeout(()=>{
     if(CLOUD.pending && !isEditing()){ const r=CLOUD.pending; CLOUD.pending=null; applyRemote(r); }
   }, 60));
+  // safety net: every 2s, diff local state against the room and push anything that
+  // slipped through (a mutation whose handler forgot to trigger a sync). pushLocal
+  // is a no-op when nothing changed, so this is cheap and writes nothing when idle.
+  setInterval(()=>{ if(CLOUD.db && CLOUD.room && CLOUD.synced && !CLOUD.applying) pushLocal(); }, 2000);
   // if the page is already open and the room in the URL changes (e.g. someone
   // clicks a link to a different room), switch rooms live instead of ignoring it
   window.addEventListener('hashchange', ()=>{
