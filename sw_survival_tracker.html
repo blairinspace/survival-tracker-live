@@ -1,0 +1,2475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Survival Tracker — FFG Star Wars</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#30363d;
+    --text:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --gold:#e3b341;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149; --crit:#ff2e2e; --force:#9d8cff; --droid:#56d4dd;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px;padding:14px}
+  h1{font-size:20px;letter-spacing:2px;color:var(--gold);text-transform:uppercase}
+  .sub{color:var(--dim);font-size:12px;margin-top:2px}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12.5px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:#1f3a5f;border-color:var(--accent)}
+  select,input{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12.5px}
+  input[type=number]{width:56px}
+  input[type=text]{width:150px}
+  .topbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;margin:12px 0}
+  .group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+  .clock{font-size:16px;color:var(--gold);font-weight:600;min-width:150px}
+  .chip{font-size:11.5px;padding:3px 9px;border-radius:12px;opacity:.55}
+  .chip.on{opacity:1;background:#1f3a5f;border-color:var(--accent)}
+  #ambience{position:relative;display:none;margin:0 0 12px;border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:190px}
+  #ambience img{width:100%;height:190px;object-fit:cover;display:block}
+  #ambience .cap{position:absolute;left:12px;bottom:8px;font-size:15px;font-weight:700;color:#fff;text-shadow:0 1px 6px #000}
+  #ambience .cap small{display:block;font-size:11px;font-weight:400;opacity:.85}
+  #ambience .rm{position:absolute;top:8px;right:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .card.dead{border-color:var(--crit);box-shadow:0 0 12px rgba(255,46,46,.35)}
+  .card.uncon{border-color:var(--warn)}
+  .card.droidcard{border-color:#1d4a4e}
+  .portrait{position:relative;border-radius:8px;overflow:hidden;margin-bottom:8px;max-height:150px}
+  .portrait img{width:100%;height:150px;object-fit:cover;object-position:center 20%;display:block}
+  .portrait .hurt{position:absolute;inset:0;background:#e00;pointer-events:none}
+  .portrait .rm{position:absolute;top:6px;right:6px;padding:1px 6px;font-size:11px}
+  .cardhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+  .cname{font-size:16px;font-weight:700}
+  .cmeta{color:var(--dim);font-size:11px}
+  .trait{color:var(--force);font-size:11px;font-style:italic;margin:2px 0 6px}
+  .droidcard .trait{color:var(--droid)}
+  .attrs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 6px;padding:6px;background:var(--panel2);border-radius:6px}
+  .attrs .a{display:flex;flex-direction:column;align-items:center}
+  .attrs .a span{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .attrs .a input{width:38px;text-align:center;padding:2px}
+  .needrow{display:flex;align-items:center;gap:5px;margin:5px 0}
+  .needlabel{width:56px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;cursor:pointer;flex-shrink:0}
+  .needlabel:hover{color:var(--accent)}
+  .barwrap{flex:1;height:14px;background:#0a0e14;border:1px solid var(--border);border-radius:7px;overflow:hidden;position:relative;min-width:80px}
+  .bar{height:100%;border-radius:7px;transition:width .3s}
+  .barval{position:absolute;right:6px;top:0;font-size:10px;line-height:14px;color:#fff;text-shadow:0 0 3px #000}
+  .mini{font-size:10.5px;padding:2px 6px}
+  .mini.force{border-color:var(--force);color:var(--force)}
+  .mini.droid{border-color:var(--droid);color:var(--droid)}
+  .gearrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11.5px}
+  .gearrow .gi{display:flex;align-items:center;gap:4px;color:var(--dim)}
+  .gearrow input[type=number]{width:48px;padding:2px 4px;font-size:11.5px}
+  .gearrow b{color:var(--text)}
+  .customform{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:4px 0;padding:6px;background:var(--panel2);border:1px dashed var(--border);border-radius:6px}
+  .customform input[type=text]{font-size:11.5px;padding:3px 5px}
+  .badge{display:inline-block;padding:1px 7px;border-radius:9px;font-size:10.5px;font-weight:700;margin:1px 2px 1px 0}
+  .b-stim{background:#1f4d2e;color:#7ee2a0}
+  .b-enc{background:#5c3a10;color:#ffc266}
+  .b-force{background:#2d2554;color:#c3b5ff}
+  .b-off{background:#3a1010;color:#ff9c9c}
+  .b-status{background:#123a4a;color:#8fd9f2}
+  .b-cond{background:#432a10;color:#ffc98a}
+  .badge .x{cursor:pointer;margin-left:4px;opacity:.7}
+  .badge .x:hover{opacity:1}
+  details.inv{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px}
+  details.inv summary{cursor:pointer;font-size:11.5px;color:var(--dim);user-select:none}
+  details.inv summary b{color:var(--text)}
+  .invtable{width:100%;border-collapse:collapse;margin-top:6px;font-size:11.5px}
+  .invtable th{color:var(--dim);font-size:10px;text-transform:uppercase;text-align:left;padding:2px 3px}
+  .invtable td{padding:2px 3px}
+  .invtable input{padding:2px 4px;font-size:11.5px;width:100%}
+  .invtable input[type=number]{width:52px}
+  .invtable .tot{color:var(--gold);text-align:right;white-space:nowrap}
+  .invtable .auto{color:var(--dim);font-style:italic}
+  .gearitem{margin-top:8px;padding:6px 8px;background:var(--panel2);border-radius:6px}
+  .gearitem:first-child{margin-top:6px}
+  .gearline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .gearname{font-weight:600;font-size:12.5px}
+  .gearitem .needrow{margin:5px 0 4px}
+  .gearfx{margin-top:0;background:transparent;padding:0;font-size:11.5px;color:var(--dim)}
+  .gearempty{color:var(--dim);font-size:11.5px;padding:5px 2px;line-height:1.45}
+  .exwrap{margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+  .exbar{height:20px}
+  .exbar .barval{line-height:20px;font-size:12px;font-weight:700}
+  .tierbadge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+  .needtier{padding:1px 6px;font-size:9px;letter-spacing:.5px;flex-shrink:0}
+  .fx{font-size:12px;color:var(--text);margin-top:6px;line-height:1.45;background:var(--panel2);border-radius:6px;padding:6px 8px}
+  .fx .condline{color:#ffc98a}
+  .fx.fxstack{background:transparent;padding:0}
+  .fxneed{background:var(--panel2);border-radius:6px;padding:6px 8px;margin-bottom:5px;line-height:1.45}
+  .fxneed:last-child{margin-bottom:0}
+  .fxtier{font-weight:700}
+  .fxnone{color:var(--dim);font-style:italic}
+  .fxneed.condstack{color:#ffc98a}
+  .tallies{display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+  .tallies b{font-size:14px}
+  .strain b{color:var(--warn)} .wounds b{color:var(--bad)}
+  .log{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:14px}
+  .log .loghead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .log .loghead b{color:var(--text)}
+  .log .noteadd{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .log .noteadd input[type=text]{width:240px;max-width:60vw}
+  #logEntries{max-height:260px;overflow-y:auto}
+  .log p{font-size:12px;padding:2px 0;border-bottom:1px dotted #21262d;color:var(--dim)}
+  .log p b{color:var(--text)}
+  .log .lw{color:var(--warn)} .log .lb{color:var(--bad)} .log .lg{color:#7ee2a0} .log .lf{color:var(--force)} .log .ld{color:var(--droid)}
+  .log .ln{color:var(--accent);font-style:italic}
+  .tabs{display:flex;gap:8px;margin:12px 0}
+  .tabs button.on{background:#1f3a5f;border-color:var(--accent)}
+  #rules{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;line-height:1.6}
+  #rules h2{color:var(--gold);font-size:16px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:1px}
+  #rules h2:first-child{margin-top:0}
+  #rules table{border-collapse:collapse;width:100%;margin:8px 0 14px;font-size:12.5px}
+  #rules th,#rules td{border:1px solid var(--border);padding:5px 8px;text-align:left}
+  #rules th{background:var(--panel2);color:var(--accent)}
+  #rules p{font-size:13px;color:var(--text);margin:6px 0}
+  .dice{font-weight:700}
+  .setb{color:#a5a5a5}.chal{color:#f85149}.diff{color:#b57edc}.boost{color:#4fc3f7}
+  /* ---- Ship card (Mantis) ---- */
+  #ship{display:none}
+  .shipwrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .shiphead{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:14px}
+  .shiphead .stitle{font-size:22px;font-weight:800;letter-spacing:2px;color:var(--gold);text-transform:uppercase}
+  .shiphead .ssub{color:var(--dim);font-size:12px;margin-top:3px;letter-spacing:.5px}
+  .shiphead .sactivity{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+  .shipportrait{position:relative;border-radius:8px;overflow:hidden;margin-bottom:14px;max-height:220px}
+  .shipportrait img{width:100%;height:220px;object-fit:cover;object-position:center;display:block}
+  .shipportrait .rm{position:absolute;top:8px;right:8px;padding:1px 6px;font-size:11px}
+  .shiphead .stitle .mini{font-size:11px;vertical-align:middle;margin-left:4px}
+  .statbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;margin-bottom:14px}
+  .stat{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center}
+  .stat .sv{font-size:22px;font-weight:800;color:var(--text)}
+  .stat .sl{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin-top:2px}
+  .shipcols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  @media(max-width:640px){.shipcols{grid-template-columns:1fr}}
+  .spanel{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px}
+  .spanel h3{font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .defgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;max-width:236px;margin:4px auto 0}
+  .defcell{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:6px 2px;min-height:46px}
+  .defcell.mid{background:transparent;border:none}
+  .defcell .dl{font-size:8.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .defcell input{width:40px;text-align:center;padding:2px;color:var(--force);font-weight:700}
+  .shipnav{font-size:26px;text-align:center}
+  .fuelpanel{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px}
+  .fueltank{height:26px;background:#0a0e14;border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative}
+  .fueltank .fbar{height:100%;transition:width .3s}
+  .fueltank .fval{position:absolute;left:0;right:0;top:0;line-height:26px;text-align:center;font-size:12.5px;font-weight:700;color:#fff;text-shadow:0 0 4px #000}
+  .fuelform{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--dim)}
+  .fuellog{margin-top:10px;max-height:120px;overflow-y:auto;font-size:11.5px}
+  .fuellog p{padding:2px 0;border-bottom:1px dotted #21262d;color:var(--dim)}
+  .fuellog p b{color:var(--text)}
+  .sysgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:10px}
+  .syscard{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px}
+  .syscard.off{border-color:var(--crit);box-shadow:0 0 8px rgba(255,46,46,.25)}
+  .syscard .sh{display:flex;justify-content:space-between;align-items:center;gap:4px}
+  .syscard .sn{font-size:13px;font-weight:700}
+  .syscard .saff{font-size:10px;color:var(--dim);margin:3px 0 4px}
+  .pips{display:flex;gap:4px;margin:6px 0}
+  .pip{flex:1;height:12px;border-radius:3px}
+  .enrow{display:flex;align-items:center;gap:5px;margin:5px 0;font-size:11px}
+  .enrow .enlbl{color:var(--dim);text-transform:uppercase;letter-spacing:.5px;font-size:9.5px;min-width:58px}
+  .edots{display:flex;gap:3px;flex:1}
+  .edot{width:10px;height:10px;border-radius:50%;background:#0a0e14;box-shadow:inset 0 0 0 1px var(--border)}
+  .edot.on{background:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+  .wmult{font-weight:700;font-size:10.5px;min-width:40px;text-align:right}
+  .rangesel{flex:1;font-size:11.5px}
+  .boostline{font-size:10.5px;color:var(--gold);background:rgba(227,179,65,.1);border:1px solid rgba(227,179,65,.35);border-radius:5px;padding:3px 6px;margin-top:4px;line-height:1.3}
+  .sbonus{font-size:11px;color:var(--good);font-weight:700;margin-left:2px}
+  .ocbadge{font-size:9px;color:var(--gold);background:rgba(227,179,65,.12);border:1px solid rgba(227,179,65,.4);border-radius:8px;padding:1px 6px;letter-spacing:.5px}
+  .defcell .dv{font-size:18px;font-weight:800;color:var(--force);line-height:1}
+  .defcell .bst{display:flex;align-items:center;gap:3px;margin-top:3px;font-size:10px;color:var(--gold)}
+  .defcell .bst button{padding:0 5px;font-size:11px}
+  .reserve{font-size:11px;color:var(--gold);background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:2px 10px;letter-spacing:.5px;vertical-align:middle}
+  .smugglebox{margin-top:14px;border:1px dashed var(--force);border-radius:8px;padding:10px 12px;background:rgba(157,140,255,.06)}
+  .smugglehead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;font-weight:700;color:var(--force);margin-bottom:8px}
+  .smugtag{font-size:10px;font-weight:400;color:var(--force);background:rgba(157,140,255,.12);border:1px solid rgba(157,140,255,.4);border-radius:8px;padding:1px 7px;letter-spacing:.5px}
+  .syscard .cfx{font-size:10.5px;color:var(--dim);line-height:1.4;margin-top:4px;min-height:30px}
+  .sysbtns{display:flex;gap:5px;margin-top:7px}
+  .weaptable{width:100%;border-collapse:collapse;font-size:12px}
+  .weaptable th{color:var(--dim);font-size:9.5px;text-transform:uppercase;text-align:left;padding:3px 6px;border-bottom:1px solid var(--border)}
+  .weaptable td{padding:4px 6px;border-bottom:1px dotted #21262d}
+  .weaptable .grp{color:var(--gold);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .crewgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+  .crewrow{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 8px}
+  .crewrow .cr{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;min-width:92px}
+  .crewrow input{flex:1;min-width:60px}
+  .shipsec{margin-bottom:16px}
+  .shipsec>h2{font-size:14px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:5px}
+  .sysline{display:flex;flex-wrap:wrap;gap:5px 16px;font-size:12px}
+  .sysline .si{color:var(--dim)}
+  .sysline .si b{color:var(--text)}
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+</style>
+</head>
+<body>
+
+<h1>Survival Tracker</h1>
+
+<div class="topbar" id="roomBar" style="justify-content:flex-start">
+  <div class="group">
+    <span class="label">🔗 Live</span>
+    <span id="roomState" class="label" style="color:var(--dim)">solo — not shared</span>
+  </div>
+  <div class="group">
+    <span class="label">Room</span>
+    <input type="text" id="roomIn" placeholder="room code or link" style="width:170px" onkeydown="if(event.key==='Enter')roomJoin()">
+    <button class="mini" onclick="roomJoin()">Join</button>
+    <button class="mini" onclick="roomCreate()" title="Start a new shared live room for your table">✨ Create</button>
+    <button class="mini" onclick="roomCopyLink()" title="Copy a link that auto-joins this room">🔗 Copy link</button>
+    <button class="mini" onclick="roomLeave()" title="Stop live sharing on this device (local data untouched)">Leave</button>
+  </div>
+  <div class="group">
+    <span class="label">You</span>
+    <input type="text" id="playerIn" placeholder="your name" style="width:110px" onchange="setPlayerName(this.value)">
+  </div>
+  <div class="group">
+    <span id="syncMsg" class="label" style="color:var(--dim)"></span>
+  </div>
+  <div class="group" style="margin-left:auto">
+    <span class="label">Show</span>
+    <span class="group" id="viewChips"></span>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="group">
+    <span class="clock" id="clock"></span>
+    <button class="primary" onclick="advance(0.25)">+15 min</button>
+    <button class="primary" onclick="advance(0.5)">+30 min</button>
+    <button class="primary" onclick="advance(1)">+1 hr</button>
+    <input type="number" id="customHrs" min="0.25" step="0.25" max="168" value="12">
+    <button onclick="advance(parseFloat(document.getElementById('customHrs').value)||1)">Advance</button>
+  </div>
+  <div class="group">
+    <button onclick="exportState()">💾 Save</button>
+    <button onclick="document.getElementById('importFile').click()">📂 Load</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
+  </div>
+</div>
+
+<div class="topbar" style="justify-content:flex-start">
+  <div class="group">
+    <span class="label">📍 Location</span>
+    <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+this.value);render()">
+  </div>
+  <div class="group">
+    <span class="label">Environment</span>
+    <select id="envSel" onchange="setEnv(this.value)"></select>
+  </div>
+  <div class="group">
+    <span class="label">🧭 Travel to</span>
+    <input type="text" id="destIn" placeholder="destination" onchange="S.travelDest=this.value;render()">
+    <span class="label">in</span>
+    <input type="number" id="etaIn" min="0" step="0.25" onchange="S.travelEta=Math.max(0,parseFloat(this.value)||0);render()">
+    <span class="label">hrs</span>
+    <span id="etaNote" style="font-size:12px;color:var(--gold)"></span>
+  </div>
+  <div class="group">
+    <span class="label">👥 Party</span>
+    <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
+    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
+  </div>
+</div>
+
+<div id="ambience">
+  <img id="ambImg" alt="scene">
+  <span class="cap"><span id="ambCap"></span><small id="ambEnv"></small></span>
+</div>
+
+<div class="tabs">
+  <button id="tabT" class="on" onclick="showTab('tracker')">Tracker</button>
+  <button id="tabS" onclick="showTab('ship')">🚀 Mantis</button>
+  <button id="tabR" onclick="showTab('rules')">Rules Reference</button>
+</div>
+
+<div id="tracker"><div class="grid" id="cards"></div>
+<div class="log" id="log">
+  <div class="loghead">
+    <b>— Event log —</b>
+    <div class="noteadd">
+      <input type="text" id="noteIn" placeholder="add a note to the log…" onkeydown="if(event.key==='Enter')addNote()">
+      <button class="mini" onclick="addNote()" title="Add this note to the event log at the current game time">📝 add note</button>
+      <button class="mini" onclick="clearLog()" title="Clear the event log (nothing else is affected)">⟳ clear</button>
+    </div>
+  </div>
+  <div id="logEntries"></div>
+</div>
+</div>
+
+<div id="ship"></div>
+
+<div id="rules"></div>
+
+<!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
+<script>
+'use strict';
+/* ================================================================
+   CONFIGURATION — every tunable number lives here
+   ================================================================ */
+const OZ_PER_CANTEEN = 20;
+
+// Organic baseline accrual. Thirst / hunger / hygiene accrue from their
+// per-tier `rate` in NEEDS (pts/hr, see below). Sleep debt is flat while awake:
+// one tier per day — Drowsy ~25 h, Sleep-Deprived (microsleeps) ~48 h,
+// Delirious ~72 h, Wrecked ~96 h. Fatigue is activity-driven (ACTS[..].rest, pts/hr).
+const BASE = { sleepAwake: 1.04 };
+const MAINT_BASE = 0.45;         // droid wear pts/hr (light duty, temperate ≈ 9 days to critical)
+
+// Encumbrance: per point OVER threshold (threshold = Brawn + 5)
+const ENC_DRAIN_PER_PT = 0.10;   // +10% thirst/hunger/fatigue (droids: charge/wear) accrual
+const ENC_SLEEP_PER_PT = 0.05;   // +5% sleep-debt accrual
+
+// Force commitment: per committed point (Force sensitives, 0–8)
+const FORCE_PER_PT = 0.08;       // −8% accrual per point (8 pts = −64%)
+
+// Stimpacks (organics only, instant injection)
+const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5 };
+
+// Drinking: thirst removed = oz × DRINK_OZ_TO_PTS ÷ body waterOz. The constant is
+// calibrated so a full 20 oz canteen ≈ 25 pts (one tier) for a 60 oz body; bigger
+// bodies get proportionally less relief per oz. At Dehydrated+ (thirst ≥ thresh)
+// the body absorbs only ~capPts per drink — more just cramps and stays in the canteen.
+const DRINK_OZ_TO_PTS = 75;
+const REHYDRATE = { thresh:51, capPts:10 };
+
+// Refeeding: at Starving+ (hunger ≥ thresh) the body safely absorbs only
+// ~capPts of food per meal — gorging risks refeeding shock (a Sick stack).
+// Hunger–thirst link: while Dehydrated+ (thirst ≥ REHYDRATE.thresh), meals
+// restore only half their points until rehydrated.
+const REFEED = { thresh:51, capPts:10 };
+
+// Metabolic physiology: a distinctive frame (Bode's mass, Pike's racing burn)
+// also carries a small FLAT hunger accrual, scaled by its hungerRate deviation
+// from 1.0. Hunger's tiers decelerate steeply (0.63→0.17 pts/hr), so a pure %
+// multiplier compresses to ~2 pts/day of separation; this flat term keeps a big
+// or fast metabolism visibly hungrier through the slow reserve-burning tiers too.
+// Still scaled by activity/environment/encumbrance/Force like the base rate.
+const HUNGER_PHYSIO_FLAT = 0.95;   // pts/hr per +1.00 of hungerRate deviation
+
+// Sleep ↔ Fatigue coupling
+const SLEEP_FATIGUE = { thresh:51, accrual:1.5, recovery:0.75 }; // sleep-deprived: fatigue ×1.5, rest recovery ×0.75
+const FATIGUE_SLEEP = { thresh:76, accrual:1.5 };                // exhausted body craves rest: sleep debt ×1.5
+
+// Hygiene actions (points removed; wipe-down draws canteen water)
+const HYG = { wash:50, wipe:25, wipeOz:5, clothes:10 };
+// Environmental condition onset chance per hour of exposure
+const ENV_COND_CHANCE = { scorching:0.12, hot:0.05, frozen:0.12, cold:0.05 };
+
+// Wound-tint portrait: red overlay opacity at max wounds
+const HURT_MAX_OPACITY = 0.75;
+
+// Timed statuses: dur (hrs), forced activity, payload delivered evenly across duration
+const STATUSES = {
+  ration: {label:'🍽 Eating (ration)', dur:0.25, act:'resting', deltas:{hunger:-25},          costMult:1},
+  meal:   {label:'🍲 Eating (meal)',   dur:0.5,  act:'resting', deltas:{hunger:-30, rest:-5}, costMult:1.25},
+  rest15: {label:'🪑 Resting (15 min)', dur:0.25, act:'resting', deltas:{rest:-3}},
+  rest30: {label:'🪑 Resting (30 min)', dur:0.5,  act:'resting', deltas:{rest:-6}},
+  med15:  {label:'🧘 Meditating (15 min)', dur:0.25, act:'resting', deltas:{rest:-8},  fs:true},
+  med30:  {label:'🧘 Meditating (30 min)', dur:0.5,  act:'resting', deltas:{rest:-14}, fs:true, sleepCredit:0.25},
+  sleep:  {label:'😴 Sleeping', dur:8, act:'sleeping', deltas:{}}
+};
+const SNACK_HUNGER=10;                    // snack: instant bite on the move
+const TUNEUP = 20;                        // droid tune-up wear relief (~30 min with tools)
+
+/* Conditions. mult: need-accrual multipliers (value or fn(lvl));
+   hourly(cs,lvl,ev,cap): discrete per-hour extras; fx: penalties text; lvls: max severity */
+const CONDS = {
+  /* Sick — the single stacking illness behind dirty water (Thirst), spoiled food
+     & refeeding shock (Hunger), and infection (Hygiene). Each bad exposure adds
+     1 stack (the + on the badge). Each stack is cleared separately: one daily
+     Resilience (or a carer's Medicine) check removes 1; a medpac or bacta
+     removes 1 outright. */
+  sick:      {label:'🤒 Sick', lvls:5,
+              mult:{water:l=>1+0.1*l, hunger:l=>1+0.1*l},
+              hourly:(cs,l,ev,cap)=>{
+                cs.sickHrs=(cs.sickHrs||0)+1;
+                cs.strain += (l>=2?2:1);
+                if(l>=3 && cs.sickHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${cfg(cs.id).name} suffers 1 wound — gravely ill.`]); }
+                if(cs.sickHrs%24===0) ev.push(['lw',`🤒 ${cfg(cs.id).name}: daily recovery check — Resilience (or a carer's Medicine) removes 1 Sick stack; a failure or Despair at 3+ stacks ADDS one. +1 Setback ■ while Squalid+, Dehydrated or Starving.`]);
+              },
+              fx:l=> l>=3 ? `🤒 Gravely Ill (${l} stacks): fever & delirium — <b>−1 Brawn, −1 Intellect</b>; <b class="lb">1 wound every 4 hrs</b>; 2 strain/hr${l>3?`; upgrade ${l-3} more check(s)`:''}. Untreated, this is where it can kill. Clear each stack separately (daily Resilience/Medicine, medpac or bacta).`
+                   : l>=2 ? `🤒 Sick (2 stacks): <span class="dice chal">upgrade the difficulty</span> of physical checks once; 2 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.`
+                   :        `🤒 Ill (1 stack): 1 Setback ■ to physical checks; 1 strain/hr; accelerates thirst & hunger.`},
+  fear:      {label:'😨 Fear', lvls:3, mult:{sleep:l=>1+0.15*l},
+              fx:l=>`😨 Fear (${l}/3): ${l} Setback ■ to all checks; restless — sleep debt grows ${15*l}% faster${l>=3?'; must pass a Fear check (Discipline) to act against the source':''}.`},
+  chilled:   {label:'🥶 Chilled', mult:{hunger:1.3, rest:1.2},
+              fx:()=> '🥶 Chilled: 1 Setback ■ to Agility-based checks; burns 30% more calories, tires 20% faster. Remove with shelter/warm gear.'},
+  overheated:{label:'🥵 Overheated', mult:{water:1.4, rest:1.2},
+              fx:()=> '🥵 Overheated: 1 Setback ■ to all checks; sweats 40% more water, tires 20% faster. Remove with shade/cooling.'},
+  soaked:    {label:'💧 Soaked', mult:{rest:1.1},
+              fx:()=> '💧 Soaked: 1 Setback ■ to Agility-based checks; in Cold environments also counts as Chilled.'},
+  poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ cs.strain++; }, mult:{water:1.2},
+              fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks.'},
+  limping:   {label:'🦵 Limping', mult:{rest:1.3},
+              fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
+  inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
+              fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
+  drunk:     {label:'🍺 Drunk', lvls:3, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},
+              hourly:(cs,l,ev)=>{ if(l>=2) cs.strain += (l-1); },
+              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Only time, water & rest sober you up.`
+                   : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">1 strain/hr.</b> +30% water use.`
+                   :        `🍺 Tipsy (1/3): loosened up. <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception. Mild dehydration (+15% water).`},
+  caffeinated:{label:'☕ Caffeinated', mult:{sleep:0.6, rest:0.85, water:1.1},
+              fx:()=> '☕ Caffeinated: <span class="dice boost">1 Boost ▲</span> to Vigilance & Perception and to checks made to resist sleep. Wired and alert — sleep debt accrues 40% slower and fatigue 15% slower. Mild diuretic (+10% water). Wears off after a few hours; a crash may follow (GM\'s call).'},
+  // droid conditions
+  ion:       {label:'⚡ Ion-scrambled', droid:true, mult:{charge:1.5},
+              fx:()=> '⚡ Ion-scrambled: 1 Setback ■ to all checks; power drains 50% faster. Clears with a Mechanics check or reboot.'},
+  corroded:  {label:'🧪 Corroded', droid:true, mult:{maint:1.5},
+              fx:()=> '🧪 Corroded: wear accrues 50% faster until cleaned (tune-up removes).'},
+  actuator:  {label:'🦿 Damaged actuator', droid:true, mult:{},
+              fx:()=> '🦿 Damaged actuator: speed ×½; 1 Setback ■ to Agility-based checks. Repair with Mechanics.'}
+};
+
+/* Standard consumable weights (encumbrance units, ~1 enc ≈ 2 kg carried) */
+const AUTO_ITEMS = {
+  canteen:{name:`Canteen (${OZ_PER_CANTEEN} oz)`, type:'Gear',    wt:0.5},
+  rations:{name:'Field rations',                  type:'Food',    wt:0.2},
+  snacks: {name:'Snacks',                         type:'Food',    wt:0.05},
+  stims:  {name:'Stimpacks',                      type:'Medical', wt:0.05},
+  packs:  {name:'Power packs (spares)',           type:'Gear',    wt:0.5}
+};
+
+/* Standard inventory type categories (used by cargo + character inventory dropdowns) */
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Food','Medical','Other'];
+/* Types that carry a wear/degradation track in the Weapons & Gear section */
+const DEGRADABLE = ['Weapon','Gear (worn)'];
+function isDegradable(type){ return DEGRADABLE.some(t=>t.toLowerCase()===(type||'').toLowerCase()); }
+/* Build a <select> of inventory types; preserves any custom saved value as its own option. */
+function typeSelect(val, onchangeExpr, width){
+  const v = val||'';
+  const known = INV_TYPES.some(t=>t.toLowerCase()===v.toLowerCase());
+  const opts = INV_TYPES.map(t=>`<option value="${t}"${t.toLowerCase()===v.toLowerCase()?' selected':''}>${t}</option>`).join('');
+  const custom = (v && !known) ? `<option value="${esc(v)}" selected>${esc(v)}</option>` : '';
+  const blank = `<option value=""${v?'':' selected'}>—</option>`;
+  return `<select style="width:${width||82}px" onchange="${onchangeExpr}">${blank}${opts}${custom}</select>`;
+}
+
+const ENVS = {  // water/hunger/hyg = organics (rest = fatigue accrual mult) · power/maint = droids
+  temperate:{label:'Temperate',       water:1.00, hunger:1.00, hyg:1.00, rest:1.00, power:1.00, maint:1.0},
+  hot:      {label:'Hot / Arid',      water:2.00, hunger:1.00, hyg:1.50, rest:1.25, power:1.15, maint:1.4, heat:true},
+  scorching:{label:'Extreme Heat',    water:2.50, hunger:1.10, hyg:1.50, rest:1.50, power:1.30, maint:1.8, heat:true},
+  humid:    {label:'Humid / Jungle',  water:1.40, hunger:1.00, hyg:2.50, rest:1.20, power:1.10, maint:1.6, heat:true},
+  cold:     {label:'Cold',            water:0.75, hunger:1.50, hyg:0.75, rest:1.25, power:1.25, maint:1.3, cold:true},
+  frozen:   {label:'Extreme Cold',    water:0.50, hunger:1.80, hyg:0.75, rest:1.50, power:1.50, maint:1.7, cold:true},
+  thin:     {label:'Thin Atmosphere', water:1.30, hunger:1.20, hyg:1.00, rest:1.60, power:1.00, maint:1.1}
+};
+
+// water/hunger/hyg/power/maint are multipliers; rest is flat fatigue pts/hr (negative = recovery)
+const ACTS = {
+  sleeping: {label:'😴 Sleeping', dLabel:'🔌 Standby / low power', water:0.5,  hunger:0.5,  hyg:0.5,  rest:-10, power:0.2, maint:0.3},
+  resting:  {label:'🪑 Resting',  dLabel:'🪑 Idle',                water:0.5,  hunger:0.75, hyg:0.5,  rest:-6,  power:0.5, maint:0.5},
+  sedentary:{label:'🎛 Sedentary (watch, piloting)', dLabel:'🎛 Sedentary operation', water:0.75, hunger:0.9, hyg:0.75, rest:+2, power:0.7, maint:0.7},
+  light:    {label:'🚶 Light (travel, walking, light labor)', dLabel:'🚶 Light operation', water:1.0, hunger:1.0, hyg:1.0, rest:+8, power:1.0, maint:1.0},
+  travel:   {label:'🥾 Moderate (rough terrain, forced march)', dLabel:'🥾 Moderate operation', water:1.25, hunger:1.25, hyg:1.25, rest:+16, power:1.4, maint:1.5},
+  strenuous:{label:'⚔️ Strenuous/Combat', dLabel:'⚔️ Strenuous/Combat', water:1.5, hunger:1.5, hyg:1.5, rest:+32, power:2.2, maint:2.5}
+};
+
+/* Characters. attr = default characteristics (players should correct from sheets).
+   kit = starting inventory (beyond auto-tracked consumables): [name, type, qty, enc each] */
+const CHARS = [
+ {id:'cal',   name:'Cal Kestis',  species:'Human', h:`5'11"`, build:'Slender/Muscular', fs:true,
+  waterOz:60, rations:1.5, mods:{}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
+  kit:[ ['Lightsaber','Weapon',2,0.5], ['Disruptor pistol','Weapon',1,1], ['Grappling hook','Tool',1,0.5],
+        ['Comlink','Gear',1,0.1], ['Datapad','Gear',1,0.5], ['Water purifier','Gear',1,0.5],
+        ['BD-1 battery packs','Gear',2,0.25], ['Armored clothing (worn)','Armor',1,0] ],
+  trait:'Jedi — may commit Force points to sustain his body.'},
+ {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true,
+  waterOz:80, rations:2.0, mods:{hungerRate:1.15}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
+  kit:[ ['Blaster pistol','Weapon',1,1], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
+  trait:'Force sensitive. Massive frame — highest food & water demand; a big body\'s steady burn means hunger sets in far faster and keeps gnawing.'},
+ {id:'tann',  name:'Tann',        species:"Twi'lek", h:`6'1"`, build:'Average', fs:false,
+  waterOz:60, rations:1.5, mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
+  kit:[ ['Blaster carbine','Weapon',1,2], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
+  trait:'Ryloth heritage — heat raises her water needs only ~40% as much as anyone else\'s.'},
+ {id:'gibbs', name:'Gibbs',       species:'Human', h:`5'5"`,  build:'Muscular', fs:false,
+  waterOz:60, rations:1.5, mods:{hungerRate:1.1}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
+  kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.5], ['Comlink','Gear',1,0.1] ],
+  trait:'Compact and dense — burns fuel like a much bigger man; hunger sets in noticeably faster and stays ahead of the party.'},
+ {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Slender', fs:true,
+  waterOz:40, rations:1.0, mods:{hungerRate:1.2, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
+  kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Gear',1,0] ],
+  trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party, burning through reserves fastest; tireless (fatigues 15% slower).'},
+ {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
+  waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
+  kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.2] ],
+  trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less.'},
+ {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Slender', fs:false,
+  waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
+  kit:[ ['Doll','Gear',1,0.1], ['Comlink','Gear',1,0.1] ],
+  trait:'Child — needs ~10 hrs sleep and tires into sleep debt 25% faster; dehydrates 10% faster, fatigues 10% faster.'},
+ {id:'bd1',   name:'BD-1',        species:'BD-unit explorer droid', h:`1'8"`, build:'Compact', droid:true,
+  packHrs:40, mods:{maintRate:0.9}, attr:{br:1,ag:2,int:3,cun:2,wil:1,pr:1},
+  kit:[ ['Tool attachments','Tool',1,0] ],
+  trait:'Small and power-thrifty — one pack lasts ~40 hrs of light operation. Well-loved and well-kept (wears 10% slower).'},
+ {id:'alpha', name:'Alpha',       species:'KX-series security droid', h:`7'1"`, build:'Heavy chassis', droid:true,
+  packHrs:20, mods:{maintAdapt:0.75}, attr:{br:4,ag:2,int:3,cun:2,wil:1,pr:1},
+  kit:[ ['Integrated systems','Gear',1,0] ],
+  trait:'Big military frame — burns a pack in ~20 hrs of light operation. Sealed mil-spec chassis shrinks environmental wear 25%.'}
+];
+const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunning'],['wil','Willpower'],['pr','Presence']];
+
+/* Per-need condition ladders (organics). Each need has its own tier ladder; the
+   current-tier effects of every need stack/compound on the card. Each tier:
+     {min, name, color, rate (pts/hr accrual while in this tier — null = the
+      need doesn't accrue by tier: sleep is flat while awake, fatigue is
+      activity-driven), strain (per hour), wounds (per hour),
+      hourly?(cs,c,events,cap), fx (GM-facing effect text)}. */
+const NEEDS = {
+  water: { key:'water', label:'💧 Thirst', tiers:[
+    {min:0,   name:'Satisfied',  color:'#3fb950', rate:1.0, strain:0, wounds:0,
+     fx:'Well-hydrated. No effects of any kind.'},
+    {min:11,  name:'Thirsty',    color:'#9acd32', rate:1.0, strain:0, wounds:0,
+     fx:'Dry mouth, mild nagging awareness. No dice penalty — the "top off your canteen" window before anything bites.'},
+    {min:26,  name:'Parched',    color:'#d29922', rate:1.2, strain:0, wounds:0,
+     fx:'Headache, sticky mouth, irritability. Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions (sprint, climb, melee) cost <b class="lw">+1 strain</b> each. Fully reversible with a real drink.'},
+    {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6, strain:0, wounds:0,
+     fx:'Dizziness, cramps, mental fog. <b>−1 Brawn and −1 Agility</b>. <span class="dice chal">Upgrade the difficulty</span> of all Intellect and Cunning checks once. <b>Disoriented</b>: moving one range band costs an extra maneuver. <b class="lw">2 strain at the start of every encounter.</b> Meals restore only half nourishment until rehydrated.'},
+    {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, strain:0, wounds:1,
+     fx:'Delirium, sunken eyes, muscles failing. <b>−2 Brawn, −2 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lb">1 wound per hour</b> untended. <b>Staggered</b> on any <b>Despair</b> as consciousness slips.'},
+    {min:100, name:'Collapse',   color:'#a40000', rate:0, strain:0, wounds:1,
+     hourly:(cs,c,ev)=>{ ev.push(['lb',`💧 ${c.name} is collapsed from dehydration — Daunting (◆◆◆◆) Resilience check this hour or death; the difficulty upgrades every hour after.`]); },
+     fx:'Unconscious. Each hour: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, and the difficulty upgrades every hour after. <b class="lb">1 wound / hour.</b> Careful rehydration (~10 pts per drink) must begin before failure. This is the rescue window.'}
+  ]},
+  hunger: { key:'hunger', label:'🍞 Hunger', tiers:[
+    {min:0,   name:'Satisfied', color:'#3fb950', rate:0.63, strain:0, wounds:0,
+     fx:'Fed and steady. No effects.'},
+    {min:6,   name:'Hungry',    color:'#9acd32', rate:0.63, strain:0, wounds:0,
+     fx:'Stomach growling, thoughts drifting to food. No dice penalty — narrative "should eat soon." A daily meal resets you here or below.'},
+    {min:16,  name:'Gnawing',   color:'#d29922', rate:0.21, strain:0, wounds:0,
+     fx:'More than a day without food; concentration slips. Add <span class="dice setb">1 Setback ■</span> to Intellect and Cunning checks (poor focus). No physical penalty, no stat loss — eat and it clears.'},
+    {min:26,  name:'Famished',  color:'#e8590c', rate:0.17, strain:0, wounds:0,
+     fx:'Low energy, irritability, weakness setting in. Setback ■ to Intellect/Cunning <b>continues</b>, plus <span class="dice setb">1 Setback ■</span> to Brawn and Agility. <b>Strain threshold −2.</b> Strenuous actions cost <b class="lw">+1 strain</b>. Still no stat loss.'},
+    {min:51,  name:'Starving',  color:'#f85149', rate:0.17, strain:0, wounds:0,
+     fx:'Body eating its own muscle; weakness, apathy, always cold. <b>−1 Brawn, −1 Intellect.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade the difficulty</span> of all Brawn and Agility checks once. Begins every encounter with <b class="lw">3 strain</b>; recovers strain from rest at half rate. Refeeding is gradual — only ~10 pts of food absorbed per meal.'},
+    {min:76,  name:'Emaciated', color:'#c9184a', rate:0.17, strain:0, wounds:0,
+     hourly:(cs,c,ev,cap)=>{ cs.starveHrs++; if(cs.starveHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); } },
+     fx:'Skeletal, organs stressed, immune system failing. <b>−2 Brawn, −2 Intellect, −1 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4, Strain threshold −6.</b> <b class="lb">1 wound every 4 hours</b> untended; <b>cannot heal wounds naturally.</b> <b>Staggered</b> on any Despair.'},
+    {min:100, name:'Collapse',  color:'#a40000', rate:0, strain:0, wounds:0,
+     hourly:(cs,c,ev,cap)=>{ cs.starveHrs++; if(cs.starveHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); } if(cs.starveHrs%6===0) ev.push(['lb',`🍞 ${c.name} has collapsed from starvation — Daunting (◆◆◆◆) Resilience check every 6 hours or death; difficulty upgrades each check.`]); },
+     fx:'Unconscious. Every <b>6 hours</b>: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, difficulty upgrades each check. Careful refeeding (~10 pts per meal, spaced hours apart) must begin.'}
+  ]},
+  hygiene: { key:'hygiene', label:'🧼 Hygiene', tiers:[
+    {min:0,   name:'Fresh',    color:'#3fb950', rate:0.52, strain:0, wounds:0,
+     fx:'Clean and presentable. No effects.'},
+    {min:26,  name:'Grubby',   color:'#9acd32', rate:0.26, strain:0, wounds:0,
+     fx:'Dirt, sweat, odor. <span class="dice setb">1 Setback ■</span> to social checks that rely on appeal (Charm, Negotiation, Leadership). <b>+1 Boost □ to Coercion</b> — you look rough. No health effect.'},
+    {min:51,  name:'Filthy',   color:'#d29922', rate:0.13, strain:0, wounds:0,
+     fx:'Caked grime, strong stench, minor skin trouble. <span class="dice setb">1 Setback ■</span> to ALL social checks except Coercion (still Boosted). <span class="dice setb">1 Setback ■</span> to Stealth vs anything that tracks by smell; predators and trackers gain <b>1 Boost □</b> to follow you. When a wound is suffered, the GM may spend <b>✕✕ (Threat)</b> to infect it — a 🤒 Sick stack.'},
+    {min:76,  name:'Squalid',  color:'#f85149', rate:0.065, strain:0, wounds:0,
+     hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0) ev.push(['lw',`🧼 ${c.name} is Squalid — daily Resilience check or gain a Sick stack (a Triumph wards it off AND buys a day's grace).`]); },
+     fx:'Infested and sore — lice, festering scrapes. <b>−1 Presence.</b> <span class="dice chal">Upgrade the difficulty</span> of all social checks once (except Coercion). <b>Wounds heal at half rate.</b> Once per day: <b>Resilience check or gain a Sick stack.</b> Begins every encounter with <b class="lw">2 strain</b>.'},
+    {min:100, name:'Diseased', color:'#a40000', rate:0, strain:0, wounds:0,
+     hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0){ const sk=cs.conds.find(x=>x.id==='sick'); if(sk) sk.lvl=Math.min(5,(sk.lvl||1)+1); else cs.conds.push({id:'sick', lvl:1}); ev.push(['lb',`🦠 ${c.name} is Diseased — gains a Sick stack (compounds daily until washed and treated).`]); } },
+     fx:'Full infection/infestation. <b class="lb">Gains a Sick stack each day</b> (it compounds). <b>−1 Presence, −1 Brawn.</b> Maximum social penalty; Coercion still Boosted. The meter itself never kills — but the stacked illness can turn lethal.'}
+  ]},
+  sleep: { key:'sleep', label:'😴 Sleep', tiers:[
+    {min:0,   name:'Rested',         color:'#3fb950', rate:null, strain:0, wounds:0, fx:'Well-rested. No effects.'},
+    {min:26,  name:'Drowsy',         color:'#9acd32', rate:null, strain:0, wounds:0,
+     fx:'Attention slipping. Add <span class="dice setb">1 Setback ■</span> to Intellect, Cunning, Perception and Vigilance checks.'},
+    {min:51,  name:'Sleep-Deprived', color:'#d29922', rate:null, strain:1, wounds:0,
+     fx:'<b>−1 Intellect, −1 Cunning.</b> <span class="dice chal">Upgrade</span> Perception/Vigilance difficulty once. <b class="lw">1 strain per hour.</b> Prone to microsleeps — the GM may spend <b>✕✕ (Threat)</b> on any check to nod them off (lose next maneuver). Fatigue accrues ×1.5 and rest recovers 25% less.'},
+    {min:76,  name:'Delirious',      color:'#f85149', rate:null, strain:1, wounds:0,
+     fx:'<b>−2 Intellect, −1 Cunning, −1 Willpower.</b> <span class="dice chal">Upgrade all mental and social checks once.</span> <b>Strain threshold −4.</b> Hallucinations possible. <b class="lw">1 strain / hour.</b>'},
+    {min:100, name:'Wrecked',        color:'#a40000', rate:null, strain:1, wounds:0,
+     fx:'<b>−2 to all mental characteristics</b>; <span class="dice chal">upgrade ALL checks once.</span> No death — but the GM may force an involuntary collapse into sleep at any dramatic moment (or spend a <b>Despair</b> to trigger it immediately). Only real sleep clears it.'}
+  ]},
+  rest: { key:'rest', label:'⚡ Fatigue', tiers:[
+    {min:0,   name:'Fresh',     color:'#3fb950', rate:null, strain:0, wounds:0, fx:'No effects.'},
+    {min:26,  name:'Winded',    color:'#9acd32', rate:null, strain:0, wounds:0,
+     fx:'Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions cost <b class="lw">+1 strain</b>.'},
+    {min:51,  name:'Weary',     color:'#d29922', rate:null, strain:0, wounds:0,
+     fx:'<b>−1 Brawn, −1 Agility.</b> <b>Strain threshold −2.</b> <span class="dice chal">Upgrade the difficulty</span> of Athletics, Coordination and combat checks once. Moving one range band costs an extra maneuver.'},
+    {min:76,  name:'Exhausted', color:'#f85149', rate:null, strain:0, wounds:0,
+     fx:'<b>−2 Brawn, −2 Agility.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade all physical checks once.</span> Limited to <b>1 maneuver per turn</b> (can\'t buy a second with strain). Begins every encounter with <b class="lw">3 strain</b>. Sleep debt accrues +50%.'},
+    {min:100, name:'Spent',     color:'#a40000', rate:null, strain:0, wounds:0,
+     fx:'Cannot take strenuous actions at all — any attempt auto-fails and inflicts <b>Staggered</b> next turn. Movement halved, massive strain. No death — but useless for exertion until they rest. Spend a <b>Triumph</b> on Athletics/Resilience to drop one fatigue tier for the scene.'}
+  ]}
+};
+const NEED_KEYS = ['water','hunger','hygiene','sleep','rest'];
+
+const DTIERS = [  // droids — degradation
+ {min:0,  name:'Optimal',    color:'#3fb950', strain:0, fx:'All systems nominal.'},
+ {min:15, name:'Degraded',   color:'#9acd32', strain:0,
+  fx:'Add <span class="dice setb">1 Setback ■</span> to all skill checks.'},
+ {min:30, name:'Strained',   color:'#d29922', strain:0,
+  fx:'Add <span class="dice setb">2 Setback ■■</span> to all checks. Speed ×¾.'},
+ {min:45, name:'Impaired',   color:'#e8590c', strain:1,
+  fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Agility &amp; Intellect count as 1 lower (min 1). Speed ×½. <b class="lw">1 system-stress strain / hour.</b>'},
+ {min:60, name:'Malfunctioning', color:'#f85149', strain:2,
+  fx:'<span class="dice setb">3 Setback ■■■</span> + <span class="dice chal">upgrade difficulty twice</span>. ALL characteristics 1 lower (min 1). GM may spend <b>⚙⚙</b> on any of the droid\'s checks for a random malfunction. Speed ×¼. <b class="lw">2 strain / hour.</b>'},
+ {min:75, name:'Failing',    color:'#ff2e2e', strain:3,
+  fx:'As Malfunctioning, and each hour of operation a <b class="diff">Hard (◆◆◆) Mechanics check</b> (self or ally) or the droid shuts down. <b class="lw">3 strain / hour.</b>'},
+ {min:90, name:'SHUTDOWN IMMINENT', color:'#a40000', strain:3,
+  fx:'🔋 at 100 ⇒ <b class="lb">full shutdown</b> until a fresh pack or recharge. 🔧 at 100 ⇒ mechanisms grind themselves apart: <b class="lb">1 wound / hour while operating.</b>'}
+];
+
+/* Equipment wear — weapons & worn gear degrade with use (not the clock).
+   Wear 0 (pristine) → 100 (broken). */
+const WEAR_PER_USE = 8;   // wear added each time an item is used
+const GEAR_TUNEUP  = 15;  // field tune-up wear relief for equipment
+const WEAR_PER_HOUR = 100/720;  // ambient wear from age/exposure — 0→100 in ~1 month (30 days) in-game
+const WTIERS = [
+ {min:0,   name:'Pristine', color:'#3fb950', fx:'Factory-fresh — no penalty.'},
+ {min:20,  name:'Worn',     color:'#9acd32', fx:'Cosmetic wear only — fully functional.'},
+ {min:40,  name:'Scuffed',  color:'#d29922',
+  fx:'Add <span class="dice setb">1 Setback ■</span> to checks that use this item.'},
+ {min:60,  name:'Faulty',   color:'#e8590c',
+  fx:'<span class="dice setb">2 Setback ■■</span>. On a <b>Despair</b> (or ⚙⚙) it jams/slips — one action to clear. Repair recommended.'},
+ {min:80,  name:'Failing',  color:'#f85149',
+  fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Unreliable until repaired.'},
+ {min:100, name:'Broken',   color:'#a40000',
+  fx:'<b class="lb">Unusable</b> until repaired — a full overhaul, or a Mechanics/Armormech check (GM approves).'}
+];
+
+/* ================================================================
+   SHIP — Mantis (Longshot). Homebrew fuel + system-condition tracks
+   layered on the standard FFG ship stat block. Rides the party clock.
+   ================================================================ */
+const SHIP = {
+  name:'Mantis', class:'S-161 “Stinger” XL Luxury Yacht',
+  silhouette:3, speed:6, armor:4, handling:0, hardpoints:4,
+  hullThreshold:25, strainThreshold:15, encumbrance:100,
+  defense:{fore:2, port:2, stbd:2, aft:0},
+  hyperdrive:'Class 1 primary · backup', navicomputer:'Yes',
+  passengers:10, consumables:'1 month', fuelCap:60, torpedoes:12, smuggleCap:10
+};
+const SHIP_MAINT_WEEK = 168;   // in-game hrs of powered operation per lost condition pip (unmaintained, at default energy)
+
+/* Homebrew energy distribution. Every system starts at the same default draw; points
+   can be pulled to a reserve pool (slowing that system's wear) and rerouted to others
+   (points above default accelerate wear proportionally). Sensor range draws on the
+   Sensors & Comms allocation. Total energy is conserved: Σ(system energy) + reserve. */
+const SHIP_ENERGY_DEFAULT = 2;      // per-system baseline draw
+const SHIP_ENERGY_MAX = 5;          // most a single system can hold
+const ENERGY_WEAR_SLOPE = 0.5;      // wear-rate change per point away from default
+const energyWearMult = e => Math.max(0, 1 + ENERGY_WEAR_SLOPE*(clamp(e,0,SHIP_ENERGY_MAX) - SHIP_ENERGY_DEFAULT));
+// FFG range bands mapped to the Sensors & Comms energy allocation (default 2 = Short)
+const SENSOR_RANGES = [
+  {name:'None (dark)', energy:0},
+  {name:'Close',       energy:1},
+  {name:'Short',       energy:2},
+  {name:'Medium',      energy:3},
+  {name:'Long',        energy:4},
+  {name:'Extreme',     energy:5}
+];
+const sensorRangeFor = e => (SENSOR_RANGES.find(r=>r.energy===clamp(e,0,SHIP_ENERGY_MAX))||SENSOR_RANGES[2]).name;
+
+/* Overcharge: routing a system to full energy (SHIP_ENERGY_MAX) grants a characteristic bonus.
+   dmg → weapon damage · speed/handling → core stats · defense → shield dice to distribute by arc.
+   Sensors' payoff is its range (above); Life Support has no overcharge bonus. */
+const SHIP_ENERGY_BONUS = {
+  blasters:  {dmg:2,                label:'+2 damage (Heavy Blaster Cannon)'},
+  ordnance:  {dmg:2,                label:'+2 damage (Proton Torpedo)'},
+  heavyguns: {dmg:2,                label:'+2 damage (Laser Cannon · Turbolaser)'},
+  engines:   {speed:1, handling:1,  label:'+1 Speed · +1 Handling'},
+  hyperdrive:{jump:'Class ½',       label:'Improved jump — hyperdrive Class 1 → ½ (≈ half travel time)'},
+  shields:   {defense:2,            label:'+2 defense dice to distribute by arc'}
+};
+const overcharged = id => S.ship.energy[id]===SHIP_ENERGY_MAX && !!SHIP_ENERGY_BONUS[id];
+
+// tph = fuel tons/hour. Calibrated so mixed idle/cruise ≈ 30 days on a full 60t tank.
+const SHIP_ACTS = {
+  docked:    {label:'⚓ Docked / Powered Down',            tph:0},
+  idling:    {label:'🅿️ Idling (systems on, stationary)',  tph:0.05},
+  cruising:  {label:'🛰 Orbiting / Sublight Cruising',      tph:0.15},
+  atmo:      {label:'🛫 Atmospheric Flight',               tph:0.3},
+  combat:    {label:'⚔️ Combat Maneuvering',               tph:0.5},
+  hyperspace:{label:'🌀 Hyperspace',                       tph:2.0}
+};
+
+const SHIP_SYSTEMS = [
+  {id:'blasters',    name:'Blasters',        icon:'🔫', affects:'2× Heavy Blaster Cannon'},
+  {id:'ordnance',    name:'Ordnance',        icon:'🚀', affects:'Proton Torpedo Launcher'},
+  {id:'heavyguns',   name:'Heavy Guns',      icon:'💥', affects:'Laser Cannon · Turbolaser'},
+  {id:'engines',     name:'Engines',         icon:'🔧', affects:'Speed & Handling'},
+  {id:'hyperdrive',  name:'Hyperdrive',      icon:'🌀', affects:'Jump capability'},
+  {id:'shields',     name:'Shields',         icon:'🛡', affects:'Defense (all arcs)'},
+  {id:'sensors',     name:'Sensors & Comms', icon:'📡', affects:'Sensor range & comms'},
+  {id:'lifesupport', name:'Life Support',    icon:'🫧', affects:'Consumables & crew'}
+];
+
+/* Condition ladder 5 (Pristine) → 0 (Offline). fx = GM-facing effect at that rating;
+   repair = difficulty of the Mechanics check to restore ONE pip from this rating. */
+const SHIP_COND = [
+  {v:0, name:'Offline',  color:'#a40000', repair:'Formidable ◆◆◆◆◆ (may need parts)', fx:'System unusable until repaired.'},
+  {v:1, name:'Failing',  color:'#ff2e2e', repair:'Daunting ◆◆◆◆',  fx:'Downgrade the ability twice; risk of unexpected failure on use.'},
+  {v:2, name:'Damaged',  color:'#f85149', repair:'Hard ◆◆◆',       fx:'+2 Setback ■■ and downgrade the ability once.'},
+  {v:3, name:'Worn',     color:'#d29922', repair:'Average ◆◆',      fx:'+1 Setback ■ to related checks.'},
+  {v:4, name:'Good',     color:'#9acd32', repair:'Easy ◆',          fx:'Fully operational.'},
+  {v:5, name:'Pristine', color:'#3fb950', repair:'—',               fx:'Fully operational.'}
+];
+const shipCond = v => SHIP_COND.find(c=>c.v===clamp(v,0,5));
+
+const SHIP_WEAPONS = [
+  {group:'Blasters',   system:'blasters',  items:[
+    {name:'Heavy Blaster Cannon', qty:2, skill:'Gunnery', dmg:5,  range:'Close',   crit:4}]},
+  {group:'Ordnance',   system:'ordnance', ammo:true, items:[
+    {name:'Proton Torpedo Launcher', skill:'Gunnery', dmg:8, range:'Short', crit:2}]},
+  {group:'Heavy Guns', system:'heavyguns', items:[
+    {name:'Laser Cannon',      skill:'Gunnery', dmg:9,  range:'Extreme', crit:3},
+    {name:'Medium Turbolaser', skill:'Gunnery', dmg:10, range:'Long',    crit:3}]}
+];
+const sysName = id => SHIP_SYSTEMS.find(s=>s.id===id).name;
+
+const SHIP_STATIONS = ['Pilot','Co-Pilot','Engineer / Mechanic','Gunner (Blasters)','Gunner (Heavy Guns)','Sensors / Comms','Commander'];
+
+function freshShip(){
+  return { activity:'docked', fuel:SHIP.fuelCap, hull:0, strain:0,
+    hullThr:SHIP.hullThreshold, strainThr:SHIP.strainThreshold,
+    defense:{...SHIP.defense},
+    systems:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,5])),
+    sysHrs:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,0])),
+    energy:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,SHIP_ENERGY_DEFAULT])), reserve:0,
+    shieldBoost:{fore:0, port:0, stbd:0, aft:0},
+    ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'' };
+}
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let S = null;
+
+function newCharState(c){
+  const base = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0,
+    attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
+    conds:[], status:null, prevAct:'light', hourAcc:0,
+    inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
+  return c.droid
+    ? Object.assign(base, { charge:0, maint:0, packsCharged:2, packsDepleted:0,
+        wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 })
+    : Object.assign(base, { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
+        lastTiers:{water:0, hunger:0, hygiene:0, sleep:0, rest:0},
+        starveHrs:0, hygHrs:0, sickHrs:0, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
+        stimsToday:0, stimDay:0, stimHrs:0, force:0 });
+}
+function freshState(){
+  const s = { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
+    visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [] };
+  s.chars.forEach(syncInv);
+  return s;
+}
+function migrate(s){ // patch older saves
+  if(!s.visible){
+    s.visible = Object.fromEntries(CHARS.map(c=>[c.id, !s.view || s.view==='all' || s.view===c.id]));
+    delete s.view;
+  }
+  for(const c of CHARS){
+    if(!s.chars.find(x=>x.id===c.id)) s.chars.push(newCharState(c));
+    if(s.visible[c.id]===undefined) s.visible[c.id]=true;
+  }
+  for(const cs of s.chars){
+    const def = newCharState(cfg(cs.id));
+    for(const k in def) if(cs[k]===undefined) cs[k]=def[k];
+    if(cs.lastTiers && cs.lastTiers.hygiene===undefined) cs.lastTiers.hygiene=0;
+    if(cs.conds){  // old 'infected' condition folds into the stacking Sick condition
+      let sickLvl = 0;
+      for(const cd of cs.conds) if(cd.id==='sick'||cd.id==='infected') sickLvl=Math.max(sickLvl, cd.lvl||1);
+      cs.conds = cs.conds.filter(cd=> (cd.custom && cd.label) || (CONDS[cd.id] && cd.id!=='sick' && cd.id!=='infected'));
+      for(const cd of cs.conds) if(cd.custom && cd.fx===undefined) cd.fx='';
+      if(sickLvl) cs.conds.push({id:'sick', lvl:Math.min(5,sickLvl)});
+    }
+    delete cs.encCur; delete cs.infHrs;
+    syncInv(cs);
+  }
+  for(const k of ['ambImg','location','travelDest']) if(s[k]===undefined) s[k]='';
+  if(s.travelEta===undefined) s.travelEta=0;
+  if(!s.ship) s.ship = freshShip();
+  else {  // patch older ship saves
+    const d = freshShip();
+    for(const k in d) if(s.ship[k]===undefined) s.ship[k]=d[k];
+    if(!s.ship.defense) s.ship.defense = {...SHIP.defense};
+    if(!s.ship.energy)  s.ship.energy = {};
+    if(s.ship.reserve===undefined) s.ship.reserve = 0;
+    if(!s.ship.shieldBoost) s.ship.shieldBoost = {fore:0, port:0, stbd:0, aft:0};
+    if(!s.ship.cargo) s.ship.cargo = [];
+    if(!s.ship.smuggle) s.ship.smuggle = [];
+    for(const sy of SHIP_SYSTEMS){
+      if(s.ship.systems[sy.id]===undefined) s.ship.systems[sy.id]=5;
+      if(s.ship.sysHrs[sy.id]===undefined)  s.ship.sysHrs[sy.id]=0;
+      if(s.ship.energy[sy.id]===undefined)  s.ship.energy[sy.id]=SHIP_ENERGY_DEFAULT;
+    }
+  }
+  return s;
+}
+
+/* ================================================================
+   HELPERS
+   ================================================================ */
+const cfg = id => CHARS.find(c=>c.id===id);
+const st  = id => S.chars.find(x=>x.id===id);
+const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const stripTags = s => String(s).replace(/<[^>]*>/g,'');
+const fxText = (def,lvl) => typeof def.fx==='function' ? def.fx(lvl||1) : def.fx;
+const condTitle = (def,lvl) => esc(stripTags(fxText(def,lvl)).replace(/&amp;/g,'&'));  // plain-text hover tooltip
+const dayNow = () => Math.floor(S.hour/24);           // days begin at 00:00
+function clockStr(){
+  const tot = Math.round(S.hour*60), h = Math.floor(tot/60)%24, m = tot%60;
+  return `Day ${dayNow()+1} — ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+const fmtDur = h => h>=1 ? `${(+h.toFixed(2))} hr` : `${Math.round(h*60)} min`;
+const invWeight = cs => cs.inv.reduce((a,it)=>a + (it.qty||0)*(it.wt||0), 0);
+const overload  = cs => cs.encThresh>0 ? Math.max(0, Math.ceil(invWeight(cs)) - cs.encThresh) : 0;
+const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
+const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
+function tierOf(x, tiers){ tiers=tiers||DTIERS; let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
+function condMult(cs, key){
+  let m = 1;
+  for(const cd of cs.conds){
+    const mm = CONDS[cd.id]?.mult?.[key];   // custom conditions carry no multipliers
+    if(mm) m *= (typeof mm==='function' ? mm(cd.lvl||1) : mm);
+  }
+  // soaked in a cold environment also counts as chilled
+  if(cs.conds.some(c=>c.id==='soaked') && ENVS[S.env].cold && !cs.conds.some(c=>c.id==='chilled')){
+    const mm = CONDS.chilled.mult[key]; if(mm) m *= mm;
+  }
+  return m;
+}
+const activeAct = cs => cs.status ? STATUSES[cs.status.kind].act : cs.activity;
+function rolloverStimDay(cs){  // "used today" counter resets at midnight
+  const d = dayNow();
+  if(cs.stimDay!==d){ cs.stimDay=d; cs.stimsToday=0; }
+}
+
+function exhaustion(cs){  // droid degradation meter (organics use per-need tiers instead)
+  let x = 0.55*cs.charge + 0.45*cs.maint;
+  x += [cs.charge,cs.maint].filter(v=>v>=70).length * 8;
+  return Math.min(100, x);
+}
+
+/* ================================================================
+   CORE SIMULATION — dt hours (≤1) for one character
+   ================================================================ */
+function tick(cs, dt){
+  const c = cfg(cs.id), env = ENVS[S.env];
+  const events = [];
+  const actKey = activeAct(cs), act = ACTS[actKey];
+  const isStandby = actKey==='sleeping';
+  const over = overload(cs);
+  const encM = 1 + ENC_DRAIN_PER_PT*over;
+  const woundCap = cs.wt>0 ? cs.wt+10 : 999;
+
+  if(c.droid){ /* ---- droid ---- */
+    const prevCharge = cs.charge;
+    if(prevCharge < 100){  // a shut-down droid draws no power and grinds no gears
+      cs.charge = clamp(cs.charge + (100/c.packHrs)*act.power*env.power*encM*condMult(cs,'charge')*dt, 0, 100);
+      cs.maint  = clamp(cs.maint + MAINT_BASE*act.maint*envMult(env.maint, c.mods.maintAdapt)*(c.mods.maintRate||1)*encM*condMult(cs,'maint')*dt, 0, 100);
+    }
+    if(prevCharge<100 && cs.charge>=100) events.push(['lb',`🔋 ${c.name}'s power pack is drained — FULL SHUTDOWN until a fresh pack or recharge.`]);
+  } else {   /* ---- organic ---- */
+    rolloverStimDay(cs);
+    const fM = forceMult(cs);
+
+    const wEnv = envMult(env.water, env.heat ? (c.mods.heatAdapt??1) : 1);
+    const wRate = tierOf(cs.water, NEEDS.water.tiers).rate;  // accrual speeds up as thirst deepens
+    cs.water = clamp(cs.water + wRate*act.water*wEnv*(c.mods.waterRate||1)*encM*fM*condMult(cs,'water')*dt, 0, 100);
+
+    const hEnv = envMult(env.hunger, env.cold ? (c.mods.coldAdapt??1) : 1);
+    const hMod = c.mods.hungerRate || 1;
+    const hRate = tierOf(cs.hunger, NEEDS.hunger.tiers).rate;  // fast appetite, then a slow burn on reserves
+    // flat metabolic offset: full through the early/mid tiers (daily-scale visibility),
+    // fading to 0 by Emaciated so deep-starvation stays near-proportional (not runaway)
+    const hFade = clamp((76 - cs.hunger)/50, 0, 1);
+    const hPhysio = HUNGER_PHYSIO_FLAT*(hMod-1)*hFade;
+    cs.hunger = clamp(cs.hunger + (hRate*hMod + hPhysio)*act.hunger*hEnv*encM*fM*condMult(cs,'hunger')*dt, 0, 100);
+
+    // hygiene: grime decelerates as it accumulates; the Force can't keep you clean
+    const gRate = tierOf(cs.hygiene, NEEDS.hygiene.tiers).rate;
+    cs.hygiene = clamp(cs.hygiene + gRate*(act.hyg||1)*(env.hyg||1)*condMult(cs,'hygiene')*dt, 0, 100);
+
+    // fatigue: activity-driven; sleep deprivation slows recovery and speeds accrual
+    const sleepDep = cs.sleep >= SLEEP_FATIGUE.thresh;
+    if(act.rest < 0) cs.rest = clamp(cs.rest + act.rest*(sleepDep?SLEEP_FATIGUE.recovery:1)*dt, 0, 100);
+    else cs.rest = clamp(cs.rest + act.rest*env.rest*(c.mods.restRate||1)*encM*fM*(cs.stimHrs>0?0.5:1)*(sleepDep?SLEEP_FATIGUE.accrual:1)*condMult(cs,'rest')*dt, 0, 100);
+
+    const prevSleep = cs.sleep;
+    if(isStandby){
+      cs.sleep = clamp(cs.sleep - (100/(c.mods.sleepNeed||8))*dt, 0, 100);
+    } else {
+      let sRate = BASE.sleepAwake*(c.mods.sleepRate||1);
+      if(actKey==='resting') sRate *= 0.5;                               // resting: sleep debt ticks at half rate
+      if(cs.rest >= FATIGUE_SLEEP.thresh) sRate *= FATIGUE_SLEEP.accrual; // a worn-out body craves rest
+      cs.sleep = clamp(cs.sleep + sRate*(1+ENC_SLEEP_PER_PT*over)*fM*condMult(cs,'sleep')*dt, 0, 100);
+      if(prevSleep<100 && cs.sleep>=100) events.push(['lw',`${c.name} is Wrecked — the GM may force an involuntary collapse into sleep at any dramatic moment.`]);
+    }
+    if(cs.stimHrs>0){
+      cs.stimHrs = Math.max(0, +(cs.stimHrs - dt).toFixed(3));
+      if(cs.stimHrs===0) events.push(['lg',`${c.name}'s stimpack stimulant wears off.`]);
+    }
+  }
+
+  // ambient equipment wear: weapons & worn gear age with time (0→100 in ~1 month temperate,
+  // faster in harsh environments), on top of per-use wear
+  const wearEnv = env.maint || 1;
+  for(const it of cs.inv){
+    if(it.auto || !isDegradable(it.type)) continue;
+    const before = it.wear||0;
+    if(before>=100) continue;
+    it.wear = clamp(before + WEAR_PER_HOUR*wearEnv*dt, 0, 100);
+    if(before<100 && it.wear>=100) events.push(['lw',`🗡 ${c.name}'s ${it.name||'equipment'} is worn out (Broken) — repair before relying on it.`]);
+  }
+
+  // timed status payload & countdown
+  if(cs.status){
+    const def = STATUSES[cs.status.kind];
+    const deltas = cs.status.deltas || def.deltas;   // meals store caps computed when eating began
+    const step = Math.min(dt, cs.status.remain);
+    const frac = step / cs.status.total;
+    for(const k in deltas){
+      let dv = deltas[k]*frac;
+      if(k==='rest' && dv<0 && cs.sleep>=SLEEP_FATIGUE.thresh) dv *= SLEEP_FATIGUE.recovery;
+      cs[k] = clamp(cs[k] + dv, 0, 100);
+    }
+    if(def.sleepCredit) cs.sleep = clamp(cs.sleep - def.sleepCredit*(100/(c.mods.sleepNeed||8))*frac, 0, 100);
+    cs.status.remain = +(cs.status.remain - dt).toFixed(3);
+    if(cs.status.remain <= 0){
+      events.push(['lg',`${c.name} finishes ${def.label.replace(/^\S+ /,'').toLowerCase()} — status back to normal.`]);
+      cs.status = null; cs.activity = cs.prevAct;
+    }
+  }
+
+  // discrete hourly effects
+  cs.hourAcc = +(cs.hourAcc + dt).toFixed(3);
+  while(cs.hourAcc >= 1){
+    cs.hourAcc = +(cs.hourAcc - 1).toFixed(3);
+    applyHourly(cs, c, events, woundCap, isStandby);
+  }
+
+  // tier-change notices
+  if(c.droid){  // droids keep the combined degradation meter
+    const ex = exhaustion(cs), t = tierOf(ex, DTIERS), ti = DTIERS.indexOf(t);
+    if(ti !== cs.lastTier){
+      events.push([ti>cs.lastTier?'lw':'ld', `${c.name} is now ${t.name} (degradation ${Math.round(ex)}).`]);
+      cs.lastTier = ti;
+    }
+  } else {  // organics: one notice per need as it crosses a tier
+    for(const key of NEED_KEYS){
+      const tiers = NEEDS[key].tiers, t = tierOf(cs[key], tiers), ti = tiers.indexOf(t);
+      const prev = cs.lastTiers[key]||0;
+      if(ti !== prev){
+        if(ti>0 || prev>0) events.push([ti>prev?'lw':'', `${c.name} is now ${t.name} (${NEEDS[key].label.replace(/^\S+ /,'').toLowerCase()} ${Math.round(cs[key])}).`]);
+        cs.lastTiers[key] = ti;
+      }
+    }
+  }
+  if(cs.strain>=cs.st && cs.st>0) events.push(['lw',`${c.name} has exceeded strain threshold (${cs.strain}/${cs.st}) — ${c.droid?'DISABLED':'UNCONSCIOUS'}.`]);
+  if(cs.wounds>cs.wt && cs.wt>0) events.push(['lb',`☠ ${c.name} has exceeded wound threshold (${cs.wounds}/${cs.wt}) — ${c.droid?'CRITICAL DAMAGE, needs major repairs':'CRITICAL INJURY / DYING'}.`]);
+  return events;
+}
+
+function applyHourly(cs, c, events, woundCap, isStandby){
+  const strainCap = cs.st>0 ? cs.st*2 : 999;
+
+  // condition hourly effects (organics & droids; custom conditions have none)
+  for(const cd of cs.conds) CONDS[cd.id]?.hourly?.(cs, cd.lvl||1, events, woundCap);
+
+  if(c.droid){  // droids: combined degradation meter drives strain; wear ⇒ wounds at 100
+    const t = tierOf(exhaustion(cs), DTIERS);
+    if(t.strain>0 && !isStandby && !(cs.charge>=100))
+      cs.strain = Math.min(strainCap, cs.strain + t.strain);
+    if(cs.maint>=100 && !isStandby && cs.charge<100 && cs.wounds<woundCap){
+      cs.wounds++; events.push(['lb',`🔧 ${c.name} suffers 1 wound — mechanisms grinding themselves apart.`]);
+    }
+    return;
+  }
+
+  // organics: each need's current tier applies its own strain / wounds / special effect
+  for(const key of NEED_KEYS){
+    const t = tierOf(cs[key], NEEDS[key].tiers);
+    if(t.strain>0 && !isStandby) cs.strain = Math.min(strainCap, cs.strain + t.strain);
+    if(t.wounds>0 && cs.wounds<woundCap){
+      cs.wounds += t.wounds;
+      events.push(['lb',`${c.name} suffers ${t.wounds} wound — ${NEEDS[key].label.replace(/^\S+ /,'').toLowerCase()} (${t.name}).`]);
+    }
+    t.hourly?.(cs, c, events, woundCap);
+  }
+  if(cs.hunger < 76)  cs.starveHrs = 0;   // starvation wound clock runs only while Emaciated+
+  if(cs.hygiene < 76) cs.hygHrs = 0;      // daily hygiene checks run only while Squalid+
+  if(!cs.conds.some(x=>x.id==='sick')) cs.sickHrs = 0;
+
+  // environmental conditions from prolonged exposure
+  const chance = ENV_COND_CHANCE[S.env];
+  if(chance && !isStandby){
+    const condId = ENVS[S.env].heat ? 'overheated' : 'chilled';
+    if(!cs.conds.some(x=>x.id===condId) && Math.random()<chance){
+      cs.conds.push({id:condId});
+      events.push(['lw',`${c.name} is ${condId} by the ${ENVS[S.env].label.toLowerCase()} (GM may waive with proper gear).`]);
+    }
+  }
+}
+
+function advance(hrs){
+  if(!hrs || hrs<=0) return;
+  let left = hrs;
+  while(left > 0){
+    const dt = Math.min(1, left); left = +(left-dt).toFixed(3);
+    S.hour = +(S.hour+dt).toFixed(3);
+    for(const cs of S.chars) for(const ev of tick(cs, dt)) logMsg(ev[1], ev[0]);
+    for(const ev of tickShip(dt)) logMsg(ev[1], ev[0]);
+    if(S.travelDest && S.travelEta>0){
+      S.travelEta = Math.max(0, +(S.travelEta-dt).toFixed(2));
+      if(S.travelEta===0){
+        logMsg(`🧭 The party arrives at ${S.travelDest}.`, 'lg');
+        S.location = S.travelDest; S.travelDest = '';
+      }
+    }
+  }
+  logMsg(`⏱ Advanced ${fmtDur(hrs)} → ${clockStr()}.`);
+  render();
+}
+
+/* ================================================================
+   TIMED STATUSES
+   ================================================================ */
+function startStatus(id, kind, dur){
+  const cs = st(id), c = cfg(id), def = STATUSES[kind];
+  if(def.fs && !c.fs) return;   // meditation is for Force sensitives only
+  if(cs.status) cancelStatus(id, true);
+  const deltas = {...def.deltas};
+  if(kind==='ration' || kind==='meal'){
+    const cost = +(c.rations*def.costMult).toFixed(2);
+    if(cs.rationsStock < cost){ logMsg(`${c.name} doesn't have enough rations (needs ${cost}, has ${cs.rationsStock}).`,'lw'); render(); return; }
+    cs.rationsStock = +(cs.rationsStock - cost).toFixed(2);
+    let pts = -deltas.hunger; const notes = [];
+    if(cs.water >= REHYDRATE.thresh){ pts = pts/2; notes.push('dehydrated — the body absorbs only half the nourishment'); }
+    if(cs.hunger >= REFEED.thresh && pts > REFEED.capPts){
+      pts = REFEED.capPts;
+      notes.push(`starving — only ~${REFEED.capPts} pts absorbed per careful meal; gorging risks refeeding shock (a 🤒 Sick stack, GM's call)`);
+    }
+    deltas.hunger = -pts;
+    if(notes.length) logMsg(`⚠ ${c.name}: ${notes.join('; ')}.`,'lw');
+  }
+  const total = dur || def.dur;
+  cs.prevAct = cs.activity;
+  cs.status = { kind, remain:total, total, deltas };
+  logMsg(`${def.label} — ${c.name} (${fmtDur(total)}). Advance the clock to progress.`, kind.startsWith('med')?'lf':'');
+  render();
+}
+function cancelStatus(id, silent){
+  const cs = st(id);
+  if(!cs.status) return;
+  const def = STATUSES[cs.status.kind];
+  cs.status = null; cs.activity = cs.prevAct;
+  if(!silent){ logMsg(`✖ ${cfg(id).name} stops ${def.label.replace(/^\S+ /,'').toLowerCase()} — status back to normal.`); render(); }
+}
+function startSleep(id){
+  const hrs = clamp(parseFloat(document.getElementById('slp-'+id).value)||8, 0.5, 16);
+  startStatus(id, 'sleep', hrs);
+}
+
+/* ================================================================
+   PLAYER ACTIONS — organics
+   ================================================================ */
+function drink(id, oz){
+  const cs = st(id), c = cfg(id);
+  const avail = Math.min(oz, cs.canteen);
+  if(avail<=0){ logMsg(`${c.name}'s canteen is empty!`, 'lw'); render(); return; }
+  const ptsPerOz = DRINK_OZ_TO_PTS / c.waterOz;  // full 20oz ≈ 25 pts for a 60oz body
+  let ozUsed = avail, pts = avail * ptsPerOz, capped = false;
+  if(cs.water >= REHYDRATE.thresh && pts > REHYDRATE.capPts){  // severe dehydration limits absorption
+    pts = REHYDRATE.capPts; ozUsed = +(pts / ptsPerOz).toFixed(1); capped = true;
+  }
+  cs.canteen = +(cs.canteen - ozUsed).toFixed(1);
+  cs.water = clamp(cs.water - pts, 0, 100);
+  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?' — severely dehydrated, the body absorbs only ~'+REHYDRATE.capPts+' per drink; sip and rest':''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  render();
+}
+function refill(id){
+  st(id).canteen = OZ_PER_CANTEEN;
+  logMsg(`${cfg(id).name} refills their canteen (water source required — GM approves).`);
+  render();
+}
+function eatSnack(id){
+  const cs = st(id), c = cfg(id);
+  if(cs.snacks < 1){ logMsg(`${c.name} is out of snacks.`, 'lw'); render(); return; }
+  cs.snacks--;
+  let pts = SNACK_HUNGER, note = '';
+  if(cs.water >= REHYDRATE.thresh){ pts /= 2; note = ' — dehydrated, only half absorbed'; }
+  cs.hunger = clamp(cs.hunger - pts, 0, 100);
+  logMsg(`${c.name} eats a snack on the move (−${pts} hunger${note}).`);
+  render();
+}
+/* ---- hygiene ---- */
+function wash(id){
+  const cs = st(id);
+  cs.hygiene = clamp(cs.hygiene - HYG.wash, 0, 100);
+  logMsg(`🛁 ${cfg(id).name} takes a full wash (−${HYG.wash} hygiene, 15–30 min). Requires ample water — GM approves.`);
+  render();
+}
+function wipeDown(id){
+  const cs = st(id), c = cfg(id);
+  if(cs.canteen < HYG.wipeOz){ logMsg(`${c.name} needs ${HYG.wipeOz} oz of water for a wipe-down — canteen too low (a sonic shower works too; GM approves).`,'lw'); render(); return; }
+  cs.canteen = +(cs.canteen - HYG.wipeOz).toFixed(1);
+  cs.hygiene = clamp(cs.hygiene - HYG.wipe, 0, 100);
+  logMsg(`🧻 ${c.name} field-cleans with ${HYG.wipeOz} oz from the canteen (−${HYG.wipe} hygiene). Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  render();
+}
+function cleanClothes(id){
+  const cs = st(id);
+  cs.hygiene = clamp(cs.hygiene - HYG.clothes, 0, 100);
+  logMsg(`👕 ${cfg(id).name} changes into clean clothing (−${HYG.clothes} hygiene). Requires a clean change — GM approves.`);
+  render();
+}
+function useStim(id){
+  const cs = st(id), c = cfg(id);
+  if(cs.stims < 1){ logMsg(`${c.name} has no stimpacks left.`, 'lw'); render(); return; }
+  rolloverStimDay(cs);
+  cs.stims--; cs.stimsToday++;
+  cs.rest   = clamp(cs.rest - STIM.fatigue, 0, 100);
+  cs.strain = Math.max(0, cs.strain - STIM.strain);
+  cs.stimHrs = STIM.hours;
+  if(cs.stimsToday <= STIM.maxHeals){
+    const heal = STIM.maxHeals + 1 - cs.stimsToday;
+    cs.wounds = Math.max(0, cs.wounds - heal);
+    logMsg(`💉 ${c.name} uses stimpack #${cs.stimsToday} today: heals ${heal} wounds, −${STIM.fatigue} fatigue, −${STIM.strain} strain, stimulant ${STIM.hours} hrs.`, 'lg');
+  } else {
+    cs.wounds += STIM.odWounds;
+    logMsg(`💉⚠ ${c.name} uses stimpack #${cs.stimsToday} today — beyond safe limits! No healing; +${STIM.odWounds} wounds from overexertion. Stimulant still applies (${STIM.hours} hrs).`, 'lb');
+  }
+  render();
+}
+function setForce(id, v){
+  const cs = st(id);
+  cs.force = clamp(parseInt(v)||0, 0, 8);
+  logMsg(`✨ ${cfg(id).name} commits ${cs.force} Force point(s) — bodily needs slowed ${Math.round((1-forceMult(cs))*100)}%. (Committed points are unavailable for other powers.)`,'lf');
+  render();
+}
+function setAttr(id, key, v){
+  const cs = st(id);
+  cs.attr[key] = clamp(parseInt(v)||1, 1, 7);
+  if(key==='br'){ cs.encThresh = cs.attr.br + 5; logMsg(`⚖ ${cfg(id).name}'s encumbrance threshold set to ${cs.encThresh} (Brawn ${cs.attr.br} + 5).`); }
+  render();
+}
+
+/* ---- conditions ---- */
+function addCond(id, condId){
+  if(!condId) return;
+  if(condId==='__custom'){ addCustomCond(id); return; }
+  const cs = st(id);
+  if(cs.conds.some(x=>x.id===condId)){ render(); return; }
+  const def = CONDS[condId];
+  cs.conds.push(def.lvls ? {id:condId, lvl:1} : {id:condId});
+  logMsg(`${def.label} — applied to ${cfg(id).name}.`, 'lw');
+  render();
+}
+function addCustomCond(id){   // opens the inline form on the card (no blocking popups)
+  st(id).customOpen = true;
+  render();
+  document.getElementById('ccn-'+id)?.focus();
+}
+function saveCustomCond(id){
+  const name = (document.getElementById('ccn-'+id)?.value||'').trim();
+  const fx   = (document.getElementById('ccf-'+id)?.value||'').trim();
+  if(!name){ logMsg('🏷 A custom condition needs at least a name.','lw'); return; }
+  const cs = st(id);
+  cs.conds.push({id:'c'+Date.now(), custom:true, label:name, fx});
+  cs.customOpen = false;
+  logMsg(`🏷 ${esc(name)} — custom condition applied to ${cfg(id).name}${fx?`: ${esc(fx)}`:''}.`, 'lw');
+  render();
+}
+function customCondForm(cs){
+  if(!cs.customOpen) return '';
+  const enter = `onkeydown="if(event.key==='Enter')saveCustomCond('${cs.id}')"`;
+  return `<div class="customform">🏷
+    <input type="text" id="ccn-${cs.id}" placeholder="condition name" style="width:120px" ${enter}>
+    <input type="text" id="ccf-${cs.id}" placeholder="effect — e.g. 1 wound each encounter until bandaged" style="width:230px" ${enter}>
+    <button class="mini" onclick="saveCustomCond('${cs.id}')">✓ add</button>
+    <button class="mini" onclick="st('${cs.id}').customOpen=false;render()" title="Cancel">✖</button>
+  </div>`;
+}
+function rmCond(id, condId){
+  const cs = st(id), cd = cs.conds.find(x=>x.id===condId);
+  cs.conds = cs.conds.filter(x=>x.id!==condId);
+  if(cd) logMsg(`${cd.custom ? '🏷 '+esc(cd.label) : CONDS[condId].label} removed from ${cfg(id).name}.`);
+  render();
+}
+function condLvl(id, condId, d){
+  const cs = st(id), cd = cs.conds.find(x=>x.id===condId);
+  if(!cd || cd.custom) return;
+  cd.lvl = clamp((cd.lvl||1)+d, 1, CONDS[condId].lvls||1);
+  render();
+}
+
+/* ================================================================
+   PLAYER ACTIONS — droids
+   ================================================================ */
+function swapPack(id){
+  const cs = st(id), c = cfg(id);
+  if(cs.packsCharged < 1){ logMsg(`🔋 ${c.name} has no charged packs left!`, 'lw'); render(); return; }
+  cs.packsCharged--; cs.packsDepleted++;
+  cs.charge = 0;
+  logMsg(`🔋 ${c.name} swaps in a fresh power pack (${cs.packsCharged} charged / ${cs.packsDepleted} depleted remain).`, 'ld');
+  render();
+}
+function rechargeAll(id){
+  const cs = st(id), c = cfg(id);
+  if(cs.packsDepleted < 1){ logMsg(`${c.name} has no depleted packs to recharge.`); render(); return; }
+  cs.packsCharged += cs.packsDepleted; cs.packsDepleted = 0;
+  logMsg(`⚡ ${c.name}'s depleted packs recharge (power source required — GM approves). ${cs.packsCharged} packs ready.`, 'ld');
+  render();
+}
+function tuneUp(id){
+  const cs = st(id);
+  cs.maint = clamp(cs.maint - TUNEUP, 0, 100);
+  cs.conds = cs.conds.filter(x=>x.id!=='corroded');
+  logMsg(`🔧 ${cfg(id).name} gets a ~30-min tune-up (−${TUNEUP} wear; corrosion cleaned). Tools + a pair of hands required.`, 'ld');
+  render();
+}
+function overhaul(id){
+  st(id).maint = 0;
+  logMsg(`🔧⚙ ${cfg(id).name} receives a full overhaul — wear reset to 0. Requires a workshop/bench and a couple of hours (GM approves).`, 'ld');
+  render();
+}
+
+/* ================================================================
+   SHIP — Mantis. Simulation on the party clock + player actions
+   ================================================================ */
+function tickShip(dt){
+  const sh = S.ship, ev = [], act = SHIP_ACTS[sh.activity];
+  // fuel burn at the current flight status
+  if(act.tph>0 && sh.fuel>0){
+    const before = sh.fuel;
+    sh.fuel = clamp(+(sh.fuel - act.tph*dt).toFixed(3), 0, SHIP.fuelCap);
+    const pb = before/SHIP.fuelCap*100, pa = sh.fuel/SHIP.fuelCap*100;
+    if(pb>25 && pa<=25) ev.push(['lw',`⛽ Mantis fuel low — below 25% (${(SHIP.fuelCap*0.25)}t).`]);
+    if(pb>10 && pa<=10) ev.push(['lw',`⛽ Mantis fuel critical — below 10% (${(SHIP.fuelCap*0.1)}t).`]);
+    if(pb>0  && pa<=0)  ev.push(['lb','🪫 Mantis is OUT OF FUEL — dead in space until refueled.']);
+  }
+  // system wear: ~one condition pip per week of powered operation without maintenance,
+  // scaled by each system's energy draw (over-default speeds wear, under-default slows it)
+  if(sh.activity!=='docked'){
+    for(const s of SHIP_SYSTEMS){
+      if(sh.systems[s.id]<=0){ sh.sysHrs[s.id]=0; continue; }
+      sh.sysHrs[s.id] = +((sh.sysHrs[s.id]||0) + dt*energyWearMult(sh.energy[s.id])).toFixed(3);
+      while(sh.sysHrs[s.id]>=SHIP_MAINT_WEEK && sh.systems[s.id]>0){
+        sh.sysHrs[s.id] = +(sh.sysHrs[s.id]-SHIP_MAINT_WEEK).toFixed(3);
+        sh.systems[s.id]--;
+        ev.push(['lw',`🔧 Mantis ${s.name} slips to ${shipCond(sh.systems[s.id]).name} (${sh.systems[s.id]}/5) — sustained operation without maintenance.`]);
+      }
+    }
+  }
+  return ev;
+}
+function setShipAct(v){ S.ship.activity=v; logMsg(`🚀 Mantis flight status: ${SHIP_ACTS[v].label} (${SHIP_ACTS[v].tph} t/hr fuel burn).`); render(); }
+function shipFuelLog(m){ S.ship.fuelLog.unshift({t:clockStr(), m}); S.ship.fuelLog = S.ship.fuelLog.slice(0,40); }
+function shipBurn(){
+  const sh = S.ship, actKey = document.getElementById('burnAct').value;
+  const hrs = Math.max(0, parseFloat(document.getElementById('burnHrs').value)||0);
+  if(!actKey || hrs<=0){ logMsg('⛽ Pick an activity and a duration to log a fuel burn.','lw'); return; }
+  const a = SHIP_ACTS[actKey], used = +(a.tph*hrs).toFixed(2);
+  sh.fuel = clamp(+(sh.fuel - used).toFixed(2), 0, SHIP.fuelCap);
+  const name = a.label.replace(/^\S+ /,'');
+  shipFuelLog(`−${used}t · ${name} · ${fmtDur(hrs)}`);
+  logMsg(`⛽ Mantis burns ${used}t — ${fmtDur(hrs)} of ${name.toLowerCase()}. Fuel: ${sh.fuel}/${SHIP.fuelCap}t.`);
+  render();
+}
+function shipRefuel(){
+  const sh = S.ship, added = +(SHIP.fuelCap - sh.fuel).toFixed(2);
+  if(added<=0){ logMsg('⛽ Mantis tank is already full.'); return; }
+  sh.fuel = SHIP.fuelCap; shipFuelLog(`＋${added}t · refueled to full`);
+  logMsg(`⛽ Mantis refueled at port (＋${added}t → ${SHIP.fuelCap}t full).`,'lg');
+  render();
+}
+function setShipFuel(v){ S.ship.fuel = clamp(+(parseFloat(v)||0), 0, SHIP.fuelCap); render(); }
+function repairSys(id, d){
+  const sh = S.ship, before = sh.systems[id];
+  sh.systems[id] = clamp(before + d, 0, 5);
+  if(sh.systems[id]===before){ render(); return; }
+  if(d>0){ sh.sysHrs[id]=0; logMsg(`🔧 Mantis ${sysName(id)} repaired to ${shipCond(sh.systems[id]).name} (${sh.systems[id]}/5).`,'lg'); }
+  else logMsg(`💥 Mantis ${sysName(id)} damaged to ${shipCond(sh.systems[id]).name} (${sh.systems[id]}/5).`,'lb');
+  render();
+}
+function shipAdj(k, d){ const sh=S.ship; sh[k]=Math.max(0, sh[k]+d); render(); }
+function setShipThr(k, v){ S.ship[k]=Math.max(0, parseInt(v)||0); render(); }
+function setDef(arc, v){ S.ship.defense[arc]=Math.max(0, parseInt(v)||0); render(); }
+function fireTorp(){
+  const sh = S.ship;
+  if(sh.ammo<1){ logMsg('🚀 Mantis has no proton torpedoes loaded.','lw'); render(); return; }
+  sh.ammo--; logMsg(`🚀 Proton torpedo away — ${sh.ammo} remaining. Resupply at port.`,'lw');
+  render();
+}
+function setAmmo(v){ S.ship.ammo=Math.max(0, parseInt(v)||0); render(); }
+function reloadTorp(){ S.ship.ammo=SHIP.torpedoes; logMsg(`🚀 Mantis torpedo magazine reloaded to ${SHIP.torpedoes} at port.`,'lg'); render(); }
+function setCrew(role, v){ S.ship.crew[role]=v; render(); }
+/* ---- cargo holds (free-form inventory): main hold (100 enc) + hidden smuggling compartment (10 enc) ---- */
+const holdWeight = key => S.ship[key].reduce((a,it)=>a + (it.qty||0)*(it.wt||0), 0);
+function addCargo(hold){ S.ship[hold].push({name:'', type:'', qty:1, wt:0}); render(); }
+function delCargo(hold, i){ S.ship[hold].splice(i,1); render(); }
+function setCargo(hold, i, k, v){
+  const it = S.ship[hold][i]; if(!it) return;
+  it[k] = (k==='qty'||k==='wt') ? Math.max(0, parseFloat(v)||0) : v;
+  render();
+}
+/* ---- energy distribution (total conserved: Σ system energy + reserve) ---- */
+function energyAdj(id, d){
+  const sh = S.ship;
+  if(d>0){                                   // draw a point from the reserve into this system
+    if(sh.reserve<=0){ logMsg('⚡ No reserve energy — pull a point from another system first.','lw'); return; }
+    if(sh.energy[id]>=SHIP_ENERGY_MAX){ logMsg(`⚡ ${sysName(id)} is already at maximum energy (${SHIP_ENERGY_MAX}).`,'lw'); return; }
+    sh.energy[id]++; sh.reserve--;
+  } else {                                   // return a point from this system to the reserve
+    if(sh.energy[id]<=0) return;
+    sh.energy[id]--; sh.reserve++;
+  }
+  if(id==='shields' && sh.energy.shields!==SHIP_ENERGY_MAX) sh.shieldBoost={fore:0,port:0,stbd:0,aft:0};
+  const m = energyWearMult(sh.energy[id]), bonus = overcharged(id) ? ` · ⚡overcharged: ${SHIP_ENERGY_BONUS[id].label}` : '';
+  logMsg(`⚡ ${sysName(id)} energy ${sh.energy[id]} (wear ×${m.toFixed(2)})${id==='sensors'?` · sensor range ${sensorRangeFor(sh.energy.sensors)}`:''}${bonus} · reserve ${sh.reserve}.`);
+  render();
+}
+function shieldBoostAdj(arc, d){
+  const sh = S.ship;
+  if(sh.energy.shields!==SHIP_ENERGY_MAX){ logMsg('🛡 Route Shields to full energy first to gain distributable defense.','lw'); return; }
+  const cap = SHIP_ENERGY_BONUS.shields.defense;
+  const used = sh.shieldBoost.fore+sh.shieldBoost.port+sh.shieldBoost.stbd+sh.shieldBoost.aft;
+  if(d>0){ if(used>=cap){ logMsg(`🛡 All ${cap} shield-boost dice are already assigned.`,'lw'); return; } sh.shieldBoost[arc]++; }
+  else { if(sh.shieldBoost[arc]<=0) return; sh.shieldBoost[arc]--; }
+  render();
+}
+function setSensorRange(name){
+  const sh = S.ship, r = SENSOR_RANGES.find(x=>x.name===name);
+  if(!r) return;
+  const delta = r.energy - sh.energy.sensors;
+  if(delta>0 && sh.reserve<delta){
+    logMsg(`📡 Not enough reserve energy for ${name} range (needs +${delta}, reserve ${sh.reserve}). Free up energy elsewhere first.`,'lw');
+    render(); return;
+  }
+  sh.energy.sensors = r.energy; sh.reserve -= delta;
+  logMsg(`📡 Sensor range set to ${name} — Sensors & Comms energy ${r.energy} (wear ×${energyWearMult(r.energy).toFixed(2)}) · reserve ${sh.reserve}.`);
+  render();
+}
+function resetEnergy(){
+  const sh = S.ship;
+  for(const s of SHIP_SYSTEMS) sh.energy[s.id]=SHIP_ENERGY_DEFAULT;
+  sh.reserve=0; sh.shieldBoost={fore:0,port:0,stbd:0,aft:0};
+  logMsg('⚡ Energy distribution reset to default — every system balanced, reserve empty.');
+  render();
+}
+
+/* ================================================================
+   INVENTORY (auto-synced consumables + free rows)
+   ================================================================ */
+function syncInv(cs){
+  const c = cfg(cs.id);
+  const wanted = c.droid
+    ? [['packs', cs.packsCharged+cs.packsDepleted]]
+    : [['canteen',1],['rations',cs.rationsStock],['snacks',cs.snacks],['stims',cs.stims]];
+  for(const [key,qty] of wanted){
+    let row = cs.inv.find(it=>it.auto===key);
+    if(!row){ row = {auto:key, name:AUTO_ITEMS[key].name, type:AUTO_ITEMS[key].type, qty:0, wt:AUTO_ITEMS[key].wt}; cs.inv.push(row); }
+    row.qty = qty;
+  }
+}
+function addInv(id){ st(id).inv.push({name:'', type:'', qty:1, wt:0}); st(id).invOpen=true; render(); }
+function delInv(id,i){ st(id).inv.splice(i,1); render(); }
+function setInv(id,i,k,v){
+  const cs = st(id), it = cs.inv[i];
+  const num = Math.max(0, parseFloat(v)||0);
+  if(it.auto && k==='qty'){       // editing an auto row's qty updates the real stock
+    if(it.auto==='rations') cs.rationsStock = num;
+    else if(it.auto==='snacks') cs.snacks = num;
+    else if(it.auto==='stims') cs.stims = num;
+    else if(it.auto==='packs') cs.packsCharged = Math.max(0, num - cs.packsDepleted);
+  } else {
+    it[k] = (k==='qty'||k==='wt') ? num : v;
+    if(k==='type' && isDegradable(v)){ if(it.wear==null) it.wear=0; cs.gearOpen=true; }
+  }
+  render();
+}
+
+/* ---- equipment wear (weapons & worn gear) ---- */
+function useItem(id,i){
+  const cs=st(id), it=cs.inv[i]; if(!it) return;
+  it.wear = clamp((it.wear||0)+WEAR_PER_USE, 0, 100);
+  logMsg(`🔧 ${cfg(id).name} uses ${it.name||'an item'} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
+  render();
+}
+function tuneItem(id,i){
+  const cs=st(id), it=cs.inv[i]; if(!it) return;
+  it.wear = clamp((it.wear||0)-GEAR_TUNEUP, 0, 100);
+  logMsg(`🔧 ${cfg(id).name} tunes up ${it.name||'an item'} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
+  render();
+}
+function overhaulItem(id,i){
+  const cs=st(id), it=cs.inv[i]; if(!it) return;
+  it.wear = 0;
+  logMsg(`🔧⚙ ${cfg(id).name} fully overhauls ${it.name||'an item'} — wear reset to 0. Requires a bench/kit (GM approves).`, 'ld');
+  render();
+}
+
+/* ---- images ----
+   Images are GM-set repo files (img/<id>.jpg|png, img/ship.*, img/scene.*), loaded
+   directly in the card/scene/ship markup — see portraitSection() and renderShip().
+   SCENE_IMG_OK is probed once at startup (probeScene). No in-app uploading. */
+let SCENE_IMG_OK = false;
+function probeScene(cb){
+  const tryLoad = (src, next) => {
+    const im = new Image();
+    im.onload = () => { document.getElementById('ambImg').src = src; SCENE_IMG_OK = true; cb && cb(); };
+    im.onerror = next;
+    im.src = src;
+  };
+  tryLoad('img/scene.jpg', () => tryLoad('img/scene.png', () => { SCENE_IMG_OK = false; cb && cb(); }));
+}
+const hurtOpacity = cs => HURT_MAX_OPACITY * clamp(cs.wounds/(cs.wt||12), 0, 1);
+
+/* ================================================================
+   UI
+   ================================================================ */
+const needColor = v => v<35 ? 'var(--good)' : v<60 ? 'var(--warn)' : v<85 ? 'var(--bad)' : 'var(--crit)';
+
+function needRow(cs, key, label, extras, tier){
+  const v = cs[key];
+  const color = tier ? tier.color : needColor(v);
+  const badge = tier ? ` <span class="tierbadge needtier" style="background:${color};color:#000">${tier.name}</span>` : '';
+  return `<div class="needrow">
+    <span class="needlabel" title="Click to set value" onclick="editNeed('${cs.id}','${key}')">${label}</span>
+    <div class="barwrap"><div class="bar" style="width:${v}%;background:${color}"></div><span class="barval">${Math.round(v)}</span></div>
+    ${extras||''}${badge}</div>`;
+}
+
+function attrRow(cs){
+  return `<div class="attrs">` + ATTRS.map(([k,lab]) =>
+    `<span class="a"><span>${lab.slice(0,4)}</span><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${cs.id}','${k}',this.value)" title="${lab}"></span>`
+  ).join('') + `</div>`;
+}
+
+function condBadges(cs){
+  return cs.conds.map(cd=>{
+    if(cd.custom)
+      return `<span class="badge b-cond" title="${esc(cd.fx||'custom condition')}">🏷 ${esc(cd.label)}<span class="x" onclick="rmCond('${cs.id}','${cd.id}')">×</span></span>`;
+    const def = CONDS[cd.id];
+    const lvl = def.lvls ? ` <span style="cursor:pointer" onclick="condLvl('${cs.id}','${cd.id}',-1)">−</span>${cd.lvl}<span style="cursor:pointer" onclick="condLvl('${cs.id}','${cd.id}',1)">+</span>` : '';
+    return `<span class="badge b-cond" title="${condTitle(def, cd.lvl)}">${def.label}${lvl}<span class="x" onclick="rmCond('${cs.id}','${cd.id}')">×</span></span>`;
+  }).join('');
+}
+function condSelect(cs, c){
+  const opts = Object.entries(CONDS)
+    .filter(([k,d]) => (!!d.droid === !!c.droid) && !cs.conds.some(x=>x.id===k))
+    .map(([k,d]) => `<option value="${k}" title="${condTitle(d)}">${d.label}</option>`).join('');
+  return `<select onchange="addCond('${cs.id}',this.value);this.value=''" title="Add a condition — hover an option for its effect"><option value="">＋ condition…</option>${opts}<option value="__custom" title="Invent a condition: name + effect text (shown on the badge, in the effects box and the log)">🏷 custom…</option></select>`;
+}
+function condFxLines(cs){
+  return cs.conds.map(cd=>{
+    if(cd.custom) return `<span class="condline">🏷 <b>${esc(cd.label)}</b>${cd.fx?` — ${esc(cd.fx)}`:''}</span>`;
+    return `<span class="condline">${fxText(CONDS[cd.id], cd.lvl)}</span>`;
+  }).join('<br>');
+}
+
+function statusBadge(cs){
+  if(!cs.status) return '';
+  const def = STATUSES[cs.status.kind];
+  return `<span class="badge b-status">${def.label} — ${fmtDur(Math.max(0,cs.status.remain))} left<span class="x" onclick="cancelStatus('${cs.id}')" title="Cancel — return to normal">✖</span></span>`;
+}
+
+function invSection(cs){
+  const w = invWeight(cs), over = overload(cs);
+  const rows = cs.inv.map((it,i)=>{
+    const name = it.auto ? `<span class="auto">${esc(it.name)}</span>` : `<input value="${esc(it.name)}" placeholder="item" onchange="setInv('${cs.id}',${i},'name',this.value)">`;
+    const type = it.auto ? `<span class="auto">${esc(it.type)}</span>` : typeSelect(it.type, `setInv('${cs.id}',${i},'type',this.value)`, 72);
+    const del  = it.auto ? '' : `<button class="mini" title="Remove item" onclick="delInv('${cs.id}',${i})">×</button>`;
+    const qty  = it.auto==='canteen' ? `<span class="auto">${it.qty}</span>`
+      : `<input type="number" min="0" step="0.5" value="${it.qty}" onchange="setInv('${cs.id}',${i},'qty',this.value)">`;
+    return `<tr><td>${name}</td><td>${type}</td>
+      <td>${qty}</td>
+      <td><input type="number" min="0" step="0.05" value="${it.wt}" onchange="setInv('${cs.id}',${i},'wt',this.value)"></td>
+      <td class="tot">${(it.qty*it.wt).toFixed(2)}</td><td>${del}</td></tr>`;
+  }).join('');
+  return `<details class="inv" ${cs.invOpen?'open':''} ontoggle="st('${cs.id}').invOpen=this.open">
+    <summary>🎒 Inventory — enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${cs.encThresh||'—'} threshold
+      &nbsp;<button class="mini" onclick="event.preventDefault();addInv('${cs.id}')">＋ add item</button></summary>
+    <table class="invtable">
+      <tr><th>Name</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
+      ${rows||'<tr><td colspan="6" style="color:var(--dim)">empty pack</td></tr>'}
+    </table></details>`;
+}
+
+// Weapons & Gear — a wear/degradation view over inventory rows typed Weapon or Gear (worn).
+function gearSection(cs){
+  const items = cs.inv.map((it,i)=>({it,i})).filter(x=>!x.it.auto && isDegradable(x.it.type));
+  const rows = items.map(({it,i})=>{
+    const w = clamp(it.wear||0,0,100), t = tierOf(w, WTIERS);
+    const worn = /worn/i.test(it.type);
+    const icon = worn ? '🧥' : '🗡';
+    const nm = it.name || (worn?'(unnamed gear)':'(unnamed weapon)');
+    return `<div class="gearitem">
+      <div class="gearline"><span class="gearname">${icon} ${esc(nm)}</span>
+        <span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span></div>
+      <div class="needrow">
+        <span class="needlabel" title="Click to set wear" onclick="editWear('${cs.id}',${i})">🔧 Wear</span>
+        <div class="barwrap"><div class="bar" style="width:${w}%;background:${t.color}"></div><span class="barval">${Math.round(w)}</span></div>
+        <button class="mini" onclick="useItem('${cs.id}',${i})" title="Use this item — adds ${WEAR_PER_USE} wear">use</button>
+        <button class="mini droid" onclick="tuneItem('${cs.id}',${i})" title="Field tune-up — −${GEAR_TUNEUP} wear">tune-up</button>
+        <button class="mini droid" onclick="overhaulItem('${cs.id}',${i})" title="Full overhaul — wear reset to 0">overhaul</button>
+      </div>
+      <div class="fx gearfx">${t.fx}</div>
+    </div>`;
+  }).join('');
+  return `<details class="inv gearsec" ${cs.gearOpen?'open':''} ontoggle="st('${cs.id}').gearOpen=this.open">
+    <summary>🗡 Weapons &amp; Gear${items.length?` <b>${items.length}</b>`:''}</summary>
+    ${rows||`<div class="gearempty">No weapons or worn gear yet — set an inventory item's <b>Type</b> to <b>Weapon</b> or <b>Gear (worn)</b> and it appears here with a wear track.</div>`}
+  </details>`;
+}
+
+/* Portraits are GM-set repo files at img/<id>.jpg (or .png). If neither exists the
+   whole portrait block hides itself, so missing images never leave a broken frame. */
+function portraitSection(cs, c){
+  return `<div class="portrait">
+    <img src="img/${cs.id}.jpg" alt="${esc(c.name)}"
+         onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/${cs.id}.png'}else{this.closest('.portrait').style.display='none'}">
+    <div class="hurt" style="opacity:${hurtOpacity(cs).toFixed(3)}"></div>
+  </div>`;
+}
+
+function talliesRow(cs){
+  return `<div class="tallies">
+      <span class="strain">Strain <b>${cs.strain}</b>/<input type="number" value="${cs.st}" style="width:46px" onchange="setThresh('${cs.id}','st',this.value)" title="Strain threshold"></span>
+      <button class="mini" onclick="adj('${cs.id}','strain',-1)">−</button><button class="mini" onclick="adj('${cs.id}','strain',1)">+</button>
+      <span class="wounds">Wounds <b>${cs.wounds}</b>/<input type="number" value="${cs.wt}" style="width:46px" onchange="setThresh('${cs.id}','wt',this.value)" title="Wound threshold"></span>
+      <button class="mini" onclick="adj('${cs.id}','wounds',-1)">−</button><button class="mini" onclick="adj('${cs.id}','wounds',1)">+</button>
+    </div>`;
+}
+
+// Droid degradation panel (organics use organicEffects instead)
+function statusSection(cs, ex, t, o){
+  const condLines = condFxLines(cs);
+  return `<div class="exwrap">
+    <div class="needrow">
+      <span class="needlabel">Degrad.</span>
+      <div class="barwrap exbar"><div class="bar" style="width:${ex}%;background:${t.color}"></div><span class="barval">${Math.round(ex)}</span></div>
+      <span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span>
+    </div>
+    <div class="fx">${o.dead?`<b class="lb">☠ Wound threshold exceeded — critical damage; needs major repairs.</b><br>`:''}${o.uncon&&!o.dead?`<b class="lw">💫 Strain threshold exceeded — disabled until strain is relieved.</b><br>`:''}${o.over>0?`<b class="lw">⚖ Encumbered +${o.over}: needs drain ${Math.round(o.over*ENC_DRAIN_PER_PT*100)}% faster; RAW: add ${o.over} Setback to Agility checks.</b><br>`:''}${t.fx}${condLines?`<br>${condLines}`:''}</div>
+    ${talliesRow(cs)}
+  </div>`;
+}
+
+// Organic compounded-effects panel: stack each need's current-tier effect + conditions.
+function organicEffects(cs, c, o){
+  const needLines = NEED_KEYS.map(key=>{
+    const tiers = NEEDS[key].tiers, t = tierOf(cs[key], tiers);
+    if(tiers.indexOf(t)===0) return '';  // hide the satisfied/baseline tier
+    return `<div class="fxneed"><span class="fxtier" style="color:${t.color}">${NEEDS[key].label.split(' ')[0]} ${t.name}</span> — ${t.fx}</div>`;
+  }).filter(Boolean).join('');
+  const condLines = condFxLines(cs);
+  const alerts =
+    (o.dead?`<b class="lb">☠ Wound threshold exceeded — dying/dead without immediate medical aid.</b><br>`:'') +
+    (o.uncon&&!o.dead?`<b class="lw">💫 Strain threshold exceeded — unconscious until strain recovers.</b><br>`:'') +
+    (o.over>0?`<b class="lw">⚖ Encumbered +${o.over}: needs drain ${Math.round(o.over*ENC_DRAIN_PER_PT*100)}% faster; RAW: add ${o.over} Setback to Brawn/Agility checks.</b><br>`:'');
+  const body = needLines || `<span class="fxnone">No active need effects — all needs satisfied.</span>`;
+  return `<div class="exwrap">
+    ${alerts?`<div class="fx">${alerts.replace(/<br>$/,'')}</div>`:''}
+    <div class="fx fxstack">${body}${condLines?`<div class="fxneed condstack">${condLines}</div>`:''}</div>
+    ${talliesRow(cs)}
+  </div>`;
+}
+
+function organicCard(cs, c, div){
+  const uncon = cs.strain>=cs.st && cs.st>0;
+  const dead  = cs.wounds>cs.wt && cs.wt>0;
+  const over  = overload(cs);
+  const tier  = key => tierOf(cs[key], NEEDS[key].tiers);
+  const badges = statusBadge(cs) +
+    (cs.stimHrs>0 ? `<span class="badge b-stim">💉 stim ${fmtDur(cs.stimHrs)}</span> ` : '') +
+    (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span> ` : '') +
+    (c.fs && cs.force>0 ? `<span class="badge b-force">Force ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
+    condBadges(cs);
+  div.className = 'card'+(dead?' dead':uncon?' uncon':'');
+  div.innerHTML = `
+    ${portraitSection(cs,c)}
+    <div class="cardhead">
+      <div><span class="cname">${c.name.split(' ')[0]}</span> ${dead?'☠':uncon?'💫':''}
+        <div class="cmeta">${c.species} · ${c.h} · ${c.build} · ${c.waterOz} oz water/day · ${c.rations} rations/meal</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
+        <select onchange="setAct('${cs.id}',this.value)" title="Current activity${cs.status?' — selecting one cancels the current timed status':''}">
+          ${Object.entries(ACTS).map(([k,a])=>`<option value="${k}" ${cs.activity===k?'selected':''}>${a.label}</option>`).join('')}
+        </select>
+        ${condSelect(cs,c)}
+      </div>
+    </div>
+    <div class="trait">${c.trait}</div>
+    ${badges ? `<div style="margin-bottom:6px">${badges}</div>` : ''}
+    ${customCondForm(cs)}
+    ${attrRow(cs)}
+    ${needRow(cs,'water','💧 Thirst',
+      `<button class="mini" onclick="drink('${cs.id}',5)">5oz</button><button class="mini" onclick="drink('${cs.id}',10)">10oz</button><button class="mini" onclick="drink('${cs.id}',${OZ_PER_CANTEEN})">all</button>`, tier('water'))}
+    ${needRow(cs,'hunger','🍞 Hunger',
+      `<button class="mini" onclick="eatSnack('${cs.id}')">snack</button><button class="mini" onclick="startStatus('${cs.id}','ration')" title="Eat a field ration (15 min)">ration</button><button class="mini" onclick="startStatus('${cs.id}','meal')" title="Eat a prepared meal (30 min)">meal</button>`, tier('hunger'))}
+    ${needRow(cs,'hygiene','🧼 Hygiene',
+      `<button class="mini" onclick="wash('${cs.id}')" title="Full wash / bath — 15–30 min, ample water (GM approves)">wash</button><button class="mini" onclick="wipeDown('${cs.id}')" title="Quick wipe-down / field clean — uses ${HYG.wipeOz} oz canteen water">wipe</button><button class="mini" onclick="cleanClothes('${cs.id}')" title="Change into clean clothing (GM approves)">👕</button>`, tier('hygiene'))}
+    ${needRow(cs,'sleep','😴 Sleep',
+      `<input type="number" id="slp-${cs.id}" min="0.5" max="16" step="0.5" value="8" style="width:50px" title="Hours to sleep"><button class="mini" onclick="startSleep('${cs.id}')">sleep</button>`, tier('sleep'))}
+    ${needRow(cs,'rest','⚡ Fatigue',
+      `<button class="mini" onclick="startStatus('${cs.id}','rest15')">15m</button><button class="mini" onclick="startStatus('${cs.id}','rest30')">30m</button>`+
+      (c.fs?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
+    <div class="gearrow">
+      <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
+      <span class="gi">🍞 <input type="number" min="0" step="0.5" value="${cs.rationsStock}" onchange="setStock('${cs.id}','rationsStock',this.value)" title="Rations carried"></span>
+      <span class="gi">🍪 <input type="number" min="0" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
+      <span class="gi">💉 <input type="number" min="0" value="${cs.stims}" onchange="setStock('${cs.id}','stims',this.value)" title="Stimpacks carried"> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Used today / safe limit">${cs.stimsToday}/${STIM.maxHeals}</span></span>
+      <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
+      ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="8" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force points (0–8)"></span>`:''}
+    </div>
+    ${invSection(cs)}
+    ${gearSection(cs)}
+    ${organicEffects(cs, c, {dead, uncon, over})}`;
+}
+
+function droidCard(cs, c, div){
+  const ex = exhaustion(cs), t = tierOf(ex, DTIERS);
+  const disabled = cs.strain>=cs.st && cs.st>0;
+  const wrecked  = cs.wounds>cs.wt && cs.wt>0;
+  const over = overload(cs);
+  const badges =
+    (cs.charge>=100 ? `<span class="badge b-off">🔋 SHUTDOWN</span> ` : '') +
+    (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span>` : '') +
+    condBadges(cs);
+  div.className = 'card droidcard'+(wrecked?' dead':disabled?' uncon':'');
+  div.innerHTML = `
+    ${portraitSection(cs,c)}
+    <div class="cardhead">
+      <div><span class="cname">${c.name.split(' ')[0]}</span> 🤖 ${wrecked?'☠':disabled?'💫':''}
+        <div class="cmeta">${c.species} · ${c.h} · ${c.build} · 1 pack ≈ ${c.packHrs} hrs light operation</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
+        <select onchange="setAct('${cs.id}',this.value)" title="Current activity">
+          ${Object.entries(ACTS).map(([k,a])=>`<option value="${k}" ${cs.activity===k?'selected':''}>${a.dLabel}</option>`).join('')}
+        </select>
+        ${condSelect(cs,c)}
+      </div>
+    </div>
+    <div class="trait">${c.trait}</div>
+    ${badges ? `<div style="margin-bottom:6px">${badges}</div>` : ''}
+    ${customCondForm(cs)}
+    ${attrRow(cs)}
+    ${needRow(cs,'charge','🔋 Charge',
+      `<button class="mini droid" onclick="swapPack('${cs.id}')">swap pack</button><button class="mini droid" onclick="rechargeAll('${cs.id}')">⚡ recharge</button>`)}
+    ${needRow(cs,'maint','🔧 Wear',
+      `<button class="mini droid" onclick="tuneUp('${cs.id}')">tune-up</button><button class="mini droid" onclick="overhaul('${cs.id}')">overhaul</button>`)}
+    <div class="gearrow">
+      <span class="gi">🔋 charged <input type="number" min="0" value="${cs.packsCharged}" onchange="setStock('${cs.id}','packsCharged',this.value)" title="Charged spare packs"></span>
+      <span class="gi">🪫 depleted <input type="number" min="0" value="${cs.packsDepleted}" onchange="setStock('${cs.id}','packsDepleted',this.value)" title="Depleted packs"></span>
+      <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
+    </div>
+    ${invSection(cs)}
+    ${gearSection(cs)}
+    ${statusSection(cs, ex, t, {dead:wrecked, uncon:disabled, over})}`;
+}
+
+function render(){
+  document.getElementById('clock').textContent = clockStr();
+  const envSel = document.getElementById('envSel');
+  if(envSel.value !== S.env) envSel.value = S.env;   // keep the dropdown honest after reset/load
+  renderChips();
+  const loc=document.getElementById('locIn'), dst=document.getElementById('destIn'), eta=document.getElementById('etaIn');
+  if(document.activeElement!==loc) loc.value = S.location;
+  if(document.activeElement!==dst) dst.value = S.travelDest;
+  if(document.activeElement!==eta) eta.value = S.travelEta;
+  document.getElementById('etaNote').textContent =
+    S.travelDest && S.travelEta>0 ? `→ arriving ${S.travelDest} in ${fmtDur(S.travelEta)}` : '';
+  const amb=document.getElementById('ambience');
+  amb.style.display = SCENE_IMG_OK ? 'block' : 'none';
+  if(SCENE_IMG_OK){
+    document.getElementById('ambCap').textContent = `📍 ${S.location || 'Unknown location'}`;
+    document.getElementById('ambEnv').textContent = `🌍 ${ENVS[S.env].label}`;
+  }
+  const wrap = document.getElementById('cards');
+  wrap.innerHTML = '';
+  for(const cs of S.chars){
+    if(!S.visible[cs.id]) continue;
+    syncInv(cs);
+    const c = cfg(cs.id);
+    const div = document.createElement('div');
+    (c.droid ? droidCard : organicCard)(cs, c, div);
+    wrap.appendChild(div);
+  }
+  renderShip();
+  scheduleSync();   // push any local change to the live room (no-op when solo/applying)
+}
+
+function renderShip(){
+  const el = document.getElementById('ship');
+  if(!el || !S.ship) return;
+  const sh = S.ship;
+  const fpct = sh.fuel/SHIP.fuelCap*100;
+  const fCol = fpct>50?'var(--good)':fpct>25?'var(--warn)':fpct>10?'var(--bad)':'var(--crit)';
+  const burn = SHIP_ACTS[sh.activity].tph;
+  const endurance = burn>0 ? ` · ~${(sh.fuel/burn).toFixed(1)} hrs (${(sh.fuel/burn/24).toFixed(1)} days) at current burn` : ' · no burn while docked';
+
+  const spdBonus = overcharged('engines')?SHIP_ENERGY_BONUS.engines.speed:0;
+  const hdlBonus = overcharged('engines')?SHIP_ENERGY_BONUS.engines.handling:0;
+  const statBar = [['Silhouette',SHIP.silhouette,0],['Speed',SHIP.speed,spdBonus],['Armor',SHIP.armor,0],['Handling',SHIP.handling,hdlBonus],['Hard Points',SHIP.hardpoints,0]]
+    .map(([l,v,b])=>`<div class="stat"><div class="sv"${b?' style="color:var(--gold)"':''}>${v+b}${b?`<span class="sbonus">+${b}</span>`:''}</div><div class="sl">${l}</div></div>`).join('');
+
+  const gauge = (label, cur, thr, key, thrKey) => {
+    const pct = thr>0 ? clamp(cur/thr*100,0,100) : 0;
+    return `<div class="needrow">
+      <span class="needlabel" style="cursor:default">${label}</span>
+      <div class="barwrap"><div class="bar" style="width:${pct}%;background:${needColor(pct)}"></div><span class="barval">${cur}/${thr}</span></div>
+      <button class="mini" onclick="shipAdj('${key}',-1)">−</button><button class="mini" onclick="shipAdj('${key}',1)">+</button>
+      <input type="number" value="${thr}" style="width:44px" onchange="setShipThr('${thrKey}',this.value)" title="Threshold">
+    </div>`;
+  };
+
+  const def = sh.defense, shields5 = overcharged('shields');
+  const boostUsed = sh.shieldBoost.fore+sh.shieldBoost.port+sh.shieldBoost.stbd+sh.shieldBoost.aft;
+  const defCell = (arc, label) => {
+    const bst = shields5 ? sh.shieldBoost[arc] : 0, eff = def[arc]+bst;
+    return `<div class="defcell">
+      <div class="dl">${label}</div>
+      <div class="dv"${bst?' style="color:var(--gold)"':''}>${eff}</div>
+      <input type="number" value="${def[arc]}" onchange="setDef('${arc}',this.value)" title="Base defense">
+      ${shields5?`<div class="bst"><button class="mini" onclick="shieldBoostAdj('${arc}',-1)">−</button><span>+${bst}</span><button class="mini" onclick="shieldBoostAdj('${arc}',1)">+</button></div>`:''}
+    </div>`;
+  };
+  const mid = '<div class="defcell mid"></div>';
+  const defDiagram = `<div class="defgrid">
+    ${mid}${defCell('fore','Fore ▲')}${mid}
+    ${defCell('port','◀ Port')}<div class="defcell mid"><div class="shipnav">🚀</div></div>${defCell('stbd','Stbd ▶')}
+    ${mid}${defCell('aft','Aft ▼')}${mid}
+  </div>${shields5?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--gold)">⚡ Shields overcharged: +${SHIP_ENERGY_BONUS.shields.defense} defense to distribute (${boostUsed}/${SHIP_ENERGY_BONUS.shields.defense} assigned)</div>`:''}`;
+
+  const cargoWt = holdWeight('cargo'), cargoOver = Math.max(0, Math.ceil(cargoWt) - SHIP.encumbrance);
+  const hyperDisp = overcharged('hyperdrive') ? `${SHIP_ENERGY_BONUS.hyperdrive.jump} · backup ⚡` : SHIP.hyperdrive;
+  const sysInfo = [['Hyperdrive',hyperDisp],['Navicomputer',SHIP.navicomputer],['Sensor Range',sensorRangeFor(sh.energy.sensors)],['Passengers',SHIP.passengers],['Consumables',SHIP.consumables],['Encumbrance',`<span style="color:${cargoOver>0?'var(--bad)':'var(--text)'}">${cargoWt.toFixed(1)}</span> / ${SHIP.encumbrance}`]]
+    .map(([l,v])=>`<span class="si">${l}: <b>${v}</b></span>`).join('');
+
+  const sysCards = SHIP_SYSTEMS.map(s=>{
+    const v = sh.systems[s.id], cd = shipCond(v);
+    const e = sh.energy[s.id], m = energyWearMult(e);
+    const wcol = m>1 ? 'var(--bad)' : m<1 ? 'var(--good)' : 'var(--dim)';
+    const pips = [1,2,3,4,5].map(i=>`<div class="pip" style="background:${i<=v?cd.color:'#0a0e14'};box-shadow:inset 0 0 0 1px ${i<=v?cd.color:'var(--border)'}"></div>`).join('');
+    const dots = [1,2,3,4,5].map(i=>`<span class="edot${i<=e?' on':''}"></span>`).join('');
+    const sensorSel = s.id==='sensors'
+      ? `<div class="enrow"><span class="enlbl">📡 Range</span><select class="rangesel" onchange="setSensorRange(this.value)" title="Sensor range draws on this system's energy allocation">${SENSOR_RANGES.map(r=>`<option value="${r.name}" ${sensorRangeFor(e)===r.name?'selected':''}>${r.name} · ⚡${r.energy}</option>`).join('')}</select></div>`
+      : '';
+    const bonus = SHIP_ENERGY_BONUS[s.id];
+    const boostLine = (e===SHIP_ENERGY_MAX && bonus) ? `<div class="boostline">⚡ Overcharged: ${bonus.label}</div>` : '';
+    return `<div class="syscard${v<=0?' off':''}">
+      <div class="sh"><span class="sn">${s.icon} ${s.name}</span><span class="tierbadge" style="background:${cd.color};color:#000;font-size:9px;padding:1px 6px">${cd.name} ${v}</span></div>
+      <div class="saff">${s.affects}</div>
+      <div class="pips">${pips}</div>
+      <div class="enrow">
+        <span class="enlbl">⚡ Energy</span>
+        <button class="mini" onclick="energyAdj('${s.id}',-1)" title="Return a point to the reserve (slows this system's wear)">−</button>
+        <span class="edots">${dots}</span>
+        <button class="mini" onclick="energyAdj('${s.id}',1)" title="Draw a point from the reserve (speeds this system's wear)">+</button>
+        <span class="wmult" style="color:${wcol}" title="Wear rate vs. default draw">×${m.toFixed(2)}</span>
+      </div>
+      ${sensorSel}
+      ${boostLine}
+      <div class="cfx">${cd.fx}${v<5?`<br><span style="color:var(--accent)">Repair from here: ${cd.repair}</span>`:''}</div>
+      <div class="sysbtns">
+        <button class="mini" onclick="repairSys('${s.id}',-1)" title="Damage / degrade one level (e.g. from a critical hit)">💥 damage</button>
+        <button class="mini" onclick="repairSys('${s.id}',1)" title="Repair one level (Mechanics check, ~4 hrs)">🔧 repair</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const weaponRows = SHIP_WEAPONS.map(g=>{
+    const v = sh.systems[g.system], cd = shipCond(v);
+    const dmgBonus = overcharged(g.system) ? (SHIP_ENERGY_BONUS[g.system].dmg||0) : 0;
+    const ammo = g.ammo ? ` &nbsp;·&nbsp; 🚀 <b>${sh.ammo}</b> loaded <button class="mini" onclick="fireTorp()">fire</button> <button class="mini" onclick="reloadTorp()">reload</button> <input type="number" min="0" value="${sh.ammo}" style="width:44px" onchange="setAmmo(this.value)" title="Torpedoes loaded">` : '';
+    const oc = dmgBonus ? ` <span class="ocbadge">⚡ +${dmgBonus} dmg</span>` : '';
+    const head = `<tr><td colspan="5"><span class="grp">${g.group}</span> <span class="tierbadge" style="background:${cd.color};color:#000;font-size:9px;padding:1px 6px">${cd.name} ${v}</span>${oc}${ammo}</td></tr>`;
+    const rows = g.items.map(w=>`<tr><td style="padding-left:14px">${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td${dmgBonus?' style="color:var(--gold)"':''}>${w.dmg+dmgBonus}${dmgBonus?` <span class="sbonus">+${dmgBonus}</span>`:''}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('');
+    return head + rows;
+  }).join('');
+
+  const crewRows = SHIP_STATIONS.map(role=>
+    `<div class="crewrow"><span class="cr">${role}</span><input list="crewNames" value="${esc(sh.crew[role]||'')}" placeholder="assign…" onchange="setCrew('${esc(role)}',this.value)"></div>`
+  ).join('');
+
+  const holdRows = hold => sh[hold].map((it,i)=>`<tr>
+    <td><input value="${esc(it.name)}" placeholder="item" onchange="setCargo('${hold}',${i},'name',this.value)"></td>
+    <td>${typeSelect(it.type, `setCargo('${hold}',${i},'type',this.value)`, 82)}</td>
+    <td><input type="number" min="0" step="0.5" value="${it.qty}" onchange="setCargo('${hold}',${i},'qty',this.value)"></td>
+    <td><input type="number" min="0" step="0.05" value="${it.wt}" onchange="setCargo('${hold}',${i},'wt',this.value)"></td>
+    <td class="tot">${((it.qty||0)*(it.wt||0)).toFixed(2)}</td>
+    <td><button class="mini" title="Remove item" onclick="delCargo('${hold}',${i})">×</button></td>
+  </tr>`).join('');
+  const smugWt = holdWeight('smuggle'), smugOver = Math.max(0, Math.ceil(smugWt) - SHIP.smuggleCap);
+
+  el.innerHTML = `<div class="shipwrap">
+    <div class="shipportrait" id="shipPortrait"><img src="img/ship.jpg" alt="${SHIP.name}"
+         onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/ship.png'}else{this.closest('#shipPortrait').style.display='none'}"></div>
+    <div class="shiphead">
+      <div>
+        <div class="stitle">${SHIP.name}</div>
+        <div class="ssub">${SHIP.class} · Silhouette ${SHIP.silhouette}</div>
+      </div>
+      <div class="sactivity">
+        <span class="label">Flight Status</span>
+        <select onchange="setShipAct(this.value)" title="Current flight activity — drives fuel burn as the party clock advances">
+          ${Object.entries(SHIP_ACTS).map(([k,a])=>`<option value="${k}" ${sh.activity===k?'selected':''}>${a.label} · ${a.tph}t/hr</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="statbar">${statBar}</div>
+
+    <div class="shipcols">
+      <div class="spanel"><h3>⚙ Condition</h3>
+        ${gauge('🩹 Hull',   sh.hull,   sh.hullThr,   'hull',   'hullThr')}
+        ${gauge('💥 Strain', sh.strain, sh.strainThr, 'strain', 'strainThr')}
+        <div class="sysline" style="margin-top:10px">${sysInfo}</div>
+      </div>
+      <div class="spanel"><h3>🛡 Defense (shield dice by arc)</h3>
+        ${defDiagram}
+        ${sh.systems.shields<4?`<div class="cfx" style="text-align:center;margin-top:8px;color:var(--bad)">Shields ${shipCond(sh.systems.shields).name}: ${shipCond(sh.systems.shields).fx}</div>`:''}
+      </div>
+    </div>
+
+    <div class="fuelpanel">
+      <h3 style="font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">⛽ Fuel — ${sh.fuel} / ${SHIP.fuelCap} tons${endurance}</h3>
+      <div class="fueltank"><div class="fbar" style="width:${fpct}%;background:${fCol}"></div><div class="fval">${sh.fuel} t · ${Math.round(fpct)}%</div></div>
+      <div class="fuelform">
+        <span class="label">Log burn</span>
+        <select id="burnAct">${Object.entries(SHIP_ACTS).filter(([k,a])=>a.tph>0).map(([k,a])=>`<option value="${k}">${a.label} (${a.tph}t/hr)</option>`).join('')}</select>
+        <input type="number" id="burnHrs" min="0" step="0.25" value="1" style="width:56px"> hrs
+        <button class="mini" onclick="shipBurn()">⛽ deduct</button>
+        <span style="margin-left:auto"></span>
+        <span class="label">Set</span><input type="number" min="0" max="${SHIP.fuelCap}" step="0.5" value="${sh.fuel}" style="width:56px" onchange="setShipFuel(this.value)">
+        <button class="mini" onclick="shipRefuel()">＋ refuel full</button>
+      </div>
+      ${sh.fuelLog.length?`<div class="fuellog">${sh.fuelLog.map(l=>`<p><b>${l.t}</b> · ${l.m}</p>`).join('')}</div>`:''}
+    </div>
+
+    <div class="shipsec"><h2>🔩 System Condition &amp; Energy <span class="reserve" title="Unallocated energy — reroute it into any system">⚡ Reserve ${sh.reserve}</span> <button class="mini" style="vertical-align:middle" onclick="resetEnergy()" title="Reset every system to the default energy draw, reserve empty">↺ balance</button></h2><div class="sysgrid">${sysCards}</div></div>
+
+    <div class="shipsec"><h2>🔫 Weapons</h2>
+      <table class="weaptable"><tr><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${weaponRows}</table>
+    </div>
+
+    <div class="shipsec"><h2>🎒 Cargo Hold <span class="reserve" title="Total cargo encumbrance vs. the ${SHIP.encumbrance}-point hold" style="color:${cargoOver>0?'var(--bad)':'var(--gold)'}">enc ${cargoWt.toFixed(1)} / ${SHIP.encumbrance}</span> <button class="mini" style="vertical-align:middle" onclick="addCargo('cargo')">＋ add item</button></h2>
+      ${cargoOver>0?`<div class="cfx" style="color:var(--bad);margin-bottom:8px">⚠ Overloaded by ${cargoOver} — RAW: the ship's silhouette-based handling/speed suffers until cargo is dropped (GM's call).</div>`:''}
+      <table class="invtable">
+        <tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
+        ${holdRows('cargo')||'<tr><td colspan="6" style="color:var(--dim)">empty hold — ＋ add item to load cargo</td></tr>'}
+      </table>
+      <div class="smugglebox">
+        <div class="smugglehead">🕵️ Smuggling Compartment <span class="smugtag">hidden · +${SHIP.smuggleCap} enc</span> <span class="reserve" title="Contraband stashed in the concealed compartment (separate from the main hold)" style="color:${smugOver>0?'var(--bad)':'var(--force)'}">enc ${smugWt.toFixed(1)} / ${SHIP.smuggleCap}</span> <button class="mini" onclick="addCargo('smuggle')">＋ add item</button></div>
+        ${smugOver>0?`<div class="cfx" style="color:var(--bad);margin:6px 0">⚠ Compartment overloaded by ${smugOver} — a bulging false floor invites discovery (GM may grant searchers Boost dice on Perception).</div>`:''}
+        <table class="invtable">
+          <tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
+          ${holdRows('smuggle')||'<tr><td colspan="6" style="color:var(--dim)">empty compartment — a concealed 10-enc space for contraband</td></tr>'}
+        </table>
+      </div>
+    </div>
+
+    <div class="shipsec"><h2>🧑‍🚀 Crew Stations</h2><div class="crewgrid">${crewRows}</div></div>
+    <datalist id="crewNames">${CHARS.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
+  </div>`;
+}
+
+function renderChips(){
+  const el = document.getElementById('viewChips');
+  const allOn = CHARS.every(c=>S.visible[c.id]);
+  el.innerHTML =
+    `<button class="chip ${allOn?'on':''}" onclick="viewAll()">👥 All</button>` +
+    CHARS.map(c=>`<button class="chip ${S.visible[c.id]?'on':''}" onclick="toggleView('${c.id}')">${c.name.split(' ')[0]}</button>`).join('');
+}
+function toggleView(id){ S.visible[id]=!S.visible[id]; render(); }
+function viewAll(){
+  const allOn = CHARS.every(c=>S.visible[c.id]);
+  CHARS.forEach(c=>S.visible[c.id]=!allOn);
+  render();
+}
+
+function setAct(id,v){
+  const cs = st(id);
+  if(cs.status){  // switching activity interrupts any timed status (keeps what was already gained)
+    const label = STATUSES[cs.status.kind].label.replace(/^\S+ /,'').toLowerCase();
+    cancelStatus(id, true);
+    logMsg(`✖ ${cfg(id).name} stops ${label} — now ${ACTS[v].label.replace(/^\S+ /,'').toLowerCase()}.`);
+  }
+  cs.activity = v;
+  render();
+}
+function setEnv(v){ S.env=v; logMsg(`🌍 Environment is now ${ENVS[v].label}.`); render(); }
+/* party-wide controls: act on every visible character */
+function partySetAct(v){
+  if(!v) return;
+  const names = [];
+  for(const cs of S.chars){
+    if(!S.visible[cs.id]) continue;
+    if(cs.status) cancelStatus(cs.id, true);
+    cs.activity = v;
+    names.push(cfg(cs.id).name.split(' ')[0]);
+  }
+  if(names.length) logMsg(`👥 Party activity: ${ACTS[v].label} — ${names.join(', ')}.`);
+  render();
+}
+function partyAddCond(v){
+  if(!v) return;
+  const def = CONDS[v], names = [];
+  for(const cs of S.chars){
+    if(!S.visible[cs.id]) continue;
+    if(!!def.droid !== !!cfg(cs.id).droid) continue;    // organic conds skip droids & vice versa
+    if(cs.conds.some(x=>x.id===v)) continue;
+    cs.conds.push(def.lvls ? {id:v, lvl:1} : {id:v});
+    names.push(cfg(cs.id).name.split(' ')[0]);
+  }
+  logMsg(names.length ? `${def.label} — applied to ${names.join(', ')}.` : `${def.label}: no eligible visible characters.`, 'lw');
+  render();
+}
+function setThresh(id,k,v){ st(id)[k]=parseInt(v)||0; render(); }
+function setStock(id,k,v){ st(id)[k]=Math.max(0,parseFloat(v)||0); render(); }
+function adj(id,k,d){ const cs=st(id); cs[k]=Math.max(0,cs[k]+d); render(); }
+function editNeed(id,key){
+  const cs=st(id);
+  const v=prompt(`Set ${key} (0 = satisfied, 100 = critical) for ${cfg(id).name}:`, Math.round(cs[key]));
+  if(v!==null && !isNaN(+v)){ cs[key]=clamp(+v,0,100); render(); }
+}
+function editWear(id,i){
+  const cs=st(id), it=cs.inv[i]; if(!it) return;
+  const v=prompt(`Set wear (0 = pristine, 100 = broken) for ${it.name||'this item'}:`, Math.round(it.wear||0));
+  if(v!==null && !isNaN(+v)){ it.wear=clamp(+v,0,100); render(); }
+}
+
+function logMsg(msg, cls){
+  S.log.unshift({t:clockStr(), m:msg, c:cls||''});
+  S.log = S.log.slice(0,100);
+  rebuildLog();
+  scheduleSync();   // log-only changes (notes, etc.) don't run render(); push them to the room
+}
+function rebuildLog(){
+  document.getElementById('logEntries').innerHTML =
+    (S.log||[]).map(l=>`<p class="${l.c}"><b>${l.t}</b> · ${l.m}</p>`).join('');
+}
+function addNote(){   // freeform player/GM note, timestamped at the current game time
+  const inp = document.getElementById('noteIn');
+  const text = (inp.value||'').trim();
+  if(!text) return;
+  inp.value='';
+  logMsg('📝 '+esc(text), 'ln');
+  inp.focus();
+}
+function clearLog(){ S.log=[]; rebuildLog(); scheduleSync(); }
+
+function showTab(t){
+  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['rules','tabR']]){
+    document.getElementById(pane).style.display = t===pane?'block':'none';
+    document.getElementById(btn).className      = t===pane?'on':'';
+  }
+}
+
+/* ================================================================
+   SAVE / LOAD
+   ================================================================ */
+function exportState(){
+  const blob = new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `survival_day${dayNow()+1}.json`;
+  a.click();
+}
+function importState(inp){
+  const f = inp.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = e => { try{ S = migrate(JSON.parse(e.target.result)); rebuildLog(); render(); }catch(err){ alert('Invalid save file.'); } };
+  r.readAsText(f);
+  inp.value='';
+}
+let resetArm = null;
+function resetAll(){  // two-click confirm (no blocking popup — works in embedded browsers too)
+  const btn = document.getElementById('resetBtn');
+  if(resetArm){
+    clearTimeout(resetArm); resetArm = null; btn.textContent = '↺ Reset';
+    S = freshState(); rebuildLog();
+    logMsg('↺ Tracker reset — Day 1, 00:00. All needs at 0, canteens full, droid packs recharged.');
+    render();
+  } else {
+    btn.textContent = '⚠ Click again to confirm';
+    resetArm = setTimeout(()=>{ resetArm = null; btn.textContent = '↺ Reset'; }, 4000);
+  }
+}
+
+/* ================================================================
+   RULES REFERENCE
+   ================================================================ */
+function buildRules(){
+  const envRows  = Object.values(ENVS).map(e=>`<tr><td>${e.label}</td><td>×${e.water}</td><td>×${e.hunger}</td><td>×${e.hyg}</td><td>×${e.rest}</td><td>×${e.power}</td><td>×${e.maint}</td></tr>`).join('');
+  const actRows  = Object.values(ACTS).map(a=>`<tr><td>${a.label}${a.dLabel!==a.label?` / ${a.dLabel}`:''}</td><td>×${a.water}</td><td>×${a.hunger}</td><td>×${a.hyg}</td><td>${a.rest>0?'+':''}${a.rest}/hr</td><td>×${a.power}</td><td>×${a.maint}</td></tr>`).join('');
+  const charRows = CHARS.filter(c=>!c.droid).map(c=>`<tr><td><b>${c.name}</b>${c.fs?' ✨':''}</td><td>${c.species}</td><td>${c.h}</td><td>${c.waterOz} oz (${(c.waterOz/OZ_PER_CANTEEN).toFixed(1)} canteens)</td><td>${c.rations} rations/meal</td><td>${c.trait}</td></tr>`).join('');
+  const droidRows = CHARS.filter(c=>c.droid).map(c=>`<tr><td><b>${c.name}</b> 🤖</td><td>${c.species}</td><td>${c.h}</td><td>~${c.packHrs} hrs / pack (light operation)</td><td>${c.trait}</td></tr>`).join('');
+  const ladderTable = key => `<table><tr><th>Tier</th><th>Score</th><th>Accrual</th><th>Effects</th></tr>` +
+    NEEDS[key].tiers.map((t,i)=>{
+      const next = NEEDS[key].tiers[i+1];
+      const range = next ? `${t.min}–${next.min-1}` : `${t.min}`;
+      const rate = (t.rate!=null && t.rate>0) ? `+${+t.rate.toFixed(2)}/hr (~${Math.round(t.rate*24*10)/10}/day)` : '—';
+      return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${rate}</td><td>${t.fx}</td></tr>`;
+    }).join('') + `</table>`;
+  const dtierRows = DTIERS.map((t,i)=>`<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.min}–${(DTIERS[i+1]?.min-1)??100}</td><td>${t.fx}</td></tr>`).join('');
+  const condRows = Object.entries(CONDS).map(([k,d])=>`<tr><td>${d.label}${d.droid?' (droid)':''}${d.lvls?` — up to ${d.lvls} levels`:''}</td><td>${typeof d.fx==='function'?d.fx(d.lvls||1):d.fx}</td></tr>`).join('');
+  const wtRows = Object.values(AUTO_ITEMS).map(a=>`<tr><td>${a.name}</td><td>${a.type}</td><td>${a.wt}</td></tr>`).join('');
+  document.getElementById('rules').innerHTML = `
+  <h2>How it works</h2>
+  <p>The game clock starts each day at <b>00:00</b> and can advance in 15-minute steps (+15 min, +30 min, +1 hr, or a custom span). Everyone begins fully provisioned with <b>all needs at 0</b>. <b>Organics</b> track five needs — 💧 thirst, 🍞 hunger, 🧼 hygiene, 😴 sleep debt, and ⚡ fatigue (0 = satisfied → 100 = critical); <b>droids</b> (BD-1, Alpha) track 🔋 charge and 🔧 wear. Needs rise with <b>environment</b>, <b>activity</b>, <b>encumbrance</b>, and <b>conditions</b>; organics also benefit from <b>Force commitment</b> (though the Force can't keep you clean).</p>
+  <p style="text-align:center"><b>Each organic need has its own condition ladder.</b> As a need climbs it crosses named tiers, and the effects of <i>every</i> need's current tier <b>stack together</b> in the card's effects box.<br>
+  Baseline (Cal, temperate, light activity): thirst kills in <b>~3 days</b> · hunger in <b>~21 days</b> · hygiene reaches Diseased in <b>~30 days</b> (never lethal by itself) · sleep debt maxes after <b>~4 days awake</b> · fatigue maxes after <b>~12.5 h</b> of unbroken light effort. <b>Sleep and fatigue never kill</b> — their top tiers cripple instead.<br>
+  <b>Droids: Degradation = 55% Charge + 45% Wear</b> (a single combined meter) <br>+8 for <i>each</i> meter at 70+ (deprivations compound). Model traits (BD-1's thrift, Alpha's sealed chassis) slow how fast the meters fill, not the formula.</p>
+
+  <h2>⏳ Timed statuses (eating, resting, sleeping…)</h2>
+  <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
+  <table><tr><th>Status</th><th>Takes</th><th>Total effect</th><th>Cost</th></tr>
+  <tr><td>🍽 Eat a ration</td><td>15 min</td><td>−25 hunger (one full tier; plus resting recovery while eating)</td><td>rations-per-meal ×1</td></tr>
+  <tr><td>🍲 Eat a meal (prepared)</td><td>30 min</td><td>−30 hunger, −5 fatigue (plus resting recovery)</td><td>rations-per-meal ×1.25</td></tr>
+  <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>−${SNACK_HUNGER} hunger</td><td>1 snack</td></tr>
+  <tr><td>🪑 Rest 15 / 30 min</td><td>15/30 min</td><td>−3 / −6 fatigue (plus resting recovery); sleep debt ticks at half rate while resting</td><td>—</td></tr>
+  <tr><td>🧘 Meditate 15 / 30 min (Force sensitives)</td><td>15/30 min</td><td>−8 / −14 fatigue; the 30-min trance also counts as 15 min of sleep</td><td>—</td></tr>
+  <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −12.5/hr (−10/hr for Kata); fatigue −10/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
+  <p><b>Eating caps:</b> while <b>Dehydrated+ (thirst ≥ ${REHYDRATE.thresh})</b> the body can't process food — meals and snacks restore only <b>half</b> their points. At <b>Starving+ (hunger ≥ ${REFEED.thresh})</b> refeeding is gradual and dangerous: only ~<b>${REFEED.capPts} pts</b> absorbed per careful meal, spaced hours apart — gorging triggers <b>refeeding shock</b> (a 🤒 Sick stack, GM's call; the food is wasted). Climbing out of Emaciated takes days of careful eating and rest.</p>
+
+  <h2>🧼 Hygiene actions (instant)</h2>
+  <p>Getting clean needs water — which competes with drinking, so in scarcity washing is a real choice.</p>
+  <table><tr><th>Action</th><th>Effect</th><th>Requires</th></tr>
+  <tr><td>🛁 Full wash / bath (15–30 min)</td><td>−${HYG.wash} hygiene (two tiers) — a proper scrub resets toward Fresh</td><td>ample water (GM approves)</td></tr>
+  <tr><td>🧻 Quick wipe-down / field clean</td><td>−${HYG.wipe} hygiene (one tier)</td><td>${HYG.wipeOz} oz canteen water (or a sonic shower — GM approves)</td></tr>
+  <tr><td>👕 Change into clean clothing</td><td>−${HYG.clothes} hygiene</td><td>a clean change of clothes (GM approves)</td></tr>
+  <tr><td>💊 Bacta / medical treatment</td><td>clears a 🤒 Sick stack — but not the grime; you still need to wash</td><td>medpac / bacta</td></tr></table>
+
+  <h2>Baseline depletion (temperate, light activity)</h2>
+  <table><tr><th>Need</th><th>Rate</th><th>Anchor</th></tr>
+  <tr><td>💧 Thirst</td><td>+1.0→2.0/hr (by tier)</td><td>0 → Collapse in ~3 days (~73 h) without water; accrual quickens as thirst deepens; wounds begin at 76 (Desiccated)</td></tr>
+  <tr><td>🍞 Hunger</td><td>+0.63/hr → +0.17/hr (by tier)</td><td>appetite hits fast — Hungry within a workday — then a long slow burn as the body rations reserves; Collapse at ~21 days; wounds (1/4 hrs) begin at 76 (Emaciated)</td></tr>
+  <tr><td>🧼 Hygiene</td><td>+0.52/hr → +0.065/hr (by tier)</td><td>grubby within days, genuine disease at ~30 days; never lethal by itself — its teeth are the 🤒 Sick stacks and social penalties (with one upside: filth boosts Coercion)</td></tr>
+  <tr><td>😴 Sleep debt</td><td>+${BASE.sleepAwake}/hr awake (any activity)</td><td>one tier per day awake: Drowsy ~25 h · Sleep-Deprived (microsleeps) ~48 h · Delirious ~72 h · Wrecked ~96 h; resting halves the tick; 8 hrs sleep (10 for Kata) fully restores; Exhausted fatigue makes it accrue +50%</td></tr>
+  <tr><td>⚡ Fatigue</td><td>+2/hr sedentary · +8/hr light · +16/hr moderate · +32/hr combat</td><td>activity-driven, not time-driven: a full unbroken day's march = Spent, sustained combat gets there in ~3 h; recovers −6/hr resting, −10/hr sleeping; sleep-deprivation makes it accrue ×1.5 and recover 25% less</td></tr>
+  <tr><td>🔋 Charge (droid)</td><td>+100 ÷ pack-hours per hr</td><td>BD-1 ~40 hrs/pack, Alpha ~20 hrs/pack on light duty; standby ×0.2, combat ×2.2</td></tr>
+  <tr><td>🔧 Wear (droid)</td><td>+${MAINT_BASE}/hr light duty</td><td>~9 days of light temperate duty to critical; harsh climates &amp; combat wear far faster</td></tr>
+  <tr><td>🗡 Wear (weapons &amp; worn gear)</td><td>+${WEAR_PER_HOUR.toFixed(3)}/hr (~${(WEAR_PER_HOUR*24).toFixed(1)}/day) ×env</td><td>ambient aging: pristine → broken in ~1 month (30 days) temperate, scaled by the environment's ×maint (up to ${ENVS.scorching.maint}× in Extreme Heat); plus +${WEAR_PER_USE} per use; tune-up/overhaul restore it</td></tr></table>
+
+  <h2>Environment multipliers</h2>
+  <table><tr><th>Environment</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${envRows}</table>
+  <p>Species/model adaptations (Tann's Twi'lek heat tolerance ~60% off, Merrin's Zabrak cold tolerance ~40% off, Alpha's sealed chassis) shrink the relevant penalty. Prolonged exposure can inflict 🥵 Overheated / 🥶 Chilled automatically (${Math.round(ENV_COND_CHANCE.scorching*100)}%/hr in extreme environments, ${Math.round(ENV_COND_CHANCE.hot*100)}%/hr in Hot/Cold) — the GM may waive or remove these with proper gear or shelter.</p>
+
+  <h2>Activity multipliers</h2>
+  <table><tr><th>Activity (organic / droid)</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue (flat /hr)</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${actRows}</table>
+
+  <h2>Characteristics &amp; encumbrance threshold</h2>
+  <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
+
+  <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
+  <p>Consumables (canteen, rations, snacks, stimpacks; droid power packs) are <b>automatically synced</b> between card counters and inventory — eat a ration and the inventory row updates; edit the row's qty and the counter updates. Auto rows (italic) can't be deleted; their weights are editable. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. Worn armor/clothing counts 0 while worn.</p>
+  <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
+  <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
+  <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>1</td></tr>
+  <tr><td>Blaster rifle / carbine</td><td>Weapon</td><td>2</td></tr>
+  <tr><td>Comlink</td><td>Gear</td><td>0.1</td></tr>
+  <tr><td>Datapad / grapnel / purifier / multitool</td><td>Gear</td><td>0.5</td></tr>
+  <tr><td>Toolkit</td><td>Tool</td><td>1</td></tr>
+  <tr><td>Worn armor/clothing</td><td>Armor</td><td>0 (worn)</td></tr></table>
+  <p>Each point over threshold: needs accrue <b>+${ENC_DRAIN_PER_PT*100}% faster</b> (sleep debt +${ENC_SLEEP_PER_PT*100}%); RAW: 1 Setback to Brawn/Agility checks per point over.</p>
+
+  <h2>🗡 Weapons &amp; Gear — equipment wear</h2>
+  <p>Any inventory row typed <b>Weapon</b> or <b>Gear (worn)</b> automatically appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from age &amp; exposure (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about a month of ownership — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(30/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b>. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
+  ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
+
+  <h2>🤒 Sick / Illness — the shared stacking condition</h2>
+  <p>One condition sits behind <b>dirty water</b> (Thirst), <b>spoiled food &amp; refeeding shock</b> (Hunger), and <b>infection</b> (Hygiene). Each bad exposure adds <b>1 stack</b> (the + on the badge). Washing or eating clean stops <i>new</i> stacks but never cures existing ones — each must be treated on its own.</p>
+  <table><tr><th>Stacks</th><th>State</th><th>Effect</th></tr>
+  <tr><td>1</td><td><b>Ill</b></td><td>1 Setback ■ to physical checks; 1 strain/hr; accelerates thirst &amp; hunger.</td></tr>
+  <tr><td>2</td><td><b>Sick</b></td><td>Upgrade the difficulty of physical checks once; 2 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.</td></tr>
+  <tr><td>3+</td><td><b>Gravely Ill</b></td><td>Fever/delirium: <b>−1 Brawn, −1 Intellect</b>; <b>1 wound every 4 hrs</b>; each stack past 3 upgrades another check. <b>Untreated, this is where it can kill</b> — the illness, not the meter.</td></tr></table>
+  <p><b>Recovery — each stack cleared separately:</b> once per day, a <b>Resilience check</b> (or a carer's <b>Medicine check</b>) removes 1 stack — but a failure or Despair at 3+ stacks <b>adds</b> a stack (a spiral if ignored). A <b>medpac</b> (successful Medicine) or <b>bacta</b> removes 1 stack outright. Recovery checks take <b>+1 Setback ■</b> while Squalid+, Dehydrated, or Starving — you can't shake illness in filthy or malnourished shape. Adjust stacks with −/+ on the badge; × removes the condition entirely.</p>
+  <p><b>Sources:</b> drinking <b>dirty/unfiltered water</b> or eating <b>spoiled food</b> forces a Resilience check — failure adds a stack. <b>Gorging</b> while Starving+ risks refeeding shock. Suffering a <b>wound while Filthy+</b> lets the GM spend ✕✕ (Threat) to infect it. <b>Squalid</b> demands a daily Resilience check; at <b>Diseased (100)</b> a stack is added automatically each day.</p>
+
+  <h2>🤕 Other conditions (stackable)</h2>
+  <p>Add conditions from each card's <b>＋ condition…</b> menu; they stack, multiply need rates, and all penalties are listed together in the effects box. <b>Hover a badge or menu option to see its effect.</b> Leveled conditions (🤒 stacks 1–5, 😨 fear 1–3) adjust with −/+ on the badge; × removes them (after treatment).</p>
+  <p><b>🏷 Custom conditions:</b> the <b>custom…</b> option at the bottom of the menu opens a small form right on the card — type a name and an effect line, then ✓ add (or press Enter). It appears as a badge (effect on hover), in the effects box, and in the log; it carries no automatic mechanics, so apply its effects at the table. <b>👥 Party controls</b> (next to Travel) set the <b>activity</b> of every visible character at once, or apply a <b>condition</b> to all visible eligible characters — use the Show chips to choose who's affected.</p>
+  <table><tr><th>Condition</th><th>Effect (at max level shown)</th></tr>${condRows}</table>
+
+  <h2>Organic characters (per day, temperate)</h2>
+  <table><tr><th>Character</th><th>Species</th><th>Height</th><th>Water / day</th><th>Rations</th><th>Traits</th></tr>${charRows}</table>
+
+  <h2>🤖 Droids (BD-1 &amp; Alpha)</h2>
+  <table><tr><th>Droid</th><th>Model</th><th>Height</th><th>Power draw</th><th>Traits</th></tr>${droidRows}</table>
+  <p>Droids ignore food, water, sleep, stimpacks, and the Force. Batteries work like canteens: the active pack drains with use, spares are swapped in and recharged at a power source. Droid conditions: ⚡ Ion-scrambled, 🧪 Corroded (tune-up cleans it), 🦿 Damaged actuator.</p>
+  <table><tr><th>Action</th><th>Effect</th><th>Requires</th></tr>
+  <tr><td>🔋 Swap pack</td><td>Charge resets to full; one charged spare becomes a depleted pack</td><td>a charged spare</td></tr>
+  <tr><td>⚡ Recharge</td><td>All depleted packs become charged</td><td>generator / ship power (GM approves)</td></tr>
+  <tr><td>🔧 Tune-up</td><td>−${TUNEUP} wear, cleans corrosion (~30 min)</td><td>toolkit + a pair of hands</td></tr>
+  <tr><td>🔧⚙ Overhaul</td><td>Wear reset to 0 (a couple of hours)</td><td>workshop / bench (GM approves)</td></tr></table>
+  <p><b>Dangers:</b> 🔋 at 100 = full shutdown until repowered. 🔧 at 100 = 1 wound/hour while operating. Droid wounds are repaired with Mechanics checks, not medicine.</p>
+  <h2>Droid degradation effects</h2>
+  <table><tr><th>Tier</th><th>Score</th><th>Effects</th></tr>${dtierRows}</table>
+
+  <h2>💉 Stimpacks (organics only, instant)</h2>
+  <table><tr><th>Effect</th><th>Detail</th></tr>
+  <tr><td>Wound healing</td><td>Diminishing returns per day (FFG standard): 1st heals <b>5</b> wounds, 2nd <b>4</b>, 3rd <b>3</b>, 4th <b>2</b>, 5th <b>1</b>. <b>Max ${STIM.maxHeals} healing uses per day.</b></td></tr>
+  <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue and −${STIM.strain} strain; fatigue accrues at <b>half rate for ${STIM.hours} hours</b>.</td></tr>
+  <tr><td>Overdose (${STIM.maxHeals+1}th+ in a day)</td><td>No healing. Stimulant still works, but the body is pushed past its limits: <b>+${STIM.odWounds} wounds per extra stim</b>.</td></tr></table>
+  <p>The "used today" counter resets at midnight (00:00, game clock).</p>
+
+  <h2>✨ Force commitment (Cal, Bode, Merrin, Pike)</h2>
+  <p>Force sensitives may commit <b>0–8 Force points</b> to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
+
+  <h2>💧 Thirst ladder</h2>
+  <p>Reaches Collapse in <b>~3 days</b> (~73 h). Each tier carries its own accrual rate; thirst quickens as it deepens.</p>
+  ${ladderTable('water')}
+  <p><b>Recovery:</b> clean water pulls thirst down — a full 20 oz canteen removes ~${DRINK_OZ_TO_PTS*OZ_PER_CANTEEN/60|0} pts (one tier) for a 60 oz body, a sip proportionally less. From <b>Dehydrated (${REHYDRATE.thresh}+)</b> the body can only absorb ~${REHYDRATE.capPts} pts per drink — chugging past that cramps and is wasted, so climbing out of the deep tiers takes real in-game time and a safe place to rest. <b>Dirty/unfiltered water</b> forces a Resilience check; failure adds a 🤒 Sick stack — which accelerates the thirst clock rather than relieving it. Desperate, but sometimes the only option.</p>
+
+  <h2>🍞 Hunger ladder</h2>
+  <p>Reaches Collapse in <b>~21 days</b> for a default frame. Appetite hits fast (Hungry within a workday) to encourage daily eating, then a long slow burn as the body rations reserves. One ration a day holds the line at Hungry or below.</p>
+  <p><b>Metabolism matters:</b> a distinctive frame carries a small <i>flat</i> hunger burn on top of the percentage, so a big or fast metabolism stays visibly hungrier day to day (Bode and Pike run a few points ahead of the party within the first day, and Collapse in ~14–15 days rather than 21) — the offset eases off as true starvation sets in, so the deep tiers stay near-proportional. Bode (massive frame) and Pike (racing metabolism) run hungriest; Gibbs a step behind.</p>
+  ${ladderTable('hunger')}
+  <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration removes ~25 pts (one tier), a snack ~10. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
+
+  <h2>🧼 Hygiene ladder</h2>
+  <p>Reaches Diseased in <b>~30 days</b>. Grime is decelerating — you feel grubby within days, but genuine disease takes a month. Hygiene never threatens life on its own: its teeth are the 🤒 Sick stacks and social penalties — with one upside: filth makes you scarier (Coercion stays Boosted at every dirty tier).</p>
+  ${ladderTable('hygiene')}
+
+  <h2>😴 Sleep ladder (sleep debt — no death)</h2>
+  <p>Mental and <i>time-awake-driven</i>: +${BASE.sleepAwake}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~25 h); <b>microsleeps begin around the 48 h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~72 h; <b>Wrecked at ~96 h</b> — four days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +50%). Only proper sleep clears it; resting ticks it at half rate; the 30-min Force trance counts as 15 min of sleep.</p>
+  ${ladderTable('sleep')}
+
+  <h2>⚡ Fatigue ladder (physical — no death)</h2>
+  <p>Physical and <i>activity-driven</i> — it climbs from doing, not time, and is managed all day with rest breaks. A full day's unbroken march leaves you Spent; sustained combat gets there in ~3 h.</p>
+  ${ladderTable('rest')}
+  <p><b>Coupling:</b> while <b>Sleep-Deprived (51+)</b>, fatigue accrues <b>×1.5</b> and rest recovers <b>25% less</b> — tired minds wear out bodies faster. At <b>Exhausted (76+) fatigue</b>, sleep debt accrues <b>+50%</b> — a worn-out body craves rest. Sleep clears both; rest chips both; meditation is how a Jedi buys alertness without a bunk.</p>
+
+  <h2>🎲 Homebrew dice hooks</h2>
+  <table><tr><th>Trigger</th><th>Hook</th></tr>
+  <tr><td>💧 Parched+ · any physical check</td><td>GM may spend <b>✕✕ (Threat)</b> for a cramp or dry heave — 1 strain, no roll needed.</td></tr>
+  <tr><td>💧 Desiccated · Perception/Vigilance</td><td>GM may spend Threat to conjure a <b>mirage</b> — Cal <i>perceives</i> water that isn't there. Fuel for delirium and bad decisions.</td></tr>
+  <tr><td>🍞 Famished+ · any check</td><td>GM may spend <b>✕✕ (Threat)</b> for a hunger pang or dizzy spell — 1 strain, no roll needed.</td></tr>
+  <tr><td>🍞 Emaciated · Discipline/Cool</td><td>GM may spend Threat to force a <b>food fixation</b> — break position to forage, eat something unsafe, or lunge at rations. Starvation erodes judgment.</td></tr>
+  <tr><td>🧼 Filthy+ · suffering a wound</td><td>GM may spend <b>✕✕ (Threat)</b> to infect it — gain a 🤒 Sick stack.</td></tr>
+  <tr><td>🧼 Filthy+ · being tracked</td><td>Predators and trackers gain <b>1 Boost □</b> to find or follow you — something in the air.</td></tr>
+  <tr><td>🧼 Squalid · daily Resilience check</td><td>A <b>Triumph</b> wards off infection <i>and</i> buys a day's grace before the next check.</td></tr>
+  <tr><td>😴 Sleep-Deprived+ · any check</td><td>GM may spend <b>✕✕ (Threat)</b> for a <b>microsleep</b> — lose the next maneuver.</td></tr>
+  <tr><td>⚡ Any tier · Athletics/Resilience</td><td>Spend a <b>Triumph</b> for a <b>second wind</b> — drop one fatigue tier for the rest of the scene.</td></tr>
+  <tr><td>😴 Wrecked / ⚡ Spent · any check</td><td>GM may spend a <b>Despair</b> to trigger the involuntary collapse / stagger immediately.</td></tr>
+  <tr><td>🎯 Survival check to forage / find water</td><td>A <b>Triumph</b> yields a real windfall — drop the matching need a full tier, not just a few points.</td></tr></table>
+
+  <h2>Need-specific dangers (organics)</h2>
+  <table><tr><th>Condition</th><th>Effect</th></tr>
+  <tr><td>💧 Thirst ≥ 76 (Desiccated)</td><td><b>1 wound per hour</b> (ignores soak) — organ failure; continues through Collapse. At 100: hourly Daunting Resilience check or death.</td></tr>
+  <tr><td>🍞 Hunger ≥ 76 (Emaciated)</td><td><b>1 wound every 4 hours</b> untended; cannot heal wounds naturally. At 100: Daunting Resilience check every 6 hours or death.</td></tr>
+  <tr><td>🧼 Hygiene at 100 (Diseased)</td><td>Gains a 🤒 <b>Sick stack each day</b> — the meter never kills, but Gravely Ill (3+ stacks) can.</td></tr>
+  <tr><td>🤒 Sick at 3+ stacks</td><td><b>1 wound every 4 hours</b> — untreated illness is lethal on its own clock.</td></tr>
+  <tr><td>😴 Sleep / ⚡ fatigue extremes</td><td>Never lethal — at their worst they cripple checks and force collapse into sleep / stagger rather than wounds</td></tr>
+  <tr><td>Strain ≥ threshold</td><td>Unconscious (droids: disabled) until strain recovers below threshold</td></tr>
+  <tr><td>Wounds &gt; threshold</td><td>Critical Injury; dying without aid per core rules (droids: critical damage, major repairs)</td></tr></table>
+
+  <h2>🖼 Portraits, scene, location &amp; travel</h2>
+  <p><b>Portraits:</b> the 🖼 button on each card uploads a character image, tinted red as damage mounts — clear at 0 wounds up to a ${HURT_MAX_OPACITY*100}%-opacity red overlay at the wound threshold. Images live in the save file.</p>
+  <p><b>Scene:</b> the 🖼 scene button (next to Environment) sets an ambience banner that displays the <b>current location and environment</b>; swap it whenever the story moves.</p>
+  <p><b>Location &amp; travel:</b> type the current location, a destination, and travel hours. Every advanced step counts down the ETA; on arrival the destination becomes the current location and the log announces it.</p>
+  <p><b>Event log:</b> type in the note field and press Enter (or 📝 add note) to drop a freeform player/GM note into the log, timestamped at the current game time — handy for plot beats, rolls, or reminders. The ⟳ clear button empties the log without touching anything else. Notes are saved with everything else.</p>
+
+  <h2>🔗 Live multiplayer</h2>
+  <p>The <b>🔗 Live</b> bar at the top puts your whole table on one shared tracker in real time. One person clicks <b>✨ Create</b> to start a <b>room</b>, then <b>🔗 Copy link</b> and sends it to the group — anyone who opens that link joins automatically. (You can also paste a room code or link into the <b>Room</b> box and click <b>Join</b>.) Your room is remembered on this device, so you rejoin automatically next time; the status light reads <b style="color:var(--good)">● live</b> when you're connected.</p>
+  <p><b>Everyone edits, and changes appear for everyone within about a second — no save or refresh button.</b> Edits are merged per character, so two people updating <i>different</i> characters at the same moment won't overwrite each other. If a live update arrives while you're typing in a field, it waits until you click away rather than yanking the box out from under you. Put your name in the <b>You</b> box so the group can see who's driving. The shared log is best-effort — two log lines created in the same instant can occasionally collide, though the underlying character changes still merge.</p>
+  <p><b>Portraits, the scene banner &amp; the ship image are GM-set</b> — they load from the site's <code>img/</code> folder (which only the GM can change), so players always see the same art and can't alter it. The <b>Show</b> chips are a personal view filter and stay on your own screen. The <b>💾 Save</b> / <b>📂 Load</b> file buttons still export/import a private JSON snapshot for backups or solo/offline play, independent of any room.</p>
+
+  <h2>Recovery</h2>
+  <p><b>Sleep</b>: a full night (8 hrs; 10 for Kata) zeroes sleep debt and heavily restores fatigue — one 8 h sleep clears ~100 sleep debt and ~80 fatigue. <b>Strain</b> recovers per core rules (Cool/Discipline after encounters, full night's rest) — clear it with the − button. <b>Wounds</b> from dehydration/starvation heal only via medicine, stimpacks, or bacta <i>after</i> the underlying need is back below 50 — and remember: Emaciated blocks natural healing entirely, and Squalid or 2+ Sick stacks halve healing. Droid wounds need Mechanics repairs. Organic effects come straight from each need's current tier — satisfy the need and its penalties lift as you cross back down each threshold; the droid degradation meter has no separate track and falls automatically as charge/wear are tended.</p>
+  <h2>🚀 Mantis (Longshot) — ship card</h2>
+  <p>The <b>🚀 Mantis</b> tab tracks the ship on the same party clock. Set its <b>flight status</b> and every advance of the clock burns fuel at that rate; systems also wear with sustained operation. Fuel, hull, strain, system conditions, torpedo ammo and crew assignments are all saved and loaded with everything else.</p>
+  <p>The <b>${SHIP.name}</b> is an <b>${SHIP.class}</b>. Standard FFG stat block: <b>Silhouette ${SHIP.silhouette}, Speed ${SHIP.speed}, Handling ${SHIP.handling}, Armor ${SHIP.armor}</b>; Hull Trauma ${SHIP.hullThreshold}, System Strain ${SHIP.strainThreshold}; Defense ${SHIP.defense.fore}/${SHIP.defense.port}/${SHIP.defense.stbd}/${SHIP.defense.aft} (F/P/S/A); Hyperdrive ${SHIP.hyperdrive}; Sensors ${sensorRangeFor(SHIP_ENERGY_DEFAULT)} (at default energy); ${SHIP.hardpoints} hard points; ${SHIP.passengers} passengers; consumables ${SHIP.consumables}.</p>
+  <h2>⛽ Fuel (homebrew — ${SHIP.fuelCap}-ton tank)</h2>
+  <p>The tank holds <b>${SHIP.fuelCap} tons</b>, calibrated so mixed idling/cruising lasts <b>~30 days</b> — matching the 1-month consumables rating. As the clock advances the ship burns at its current flight status. Use <b>Log burn</b> to deduct a one-off jump without advancing the party clock, <b>Set</b> to override the gauge, or <b>refuel</b> at port.</p>
+  <table><tr><th>Flight status</th><th>Fuel burn</th></tr>${Object.values(SHIP_ACTS).map(a=>`<tr><td>${a.label}</td><td>${a.tph} t/hr${a.tph>0?` (~${+(a.tph*24).toFixed(1)} t/day)`:''}</td></tr>`).join('')}</table>
+  <h2>🔩 System condition (homebrew — 0 to 5)</h2>
+  <p>Eight major systems each carry a rating from <b>5 Pristine</b> down to <b>0 Offline</b>. A system loses one pip per in-game <b>week of powered operation without maintenance</b> (docked/powered-down time doesn't count), or immediately from a critical hit (use 💥 damage). Restore a pip with a <b>Mechanics check</b> (🔧 repair, ~4 hrs) whose difficulty scales with how degraded the system is — success restores one level, a Triumph may restore two, a Despair may cause further damage (GM's call).</p>
+  <table><tr><th>Rating</th><th>Status</th><th>Effect</th><th>Repair difficulty</th></tr>${[5,4,3,2,1,0].map(v=>{const c=shipCond(v);return `<tr><td style="color:${c.color};font-weight:700">${v}</td><td>${c.name}</td><td>${c.fx}</td><td>${c.repair}</td></tr>`;}).join('')}</table>
+  <p>Systems map to the ship: ${SHIP_SYSTEMS.map(s=>`<b>${s.name}</b> (${s.affects.toLowerCase()})`).join(', ')}.</p>
+  <h2>⚡ Energy distribution (homebrew)</h2>
+  <p>Every system starts at the same <b>default draw of ${SHIP_ENERGY_DEFAULT}</b> (of a max ${SHIP_ENERGY_MAX}). Pull points off a system with its <b>−</b> button to bank them in the <b>reserve pool</b>, then route the reserve into other systems with <b>+</b>. Total energy is conserved — the ↺ balance button restores the default split. Energy changes how fast a system wears: each point <b>above</b> default multiplies its wear rate by <b>+${ENERGY_WEAR_SLOPE*100}%</b>, each point <b>below</b> slows it by the same, and a fully <b>starved (0) system doesn't wear at all</b>.</p>
+  <table><tr><th>Energy</th><th>Wear rate</th><th>Sensors &amp; Comms range</th></tr>${[0,1,2,3,4,5].map(e=>`<tr><td>${e}${e===SHIP_ENERGY_DEFAULT?' (default)':''}</td><td>×${energyWearMult(e).toFixed(2)}</td><td>${sensorRangeFor(e)}</td></tr>`).join('')}</table>
+  <p><b>📡 Sensor range</b> is driven by the energy fed to <b>Sensors &amp; Comms</b> — pick a range from its dropdown and the ship draws (or frees) the needed reserve energy automatically. Reaching for <b>Long</b> or <b>Extreme</b> means starving other systems to feed the sensors, and running them that hot wears them faster.</p>
+  <p><b>⚡ Overcharge bonuses:</b> route a system all the way to <b>${SHIP_ENERGY_MAX} energy</b> and it grants a characteristic bonus (on top of the faster wear). The bonus applies while the system is held at max; drop it and the bonus is lost. Feeding one system to ${SHIP_ENERGY_MAX} costs ${SHIP_ENERGY_MAX-SHIP_ENERGY_DEFAULT} points pulled from the rest of the ship, so overcharging is a deliberate trade.</p>
+  <table><tr><th>System at ${SHIP_ENERGY_MAX} energy</th><th>Overcharge bonus</th></tr>${SHIP_SYSTEMS.filter(s=>SHIP_ENERGY_BONUS[s.id]).map(s=>`<tr><td>${s.icon} ${s.name}</td><td>${SHIP_ENERGY_BONUS[s.id].label}</td></tr>`).join('')}</table>
+  <p>The Shields bonus is <b>${SHIP_ENERGY_BONUS.shields.defense} defence dice you distribute across the four arcs</b> on the defense diagram; the Engines Speed/Handling bonus shows live in the core stat bar, the Hyperdrive jump improvement shows in the Condition panel, and weapon-damage bonuses show in the weapons table. (Sensors' payoff is its extended range; Life Support has no overcharge bonus.)</p>
+  <h2>🔫 Ship weapons</h2>
+  <table><tr><th>Group</th><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${SHIP_WEAPONS.map(g=>g.items.map((w,i)=>`<tr><td>${i===0?g.group:''}</td><td>${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td>${w.dmg}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('')).join('')}</table>
+  <p>Weapon groups reference their system's condition (a degraded Heavy Guns system penalizes the Laser Cannon and Turbolaser together). The <b>Proton Torpedo Launcher</b> tracks limited ammo (starts at ${SHIP.torpedoes}) — <b>fire</b> to decrement, <b>reload</b> at port.</p>
+
+  <p style="color:var(--dim)">💡 Print this tab (Ctrl/Cmd+P) for a paper reference — only the rules print, not the tracker.</p>`;
+}
+
+/* ================================================================
+   MULTIPLAYER SYNC — live shared "room" via Firebase Realtime Database.
+   Everyone in a room edits the same tracker and changes propagate in <1s.
+   - Anyone can edit. Writes are per-character, so two people editing
+     DIFFERENT characters don't clobber each other.
+   - A live update that lands while you're typing in a field is held until
+     you finish (focus guard), then applied.
+   - Images are GM-set repo files (img/…) and are never synced.
+   - 'visible' (the Show chips) stays local to each device — a view pref.
+   Known limit: the shared log is last-write-wins, so two log entries created
+   within the same moment can collide; character edits still merge cleanly.
+   ================================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAyrGynBaL0MTqru_DeBktBF036Efa7dAg",
+  authDomain: "survival-tracker-46047.firebaseapp.com",
+  databaseURL: "https://survival-tracker-46047-default-rtdb.firebaseio.com",
+  projectId: "survival-tracker-46047",
+  storageBucket: "survival-tracker-46047.firebasestorage.app",
+  messagingSenderId: "128759739941",
+  appId: "1:128759739941:web:60fa302ef28ac2e593b1cc"
+};
+
+const CLOUD = {
+  db: null,          // firebase database handle (null → offline/solo)
+  room: null,        // room id
+  ref: null,         // rooms/<id>/state ref we're subscribed to
+  _conn: null,       // .info/connected ref
+  player: 'Player',
+  online: false,     // firebase connection state
+  synced: false,     // false until we've received the room's first snapshot (blocks join-clobber)
+  applying: false,   // true while writing a remote update into S (suppresses echo)
+  shadow: null,      // sync-subset of the state we believe is on the server (for diffing)
+  pending: null,     // a remote update deferred because the user is mid-edit
+  syncTimer: null,   // debounce handle for outbound writes
+};
+
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+function setPlayerName(n){
+  CLOUD.player = (n||'').trim() || 'Player';
+  lsSet('st_player', CLOUD.player);
+  const el = document.getElementById('playerIn');
+  if(el && CLOUD.player!=='Player' && el.value!==CLOUD.player) el.value = CLOUD.player;
+}
+
+/* ---- helpers -------------------------------------------------- */
+// The slice of S that syncs: everything EXCEPT local view prefs (visible) and
+// GM image fields. Deep-cloned so callers may diff or store it freely.
+function syncSubset(state){
+  const c = JSON.parse(JSON.stringify(state));
+  delete c.visible; delete c.ambImg;
+  if(c.ship) delete c.ship.img;
+  if(Array.isArray(c.chars)) c.chars.forEach(ch=>{ delete ch.img; });
+  return c;
+}
+// Firebase returns arrays as index-keyed objects; turn those back into arrays.
+function arrayify(v){
+  if(v && typeof v==='object' && !Array.isArray(v)){
+    const keys = Object.keys(v);
+    if(keys.length && keys.every(k=>/^\d+$/.test(k)))
+      return keys.sort((a,b)=>a-b).map(k=>v[k]);
+  }
+  return v;
+}
+// Order-independent serialization, so RTDB key reordering isn't seen as a change.
+function stable(v){
+  if(v===null || typeof v!=='object') return JSON.stringify(v);
+  if(Array.isArray(v)) return '['+v.map(stable).join(',')+']';
+  return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';
+}
+
+function syncNote(msg, cls){
+  const el = document.getElementById('syncMsg'); if(!el) return;
+  el.textContent = msg;
+  el.style.color = cls==='bad' ? 'var(--bad)' : cls==='ok' ? 'var(--gold)' : 'var(--dim)';
+}
+function liveLabel(){
+  const el = document.getElementById('roomState'); if(!el) return;
+  if(!CLOUD.room){ el.textContent='solo — not shared'; el.style.color='var(--dim)'; }
+  else if(!CLOUD.db){ el.textContent='offline — sync unavailable'; el.style.color='var(--bad)'; }
+  else if(CLOUD.online){ el.textContent='● live · room '+CLOUD.room.slice(0,6); el.style.color='var(--good)'; }
+  else { el.textContent='○ connecting · room '+CLOUD.room.slice(0,6); el.style.color='var(--warn)'; }
+  const rin=document.getElementById('roomIn'); if(rin && CLOUD.room && rin.value!==CLOUD.room) rin.value=CLOUD.room;
+}
+function setRoomId(id){
+  CLOUD.room = id || null;
+  if(id){ lsSet('st_room', id); try{ if(location.hash!=='#room='+id) history.replaceState(null,'','#room='+id); }catch(e){} }
+  else { lsSet('st_room',''); try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} }
+  liveLabel();
+}
+
+/* ---- focus guard: is the user mid-edit in a field? ------------ */
+function isEditing(){
+  const a = document.activeElement; if(!a) return false;
+  const t = (a.tagName||'').toUpperCase();
+  if(t==='TEXTAREA' || t==='SELECT') return true;
+  if(t==='INPUT'){ const ty=(a.type||'text').toLowerCase(); return ty!=='file' && ty!=='button' && ty!=='checkbox' && ty!=='radio'; }
+  return a.isContentEditable===true;
+}
+
+/* ---- outbound: push local changes (debounced, per-character) --- */
+function scheduleSync(){
+  if(!CLOUD.db || !CLOUD.room || CLOUD.applying || !CLOUD.synced) return;
+  clearTimeout(CLOUD.syncTimer);
+  CLOUD.syncTimer = setTimeout(pushLocal, 180);
+}
+function pushLocal(){
+  if(!CLOUD.db || !CLOUD.room || CLOUD.applying || !CLOUD.synced) return;
+  const cur = syncSubset(S), prev = CLOUD.shadow, updates = {};
+  for(const k in cur){
+    if(k==='chars'){
+      const a = cur.chars||[], b = (prev&&prev.chars)||[];
+      for(let i=0;i<a.length;i++) if(JSON.stringify(a[i])!==JSON.stringify(b[i])) updates['chars/'+i]=a[i];
+    } else if(JSON.stringify(cur[k])!==JSON.stringify(prev?prev[k]:undefined)){
+      updates[k]=cur[k];
+    }
+  }
+  if(!Object.keys(updates).length) return;
+  CLOUD.shadow = cur;                              // optimistic; reset on failure so we resend
+  CLOUD.db.ref('rooms/'+CLOUD.room+'/state').update(updates)
+    .then(()=> CLOUD.db.ref('rooms/'+CLOUD.room+'/meta').set({ by:CLOUD.player, ts:Date.now() }))
+    .catch(e=>{ CLOUD.shadow = null; syncNote('Sync error: '+e.message, 'bad'); });
+}
+
+/* ---- inbound: a room snapshot arrived -------------------------- */
+function onRoomSnap(remote){
+  if(remote==null){                       // empty room → seed it with our current state
+    CLOUD.shadow = null; CLOUD.synced = true; pushLocal(); return;
+  }
+  remote.chars = arrayify(remote.chars);
+  remote.log   = arrayify(remote.log);
+  const rSub = syncSubset(remote);
+  if(CLOUD.shadow && stable(rSub)===stable(CLOUD.shadow)) return;  // our own echo — ignore
+  if(isEditing()){ CLOUD.pending = remote; syncNote('Update waiting — finishing your edit…', 'ok'); return; }
+  applyRemote(remote);
+}
+// 3-way merge so a player's own edits are never lost to an incoming update.
+// base = state we last had from the server, local = our current, remote = incoming.
+// Any key/character WE changed since base wins locally; everything else takes remote.
+function threeWayMerge(base, local, remote){
+  const out = JSON.parse(JSON.stringify(remote));
+  const eq = (a,b)=> JSON.stringify(a)===JSON.stringify(b);
+  base = base || {};
+  for(const k in local){
+    if(k==='chars'){
+      const L=local.chars||[], B=base.chars||[];
+      out.chars = out.chars || [];
+      for(let i=0;i<L.length;i++) if(!eq(L[i], B[i])) out.chars[i] = L[i];   // we edited this character
+    } else if(!eq(local[k], base[k])){
+      out[k] = local[k];                                                     // we edited this field
+    }
+  }
+  return out;
+}
+function applyRemote(remote){
+  CLOUD.applying = true;
+  const remoteSub = syncSubset(remote);
+  // On the very first snapshot adopt the room wholesale; afterwards merge so our
+  // own in-flight edits survive an incoming update.
+  const merged = (CLOUD.synced && CLOUD.shadow)
+    ? threeWayMerge(CLOUD.shadow, syncSubset(S), remoteSub) : remoteSub;
+  const localVisible = S.visible;
+  const next = migrate(JSON.parse(JSON.stringify(merged)));
+  next.visible = localVisible || {};
+  for(const c of CHARS) if(next.visible[c.id]===undefined) next.visible[c.id]=true;
+  S = next;
+  CLOUD.shadow = remoteSub;                 // server truth is the remote; preserved local diffs re-push below
+  CLOUD.synced = true;
+  rebuildLog(); render();
+  CLOUD.applying = false;
+  scheduleSync();                           // push any edits the merge preserved over the remote
+  liveLabel();
+}
+
+/* ---- room lifecycle ------------------------------------------- */
+function detachRoom(){
+  if(CLOUD.ref){ CLOUD.ref.off(); CLOUD.ref=null; }
+  if(CLOUD._conn){ CLOUD._conn.off(); CLOUD._conn=null; }
+}
+function attachRoom(id){
+  if(!CLOUD.db){ syncNote('Live sync unavailable (offline or Firebase blocked).', 'bad'); return; }
+  detachRoom();
+  CLOUD.shadow = null; CLOUD.synced = false; CLOUD.pending = null;
+  CLOUD._conn = CLOUD.db.ref('.info/connected');
+  CLOUD._conn.on('value', s=>{ CLOUD.online=!!s.val(); liveLabel(); });
+  CLOUD.ref = CLOUD.db.ref('rooms/'+id+'/state');
+  CLOUD.ref.on('value', snap=> onRoomSnap(snap.val()),
+    err=> syncNote('Live error: '+err.message, 'bad'));
+}
+function randomId(){
+  const a = new Uint8Array(9);
+  if(window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+  else for(let i=0;i<a.length;i++) a[i]=Math.floor(Math.random()*256);
+  return Array.from(a, b=>b.toString(16).padStart(2,'0')).join('');
+}
+function roomCreate(){
+  if(!CLOUD.db){ syncNote('Live sync unavailable — are you offline?', 'bad'); return; }
+  const id = randomId();
+  setRoomId(id); attachRoom(id);
+  syncNote('Live room created — click 🔗 Copy link and send it to your players.', 'ok');
+  logMsg('🔗 Live room created ('+id.slice(0,6)+'…). Everyone with the link edits together in real time.');
+}
+function roomJoin(id){
+  id = (typeof id==='string' ? id : (document.getElementById('roomIn')||{}).value || '').trim();
+  const m = id.match(/room=([0-9a-fA-F-]+)/); if(m) id = m[1];      // accept a pasted share link
+  if(!id){ syncNote('Enter a room code (or paste the share link) first.', 'bad'); return; }
+  if(!CLOUD.db){ syncNote('Live sync unavailable — are you offline?', 'bad'); return; }
+  setRoomId(id); attachRoom(id);
+  syncNote('Joining room '+id.slice(0,6)+'…');
+}
+function roomLeave(){
+  detachRoom(); setRoomId(null);
+  CLOUD.synced = false; CLOUD.shadow = null; CLOUD.pending = null;
+  const rin=document.getElementById('roomIn'); if(rin) rin.value='';
+  syncNote('Left the room — back to solo. Your local data is untouched.');
+}
+async function roomCopyLink(){
+  if(!CLOUD.room){ syncNote('Create or join a room first.', 'bad'); return; }
+  const url = location.href.split('#')[0] + '#room=' + CLOUD.room;
+  try{ await navigator.clipboard.writeText(url); syncNote('Share link copied — send it to your players.', 'ok'); }
+  catch(e){ syncNote('Copy failed — the link is in your address bar to copy manually.', 'bad'); }
+}
+
+function initCloud(){
+  const savedName = lsGet('st_player');
+  if(savedName){ setPlayerName(savedName); const el=document.getElementById('playerIn'); if(el) el.value=savedName; }
+  try{
+    if(typeof firebase!=='undefined' && FIREBASE_CONFIG.apiKey){
+      firebase.initializeApp(FIREBASE_CONFIG);
+      CLOUD.db = firebase.database();
+    }
+  }catch(e){ CLOUD.db=null; syncNote('Live sync unavailable: '+e.message, 'bad'); }
+  // apply a remote update that was deferred while a field had focus
+  document.addEventListener('focusout', ()=> setTimeout(()=>{
+    if(CLOUD.pending && !isEditing()){ const r=CLOUD.pending; CLOUD.pending=null; applyRemote(r); }
+  }, 60));
+  // safety net: every 2s, diff local state against the room and push anything that
+  // slipped through (a mutation whose handler forgot to trigger a sync). pushLocal
+  // is a no-op when nothing changed, so this is cheap and writes nothing when idle.
+  setInterval(()=>{ if(CLOUD.db && CLOUD.room && CLOUD.synced && !CLOUD.applying) pushLocal(); }, 2000);
+  // if the page is already open and the room in the URL changes (e.g. someone
+  // clicks a link to a different room), switch rooms live instead of ignoring it
+  window.addEventListener('hashchange', ()=>{
+    const hm = (location.hash||'').match(/room=([0-9a-fA-F-]+)/);
+    const hid = hm ? hm[1] : '';
+    if(hid && hid!==CLOUD.room && CLOUD.db){ setRoomId(hid); attachRoom(hid); syncNote('Switched to room '+hid.slice(0,6)+'…'); }
+  });
+  // auto-join from the URL hash, else the last room used on this device
+  const m = (location.hash||'').match(/room=([0-9a-fA-F-]+)/);
+  const id = m ? m[1] : (lsGet('st_room') || '');
+  if(id && CLOUD.db){ setRoomId(id); attachRoom(id); }
+  else liveLabel();
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+function init(){
+  S = freshState();
+  document.getElementById('envSel').innerHTML =
+    Object.entries(ENVS).map(([k,e])=>`<option value="${k}">${e.label}</option>`).join('');
+  document.getElementById('partyAct').innerHTML = `<option value="">activity…</option>` +
+    Object.entries(ACTS).map(([k,a])=>`<option value="${k}">${a.label}</option>`).join('');
+  document.getElementById('partyCond').innerHTML = `<option value="">condition…</option>` +
+    Object.entries(CONDS).map(([k,d])=>`<option value="${k}" title="${condTitle(d)}">${d.label}${d.droid?' (droids)':''}</option>`).join('');
+  buildRules();
+  logMsg('Tracker v6 initialized — full five-need overhaul (thirst · hunger · hygiene · sleep · fatigue). Day 1, 00:00. May the Force sustain you.');
+  render();
+  probeScene(render);   // load img/scene.* if present, then re-render the banner
+  initCloud();
+}
+init();
+</script>
+</body>
+</html>
