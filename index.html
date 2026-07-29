@@ -431,7 +431,7 @@ const AUTO_ITEMS = {
   rations:{name:'Field rations',                  type:'Food',    wt:0.2},
   snacks: {name:'Snacks',                         type:'Food',    wt:0.05},
   stims:  {name:'Stimpacks',                      type:'Medical', wt:0.05},
-  packs:  {name:'Power packs (spares)',           type:'Gear',    wt:0.5}
+  packs:  {name:'Power packs (spares)',           type:'Gear',    wt:0.1}
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
@@ -474,29 +474,29 @@ const ACTS = {
 const CHARS = [
  {id:'cal',   name:'Cal Kestis',  species:'Human', h:`5'11"`, build:'Slender/Muscular', fs:true,
   waterOz:60, rations:1.5, mods:{}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
-  kit:[ ['Lightsaber','Weapon',2,0.5], ['Disruptor pistol','Weapon',1,1], ['Grappling hook','Tool',1,0.5],
-        ['Comlink','Gear',1,0.1], ['Datapad','Gear',1,0.5], ['Water purifier','Gear',1,0.5],
-        ['BD-1 battery packs','Gear',2,0.25], ['Armored clothing (worn)','Armor',1,0] ],
+  kit:[ ['Lightsaber','Weapon',2,0.5], ['Disruptor pistol','Weapon',1,0.5], ['Grappling hook','Tool',1,0.1],
+        ['Comlink','Gear',1,0.1], ['Datapad','Gear',1,0.5], ['Water purifier','Gear',1,0.1],
+        ['BD-1 battery packs','Gear',2,0.1], ['Armored clothing (worn)','Armor',1,0] ],
   trait:'Jedi — may commit Force points to sustain his body.'},
  {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true,
   waterOz:80, rations:2.0, mods:{hungerRate:1.15}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
-  kit:[ ['Blaster pistol','Weapon',1,1], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
+  kit:[ ['Blaster pistol','Weapon',1,0.5], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
   trait:'Force sensitive. Massive frame — highest food & water demand; a big body\'s steady burn means hunger sets in far faster and keeps gnawing.'},
  {id:'tann',  name:'Tann',        species:"Twi'lek", h:`6'1"`, build:'Average', fs:false,
   waterOz:60, rations:1.5, mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
-  kit:[ ['Blaster carbine','Weapon',1,2], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
+  kit:[ ['Blaster carbine','Weapon',1,1], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
   trait:'Ryloth heritage — heat raises her water needs only ~40% as much as anyone else\'s.'},
  {id:'gibbs', name:'Gibbs',       species:'Human', h:`5'5"`,  build:'Muscular', fs:false,
   waterOz:60, rations:1.5, mods:{hungerRate:1.1}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
-  kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.5], ['Comlink','Gear',1,0.1] ],
+  kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.25], ['Comlink','Gear',1,0.1] ],
   trait:'Compact and dense — burns fuel like a much bigger man; hunger sets in noticeably faster and stays ahead of the party.'},
  {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Slender', fs:true,
   waterOz:40, rations:1.0, mods:{hungerRate:1.2, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
-  kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Gear',1,0] ],
+  kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Gear (pack)',1,2] ],
   trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party, burning through reserves fastest; tireless (fatigues 15% slower).'},
  {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
   waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
-  kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.2] ],
+  kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.1] ],
   trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less.'},
  {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Slender', fs:false,
   waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
@@ -816,7 +816,9 @@ function clockStr(){
 const fmtDur = h => h>=1 ? `${(+h.toFixed(2))} hr` : `${Math.round(h*60)} min`;
 // Gear (pack): counts 0 toward carried weight; its "Enc ea" value is capacity granted per pack.
 const isPack    = it => (it.type||'').toLowerCase()==='gear (pack)';
-const invWeight = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?0:(it.qty||0)*(it.wt||0)), 0);
+// Armor never counts toward encumbrance (worn or not); weapons & Gear (worn) do.
+const isArmor   = it => (it.type||'').toLowerCase()==='armor';
+const invWeight = cs => cs.inv.reduce((a,it)=>a + ((isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
 const packBonus = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
 const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
@@ -1477,6 +1479,8 @@ function invSection(cs){
     const pack = isPack(it);
     const totCell = pack
       ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${(it.qty*it.wt).toFixed(2)}</td>`
+      : isArmor(it)
+      ? `<td class="tot" style="color:var(--dim)" title="Armor is worn — doesn't count toward encumbrance">—</td>`
       : `<td class="tot">${(it.qty*it.wt).toFixed(2)}</td>`;
     return `<tr><td>${name}</td><td>${type}</td>
       <td>${qty}</td>
@@ -2062,15 +2066,17 @@ function buildRules(){
   <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
-  <p>Consumables (canteen, rations, snacks, stimpacks; droid power packs) are <b>automatically synced</b> between card counters and inventory — eat a ration and the inventory row updates; edit the row's qty and the counter updates. Auto rows (italic) can't be deleted; their weights are editable. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. Worn armor/clothing counts 0 while worn.</p>
+  <p>Consumables (canteen, rations, snacks, stimpacks; droid power packs) are <b>automatically synced</b> between card counters and inventory — eat a ration and the inventory row updates; edit the row's qty and the counter updates. Auto rows (italic) can't be deleted; their weights are editable. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
   <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
   <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
-  <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>1</td></tr>
-  <tr><td>Blaster rifle / carbine</td><td>Weapon</td><td>2</td></tr>
-  <tr><td>Comlink</td><td>Gear</td><td>0.1</td></tr>
-  <tr><td>Datapad / grapnel / purifier / multitool</td><td>Gear</td><td>0.5</td></tr>
+  <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>0.5</td></tr>
+  <tr><td>Blaster carbine</td><td>Weapon</td><td>1</td></tr>
+  <tr><td>Blaster rifle</td><td>Weapon</td><td>2</td></tr>
+  <tr><td>Vibroknife / brass knuckles</td><td>Weapon</td><td>0.25</td></tr>
+  <tr><td>Comlink / grapnel / water purifier</td><td>Gear</td><td>0.1</td></tr>
+  <tr><td>Datapad / multitool</td><td>Gear</td><td>0.5</td></tr>
   <tr><td>Toolkit</td><td>Tool</td><td>1</td></tr>
-  <tr><td>Worn armor/clothing</td><td>Armor</td><td>0 (worn)</td></tr>
+  <tr><td>Armor (any)</td><td>Armor</td><td>0 (never counts)</td></tr>
   <tr><td>Backpack / satchel / load-bearing rig</td><td>Gear (pack)</td><td>+cap (see below)</td></tr></table>
   <p>Each point over threshold: needs accrue <b>+${ENC_DRAIN_PER_PT*100}% faster</b> (sleep debt +${ENC_SLEEP_PER_PT*100}%); RAW: 1 Setback to Brawn/Agility checks per point over.</p>
   <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
