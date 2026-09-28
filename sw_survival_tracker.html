@@ -256,7 +256,7 @@
   </div>
   <div class="group" style="margin-left:auto">
     <span class="label">📍 Location</span>
-    <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+this.value);render()">
+    <input type="text" id="locIn" placeholder="current location" onchange="S.location=this.value;logMsg('📍 Location: '+esc(this.value));render()">
   </div>
   <div class="group">
     <span class="label">Environment</span>
@@ -779,6 +779,8 @@ function migrate(s){ // patch older saves
   }
   for(const k of ['ambImg','location','travelDest']) if(s[k]===undefined) s[k]='';
   if(s.travelEta===undefined) s.travelEta=0;
+  // RTDB deletes keys set to empty arrays, so a cleared log comes back undefined
+  s.log = arrayify(s.log); if(!Array.isArray(s.log)) s.log=[];
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
     const d = freshShip();
@@ -918,7 +920,7 @@ function tick(cs, dt){
     const before = it.wear||0;
     if(before>=100) continue;
     it.wear = clamp(before + WEAR_PER_HOUR*wearEnv*dt, 0, 100);
-    if(before<100 && it.wear>=100) events.push(['lw',`🗡 ${c.name}'s ${it.name||'equipment'} is worn out (Broken) — repair before relying on it.`]);
+    if(before<100 && it.wear>=100) events.push(['lw',`🗡 ${c.name}'s ${esc(it.name||'equipment')} is worn out (Broken) — repair before relying on it.`]);
   }
 
   // timed status payload & countdown
@@ -1014,14 +1016,19 @@ function advance(hrs){
   if(!hrs || hrs<=0) return;
   let left = hrs;
   while(left > 0){
-    const dt = Math.min(1, left); left = +(left-dt).toFixed(3);
+    let dt = Math.min(1, left);
+    // stop the chunk at the next timed-status boundary, so the activity a status
+    // imposes (eating, sleeping, medical) never bleeds past its actual duration
+    for(const cs of S.chars)
+      if(cs.status && cs.status.remain >= 0.01 && cs.status.remain < dt) dt = cs.status.remain;
+    left = +(left-dt).toFixed(3);
     S.hour = +(S.hour+dt).toFixed(3);
     for(const cs of S.chars) for(const ev of tick(cs, dt)) logMsg(ev[1], ev[0]);
     for(const ev of tickShip(dt)) logMsg(ev[1], ev[0]);
     if(S.travelDest && S.travelEta>0){
       S.travelEta = Math.max(0, +(S.travelEta-dt).toFixed(2));
       if(S.travelEta===0){
-        logMsg(`🧭 The party arrives at ${S.travelDest}.`, 'lg');
+        logMsg(`🧭 The party arrives at ${esc(S.travelDest)}.`, 'lg');
         S.location = S.travelDest; S.travelDest = '';
       }
     }
@@ -1387,19 +1394,19 @@ function setInv(id,i,k,v){
 function useItem(id,i){
   const cs=st(id), it=cs.inv[i]; if(!it) return;
   it.wear = clamp((it.wear||0)+WEAR_PER_USE, 0, 100);
-  logMsg(`🔧 ${cfg(id).name} uses ${it.name||'an item'} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
+  logMsg(`🔧 ${cfg(id).name} uses ${esc(it.name||'an item')} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
   render();
 }
 function tuneItem(id,i){
   const cs=st(id), it=cs.inv[i]; if(!it) return;
   it.wear = clamp((it.wear||0)-GEAR_TUNEUP, 0, 100);
-  logMsg(`🔧 ${cfg(id).name} tunes up ${it.name||'an item'} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
+  logMsg(`🔧 ${cfg(id).name} tunes up ${esc(it.name||'an item')} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
   render();
 }
 function overhaulItem(id,i){
   const cs=st(id), it=cs.inv[i]; if(!it) return;
   it.wear = 0;
-  logMsg(`🔧⚙ ${cfg(id).name} fully overhauls ${it.name||'an item'} — wear reset to 0. Requires a bench/kit (GM approves).`, 'ld');
+  logMsg(`🔧⚙ ${cfg(id).name} fully overhauls ${esc(it.name||'an item')} — wear reset to 0. Requires a bench/kit (GM approves).`, 'ld');
   render();
 }
 
@@ -1942,6 +1949,7 @@ function editWear(id,i){
 }
 
 function logMsg(msg, cls){
+  if(!Array.isArray(S.log)) S.log=[];   // belt & braces — see migrate()
   S.log.unshift({t:clockStr(), m:msg, c:cls||''});
   S.log = S.log.slice(0,100);
   rebuildLog();
@@ -1959,7 +1967,7 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
   logMsg('📝 '+esc(text), 'ln');
   inp.focus();
 }
-function clearLog(){ S.log=[]; rebuildLog(); scheduleSync(); }
+function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
 function showTab(t){
   for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['rules','tabR']]){
@@ -2263,8 +2271,29 @@ function syncSubset(state){
   const c = JSON.parse(JSON.stringify(state));
   delete c.visible; delete c.ambImg;
   if(c.ship) delete c.ship.img;
-  if(Array.isArray(c.chars)) c.chars.forEach(ch=>{ delete ch.img; });
-  return c;
+  if(Array.isArray(c.chars)) c.chars.forEach(ch=>{
+    delete ch.img;
+    delete ch.invOpen; delete ch.customOpen; delete ch.gearOpen;   // per-player UI state stays local
+  });
+  return prune(c);
+}
+// RTDB refuses to store nulls and empty arrays/objects (it deletes the key
+// instead), so strip them from the wire format too — otherwise our local copy
+// never matches the server echo, every diff looks dirty, and the 3-way merge
+// sees phantom edits. migrate() restores the defaults on the way back in.
+function prune(v){
+  if(Array.isArray(v)){ v.forEach(prune); return v; }
+  if(v && typeof v==='object'){
+    for(const k of Object.keys(v)){
+      const x = v[k];
+      if(x===null || x===undefined){ delete v[k]; continue; }
+      if(typeof x==='object'){
+        prune(x);
+        if((Array.isArray(x) ? x.length : Object.keys(x).length)===0) delete v[k];
+      }
+    }
+  }
+  return v;
 }
 // Firebase returns arrays as index-keyed objects; turn those back into arrays.
 function arrayify(v){
@@ -2324,6 +2353,10 @@ function pushLocal(){
     if(k==='chars'){
       const a = cur.chars||[], b = (prev&&prev.chars)||[];
       for(let i=0;i<a.length;i++) if(JSON.stringify(a[i])!==JSON.stringify(b[i])) updates['chars/'+i]=a[i];
+    } else if(k==='ship'){   // per-subkey, so concurrent edits to different ship systems don't clobber
+      const a = cur.ship||{}, b = (prev&&prev.ship)||{};
+      for(const kk of new Set([...Object.keys(a), ...Object.keys(b)]))
+        if(JSON.stringify(a[kk])!==JSON.stringify(b[kk])) updates['ship/'+kk] = a[kk]===undefined ? null : a[kk];
     } else if(JSON.stringify(cur[k])!==JSON.stringify(prev?prev[k]:undefined)){
       updates[k]=cur[k];
     }
@@ -2359,6 +2392,11 @@ function threeWayMerge(base, local, remote){
       const L=local.chars||[], B=base.chars||[];
       out.chars = out.chars || [];
       for(let i=0;i<L.length;i++) if(!eq(L[i], B[i])) out.chars[i] = L[i];   // we edited this character
+    } else if(k==='ship'){   // merge ship one level deep, mirroring the per-subkey pushes
+      const L=local.ship||{}, B=base.ship||{};
+      out.ship = out.ship || {};
+      for(const kk in L) if(!eq(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
+      for(const kk in B) if(!(kk in L)) delete out.ship[kk];                 // we emptied this list
     } else if(!eq(local[k], base[k])){
       out[k] = local[k];                                                     // we edited this field
     }
@@ -2376,6 +2414,10 @@ function applyRemote(remote){
   const next = migrate(JSON.parse(JSON.stringify(merged)));
   next.visible = localVisible || {};
   for(const c of CHARS) if(next.visible[c.id]===undefined) next.visible[c.id]=true;
+  for(const ch of next.chars){   // keep this player's own open panels open across remote updates
+    const old = S && S.chars && S.chars.find(x=>x.id===ch.id);
+    if(old){ ch.invOpen=old.invOpen; ch.customOpen=old.customOpen; ch.gearOpen=old.gearOpen; }
+  }
   S = next;
   CLOUD.shadow = remoteSub;                 // server truth is the remote; preserved local diffs re-push below
   CLOUD.synced = true;
