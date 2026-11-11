@@ -299,3 +299,17 @@ I-05 to I-12 fixed in one commit; harness and `./tools/sim.sh` green:
 Harness: `tools/sim.sh` now pins the needs it is not measuring (and strain/wounds), which the pass-1 "unconscious = resting" rule had made necessary.
 
 Still open: I-13 (water per day, snack size: taste), I-14 (adaptation scope on fatigue), I-15 (thirst death-roll redundancy), I-16 (Poisoned text), I-17 (stim literal), I-18 (hunger curve shape: taste), I-19 (ship idling wear).
+
+## Resolution, part 3 (2026-11-11)
+
+I-14 to I-17 and I-19 fixed in one commit; harness and `./tools/sim.sh` green:
+
+| Finding | Change | Measured after |
+|---|---|---|
+| I-14 | climate fatigue multiplier × `climateAdapt`; traits and Rules text widened | Merrin in Extreme Cold 5.52 fatigue/hr vs Cal 7.5; Tann in Extreme Heat 6.0 vs 7.5 |
+| I-15 | Desiccated `hourly: dehydTick` every `DEHYD_WOUND_HRS` = 2; Collapse keeps 1/hr; `cs.dehydHrs` resets below 76 | Collapse 12 h after Desiccated with 6 wounds; wounds exceed threshold 7 h later (sim: 19 h after Desiccated, meter at 100) |
+| I-16 | Poisoned fx text | mentions +20% water |
+| I-17 | `STIM.fatigueMult` 0.5 | 2.5 fatigue/hr walking on a stim; Rules say ×0.5 |
+| I-19 | `SHIP_ACTS[..].wear`: docked 0, idling 0.25, cruising 1, atmo 1.5, combat 2, hyperspace 1.5 | a day idling adds 6 wear-hours (a pip per 4 weeks), cruising 24, combat 48 |
+
+Still open, both GM taste: I-13 (daily water and snack size) and I-18 (hunger curve shape).

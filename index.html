@@ -327,7 +327,7 @@ const ENC_SLEEP_PER_PT = 0.05;   // +5% sleep-debt accrual
 const FORCE_PER_PT = 0.08;       // −8% accrual per point (8 pts = −64%)
 
 // Stimpacks (organics only, instant injection)
-const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5 };
+const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5, fatigueMult:0.5 };   // fatigueMult: fatigue accrual while the stimulant lasts
 
 // Drinking. A character's `waterOz` is the water a full day of light activity in a
 // temperate climate costs them, so drinking that much cancels exactly one day of
@@ -342,6 +342,7 @@ const REHYDRATE = { thresh:51, capOz:10, waitHrs:0.25 };   // waitHrs: no second
 // restore only half their points until rehydrated.
 const REFEED = { thresh:51, capPts:10 };
 const STARVE_WOUND_HRS = 12;     // Emaciated+: one wound of organ damage per this many hours
+const DEHYD_WOUND_HRS  = 2;      // Desiccated: one wound per this many hours (1 per hour once Collapsed), so the death roll at 100 gets its window
 
 // Sleep ↔ Fatigue coupling
 const SLEEP_FATIGUE = { thresh:51, accrual:1.5, recovery:0.75 }; // sleep-deprived: fatigue ×1.5, rest recovery ×0.75
@@ -399,7 +400,7 @@ const CONDS = {
   soaked:    {label:'💧 Soaked', mult:{rest:1.1},
               fx:()=> '💧 Soaked: 1 Setback ■ to Agility-based checks; in Cold environments also counts as Chilled.'},
   poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ addStrain(cs, 1); }, mult:{water:1.2},
-              fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks.'},
+              fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks; vomiting and sweats: +20% water.'},
   limping:   {label:'🦵 Limping', mult:{rest:1.3},
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
@@ -492,7 +493,7 @@ const CHARS = [
  {id:'tann',  name:'Tann',        species:"Twi'lek", h:`6'1"`, build:'Average', fs:false,
   waterOz:60, rations:1.5, mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster carbine','Weapon',1,1], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
-  trait:'Ryloth heritage — heat raises her water needs only ~40% as much as anyone else\'s.'},
+  trait:'Ryloth heritage — heat costs her only ~40% of the extra water, fatigue and exposure risk it costs anyone else.'},
  {id:'gibbs', name:'Gibbs',       species:'Human', h:`5'5"`,  build:'Muscular', fs:false,
   waterOz:60, rations:1.5, mods:{hungerRate:1.15}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.25], ['Comlink','Gear',1,0.1] ],
@@ -504,7 +505,7 @@ const CHARS = [
  {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
   waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
   kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.1] ],
-  trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less.'},
+  trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less (extra calories, fatigue, Chilled and its onset).'},
  {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Slender', fs:false,
   waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1, hungerRate:1.15}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Doll','Gear',1,0.1], ['Comlink','Gear',1,0.1] ],
@@ -528,6 +529,10 @@ const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunni
       strain? per hour while awake, wounds? per hour, hourly?(cs,c,events,cap)}.
    Thirst accelerates (each % of body water lost hurts more than the last);
    hunger and grime decelerate (appetite is loud early, then the body rations). */
+const dehydTick = (cs,c,ev,cap) => {    // Desiccated: organ damage on a slower clock than Collapse
+  cs.dehydHrs++;
+  if(cs.dehydHrs%DEHYD_WOUND_HRS===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — thirst (Desiccated).`]); }
+};
 const starveTick = (cs,c,ev,cap) => {   // shared by Emaciated and Collapse
   cs.starveHrs++;
   if(cs.starveHrs%STARVE_WOUND_HRS===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); }
@@ -542,8 +547,8 @@ const NEEDS = {
      fx:'Headache, sticky mouth, irritability. Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions (sprint, climb, melee) cost <b class="lw">+1 strain</b> each. Fully reversible with a real drink.'},
     {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6,
      fx:'Dizziness, cramps, mental fog. <b>−1 Brawn and −1 Agility</b>. <span class="dice chal">Upgrade the difficulty</span> of all Intellect and Cunning checks once. <b>Disoriented</b>: moving one range band costs an extra maneuver. <b class="lw">2 strain at the start of every encounter.</b> Meals restore only half nourishment until rehydrated.'},
-    {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, wounds:1,
-     fx:'Delirium, sunken eyes, muscles failing. <b>−2 Brawn, −2 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lb">1 wound per hour</b> untended. <b>Staggered</b> on any <b>Despair</b> as consciousness slips.'},
+    {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, hourly:dehydTick,
+     fx:`Delirium, sunken eyes, muscles failing. <b>−2 Brawn, −2 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lb">1 wound every ${DEHYD_WOUND_HRS} hrs</b> untended. <b>Staggered</b> on any <b>Despair</b> as consciousness slips.`},
     {min:100, name:'Collapse',   color:'#a40000', rate:0, wounds:1,
      hourly:(cs,c,ev)=>{ ev.push(['lb',`💧 ${c.name} is collapsed from dehydration — Daunting (◆◆◆◆) Resilience check this hour or death; the difficulty upgrades every hour after.`]); },
      fx:`Unconscious. Each hour: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, and the difficulty upgrades every hour after. <b class="lb">1 wound / hour.</b> Careful rehydration (~${REHYDRATE.capOz} oz per drink) must begin before failure. This is the rescue window.`}
@@ -691,12 +696,12 @@ const overcharged = id => S.ship.energy[id]===SHIP_ENERGY_MAX && !!SHIP_ENERGY_B
 // tph = fuel tons/hour. On a full tank (SHIP.fuelCap): ~55 days of continuous sublight
 // cruising, ~100 hrs in hyperspace — the Rules tab derives the exact figures.
 const SHIP_ACTS = {
-  docked:    {label:'⚓ Docked / Powered Down',            tph:0},
-  idling:    {label:'🅿️ Idling (systems on, stationary)',  tph:0.05},
-  cruising:  {label:'🛰 Orbiting / Sublight Cruising',      tph:0.15},
-  atmo:      {label:'🛫 Atmospheric Flight',               tph:0.3},
-  combat:    {label:'⚔️ Combat Maneuvering',               tph:0.5},
-  hyperspace:{label:'🌀 Hyperspace',                       tph:2.0}
+  docked:    {label:'⚓ Docked / Powered Down',            tph:0,    wear:0},
+  idling:    {label:'🅿️ Idling (systems on, stationary)',  tph:0.05, wear:0.25},
+  cruising:  {label:'🛰 Orbiting / Sublight Cruising',      tph:0.15, wear:1},
+  atmo:      {label:'🛫 Atmospheric Flight',               tph:0.3,  wear:1.5},
+  combat:    {label:'⚔️ Combat Maneuvering',               tph:0.5,  wear:2},
+  hyperspace:{label:'🌀 Hyperspace',                       tph:2.0,  wear:1.5}
 };
 
 const SHIP_SYSTEMS = [
@@ -762,7 +767,7 @@ function newCharState(c){
     ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
     : { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
         lastTiers:Object.fromEntries(NEED_KEYS.map(k=>[k,0])),
-        starveHrs:0, hygHrs:0, sickHrs:0, lastDrinkAt:-99, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
+        starveHrs:0, dehydHrs:0, hygHrs:0, sickHrs:0, lastDrinkAt:-99, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
         sleepHrs:c.mods.sleepNeed||SLEEP.hoursDefault,
         stimsToday:0, stimDay:0, stimHrs:0, force:0 });
   syncInv(cs);
@@ -940,7 +945,10 @@ function tick(cs, dt){
     // fatigue: activity-driven; sleep deprivation slows recovery and speeds accrual
     const sleepDep = cs.sleep >= SLEEP_FATIGUE.thresh;
     if(act.rest < 0) cs.rest = clamp(cs.rest + act.rest*(sleepDep?SLEEP_FATIGUE.recovery:1)*dt, 0, 100);
-    else cs.rest = clamp(cs.rest + act.rest*env.rest*(c.mods.restRate||1)*encM*fM*(cs.stimHrs>0?0.5:1)*(sleepDep?SLEEP_FATIGUE.accrual:1)*condMult(cs,'rest')*dt, 0, 100);
+    else {
+      const rEnv = envMult(env.rest, (env.heat||env.cold) ? climateAdapt(c, !!env.heat) : 1);   // adapted species feel less of the climate's extra fatigue
+      cs.rest = clamp(cs.rest + act.rest*rEnv*(c.mods.restRate||1)*encM*fM*(cs.stimHrs>0?STIM.fatigueMult:1)*(sleepDep?SLEEP_FATIGUE.accrual:1)*condMult(cs,'rest')*dt, 0, 100);
+    }
 
     const prevSleep = cs.sleep;
     if(isStandby){
@@ -1066,6 +1074,7 @@ function applyHourly(cs, c, events, woundCap, isStandby, actKey){
     t.hourly?.(cs, c, events, woundCap);
   }
   if(cs.hunger < 76)  cs.starveHrs = 0;   // starvation wound clock runs only while Emaciated+
+  if(cs.water < 76)   cs.dehydHrs = 0;    // dehydration wound clock runs only while Desiccated+
   if(cs.hygiene < 76) cs.hygHrs = 0;      // daily hygiene checks run only while Squalid+
   if(!cs.conds.some(x=>x.id==='sick')) cs.sickHrs = 0;
 
@@ -1335,12 +1344,13 @@ function tickShip(dt){
     if(pb>10 && pa<=10) ev.push(['lw',`⛽ Mantis fuel critical — below 10% (${(SHIP.fuelCap*0.1)}t).`]);
     if(pb>0  && pa<=0)  ev.push(['lb','🪫 Mantis is OUT OF FUEL — dead in space until refueled.']);
   }
-  // system wear: ~one condition pip per week of powered operation without maintenance,
-  // scaled by each system's energy draw (over-default speeds wear, under-default slows it)
-  if(sh.activity!=='docked'){
+  // system wear: ~one condition pip per week of cruising without maintenance, scaled by the
+  // flight status (idling a quarter, combat double) and by each system's energy draw
+  // (over-default speeds wear, under-default slows it)
+  if(act.wear>0){
     for(const s of SHIP_SYSTEMS){
       if(sh.systems[s.id]<=0){ sh.sysHrs[s.id]=0; continue; }
-      sh.sysHrs[s.id] = +((sh.sysHrs[s.id]||0) + dt*energyWearMult(sh.energy[s.id])).toFixed(3);
+      sh.sysHrs[s.id] = +((sh.sysHrs[s.id]||0) + dt*act.wear*energyWearMult(sh.energy[s.id])).toFixed(3);
       while(sh.sysHrs[s.id]>=SHIP_MAINT_WEEK && sh.systems[s.id]>0){
         sh.sysHrs[s.id] = +(sh.sysHrs[s.id]-SHIP_MAINT_WEEK).toFixed(3);
         sh.systems[s.id]--;
@@ -2159,7 +2169,7 @@ function buildRules(){
 
   <h2>Environment multipliers</h2>
   <table><tr><th>Environment</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${envRows}</table>
-  <p>Cold never lowers water needs — dry air, heavier breathing and cold diuresis keep losses at or above temperate while thirst is felt less — but it does raise calorie burn. Species/model adaptations (Tann's Twi'lek heat tolerance ~60% off, Merrin's Zabrak cold tolerance ~40% off, Alpha's sealed chassis) shrink the relevant penalty. Prolonged exposure can inflict 🥵 Overheated / 🥶 Chilled automatically (${Math.round(ENV_COND_CHANCE.scorching*100)}%/hr in extreme environments, ${Math.round(ENV_COND_CHANCE.hot*100)}%/hr in Hot/Cold) — the GM may waive or remove these with proper gear or shelter.</p>
+  <p>Cold never lowers water needs — dry air, heavier breathing and cold diuresis keep losses at or above temperate while thirst is felt less — but it does raise calorie burn. Species/model adaptations (Tann's Twi'lek heat tolerance ~60% off, Merrin's Zabrak cold tolerance ~40% off, Alpha's sealed chassis) shrink every extra the climate adds — water or calories, fatigue, the Chilled/Overheated condition and its onset chance. Prolonged exposure can inflict 🥵 Overheated / 🥶 Chilled automatically (${Math.round(ENV_COND_CHANCE.scorching*100)}%/hr in extreme environments, ${Math.round(ENV_COND_CHANCE.hot*100)}%/hr in Hot/Cold) — the GM may waive or remove these with proper gear or shelter.</p>
 
   <h2>Activity multipliers</h2>
   <table><tr><th>Activity (organic / droid)</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue (flat /hr)</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${actRows}</table>
@@ -2220,7 +2230,7 @@ function buildRules(){
   <h2>💉 Stimpacks (organics only, instant)</h2>
   <table><tr><th>Effect</th><th>Detail</th></tr>
   <tr><td>Wound healing</td><td>Diminishing returns per day (FFG standard): 1st heals <b>5</b> wounds, 2nd <b>4</b>, 3rd <b>3</b>, 4th <b>2</b>, 5th <b>1</b>. <b>Max ${STIM.maxHeals} healing uses per day.</b></td></tr>
-  <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue and −${STIM.strain} strain; fatigue accrues at <b>half rate for ${STIM.hours} hours</b>.</td></tr>
+  <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue and −${STIM.strain} strain; fatigue accrues at <b>×${STIM.fatigueMult} for ${STIM.hours} hours</b>.</td></tr>
   <tr><td>Overdose (${STIM.maxHeals+1}th+ in a day)</td><td>No healing. Stimulant still works, but the body is pushed past its limits: <b>+${STIM.odWounds} wounds per extra stim</b>.</td></tr></table>
   <p>The "used today" counter resets at midnight (00:00, game clock).</p>
 
@@ -2267,7 +2277,7 @@ function buildRules(){
 
   <h2>Need-specific dangers (organics)</h2>
   <table><tr><th>Condition</th><th>Effect</th></tr>
-  <tr><td>💧 Thirst ≥ 76 (Desiccated)</td><td><b>1 wound per hour</b> (ignores soak) — organ failure; continues through Collapse. At 100: hourly Daunting Resilience check or death.</td></tr>
+  <tr><td>💧 Thirst ≥ 76 (Desiccated)</td><td><b>1 wound every ${DEHYD_WOUND_HRS} hours</b> (ignores soak) — organ failure; <b>1 per hour</b> once Collapsed. At 100: hourly Daunting Resilience check or death — those few hours are the rescue window.</td></tr>
   <tr><td>🍞 Hunger ≥ 76 (Emaciated)</td><td><b>1 wound every ${STARVE_WOUND_HRS} hours</b> untended; cannot heal wounds naturally. At 100: Daunting Resilience check every 6 hours or death.</td></tr>
   <tr><td>🧼 Hygiene at 100 (Diseased)</td><td>Gains a 🤒 <b>Sick stack each day</b> — the meter never kills, but Gravely Ill (3+ stacks) can.</td></tr>
   <tr><td>🤒 Sick at 3+ stacks</td><td><b>1 wound every 4 hours</b> — untreated illness is lethal on its own clock.</td></tr>
@@ -2296,9 +2306,9 @@ function buildRules(){
   <p>The <b>${SHIP.name}</b> is an <b>${SHIP.class}</b>. Standard FFG stat block: <b>Silhouette ${SHIP.silhouette}, Speed ${SHIP.speed}, Handling ${SHIP.handling}, Armor ${SHIP.armor}</b>; Hull Trauma ${SHIP.hullThreshold}, System Strain ${SHIP.strainThreshold}; Defense ${SHIP.defense.fore}/${SHIP.defense.port}/${SHIP.defense.stbd}/${SHIP.defense.aft} (F/P/S/A); Hyperdrive ${SHIP.hyperdrive}; Sensors ${sensorRangeFor(SHIP_ENERGY_DEFAULT)} (at default energy); ${SHIP.hardpoints} hard points; ${SHIP.passengers} passengers; consumables ${SHIP.consumables}.</p>
   <h2>⛽ Fuel (homebrew — ${SHIP.fuelCap}-ton tank)</h2>
   <p>The tank holds <b>${SHIP.fuelCap} tons</b> — enough for ~${Math.round(SHIP.fuelCap/SHIP_ACTS.cruising.tph/24)} days of continuous sublight cruising or ~${Math.round(SHIP.fuelCap/SHIP_ACTS.hyperspace.tph)} hours in hyperspace. As the clock advances the ship burns at its current flight status. Use <b>Log burn</b> to deduct a one-off jump without advancing the party clock, <b>Set</b> to override the gauge, or <b>refuel</b> at port.</p>
-  <table><tr><th>Flight status</th><th>Fuel burn</th></tr>${Object.values(SHIP_ACTS).map(a=>`<tr><td>${a.label}</td><td>${a.tph} t/hr${a.tph>0?` (~${+(a.tph*24).toFixed(1)} t/day)`:''}</td></tr>`).join('')}</table>
+  <table><tr><th>Flight status</th><th>Fuel burn</th><th>System wear</th></tr>${Object.values(SHIP_ACTS).map(a=>`<tr><td>${a.label}</td><td>${a.tph} t/hr${a.tph>0?` (~${+(a.tph*24).toFixed(1)} t/day)`:''}</td><td>${a.wear>0?`×${a.wear}`:'—'}</td></tr>`).join('')}</table>
   <h2>🔩 System condition (homebrew — 0 to 5)</h2>
-  <p>Eight major systems each carry a rating from <b>5 Pristine</b> down to <b>0 Offline</b>. A system loses one pip per in-game <b>week of powered operation without maintenance</b> (docked/powered-down time doesn't count), or immediately from a critical hit (use 💥 damage). Restore a pip with a <b>Mechanics check</b> (🔧 repair, ~4 hrs) whose difficulty scales with how degraded the system is — success restores one level, a Triumph may restore two, a Despair may cause further damage (GM's call).</p>
+  <p>Eight major systems each carry a rating from <b>5 Pristine</b> down to <b>0 Offline</b>. A system loses one pip per in-game <b>week of cruising without maintenance</b> (docked time doesn't count; idling wears at ×${SHIP_ACTS.idling.wear}, atmospheric flight and hyperspace ×${SHIP_ACTS.atmo.wear}, combat ×${SHIP_ACTS.combat.wear}, all further scaled by energy draw), or immediately from a critical hit (use 💥 damage). Restore a pip with a <b>Mechanics check</b> (🔧 repair, ~4 hrs) whose difficulty scales with how degraded the system is — success restores one level, a Triumph may restore two, a Despair may cause further damage (GM's call).</p>
   <table><tr><th>Rating</th><th>Status</th><th>Effect</th><th>Repair difficulty</th></tr>${[5,4,3,2,1,0].map(v=>{const c=shipCond(v);return `<tr><td style="color:${c.color};font-weight:700">${v}</td><td>${c.name}</td><td>${c.fx}</td><td>${c.repair}</td></tr>`;}).join('')}</table>
   <p>Systems map to the ship: ${SHIP_SYSTEMS.map(s=>`<b>${s.name}</b> (${s.affects.toLowerCase()})`).join(', ')}.</p>
   <h2>⚡ Energy distribution (homebrew)</h2>
