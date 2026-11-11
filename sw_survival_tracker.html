@@ -765,7 +765,11 @@ function freshState(){
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
     chars: CHARS.map(newCharState), ship: freshShip(), log: [] };
 }
-function migrate(s){ // patch older saves
+function migrate(s){ // patch older saves (and room snapshots)
+  s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
+  // a save or room written by a build with a different roster: drop ids this build doesn't know
+  const unknown = s.chars.filter(cs=>!cs || !cfg(cs.id)).map(cs=>cs ? cs.id : '?');
+  if(unknown.length) s.chars = s.chars.filter(cs=>cs && cfg(cs.id));
   if(!s.visible){
     s.visible = Object.fromEntries(CHARS.map(c=>[c.id, !s.view || s.view==='all' || s.view===c.id]));
     delete s.view;
@@ -775,6 +779,7 @@ function migrate(s){ // patch older saves
     if(s.visible[c.id]===undefined) s.visible[c.id]=true;
   }
   for(const cs of s.chars){
+    for(const k of ['inv','conds']) cs[k] = arrayify(cs[k]);   // RTDB may hand lists back as index-keyed objects
     const def = newCharState(cfg(cs.id));
     for(const k in def) if(cs[k]===undefined) cs[k]=def[k];
     if(cs.lastTiers) for(const k of NEED_KEYS) cs.lastTiers[k] ??= 0;
@@ -792,8 +797,10 @@ function migrate(s){ // patch older saves
   if(s.travelEta===undefined) s.travelEta=0;
   // RTDB deletes keys set to empty arrays, so a cleared log comes back undefined
   s.log = arrayify(s.log); if(!Array.isArray(s.log)) s.log=[];
+  if(unknown.length) s.log.unshift({t:'load', m:`⚠ Dropped unknown character(s) from the save: ${esc(unknown.join(', '))}.`, c:'lw'});
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
+    for(const k of ['cargo','smuggle','fuelLog']) s.ship[k] = arrayify(s.ship[k]);
     const d = freshShip();
     for(const k in d) if(s.ship[k]===undefined) s.ship[k]=d[k];
     for(const sy of SHIP_SYSTEMS){
@@ -1390,7 +1397,7 @@ function syncInv(cs){
 function addInv(id){ st(id).inv.push({name:'', type:'', qty:1, wt:0}); st(id).invOpen=true; render(); }
 function delInv(id,i){ st(id).inv.splice(i,1); render(); }
 function setInv(id,i,k,v){
-  const cs = st(id), it = cs.inv[i];
+  const cs = st(id), it = cs.inv[i]; if(!it) return;
   const num = Math.max(0, parseFloat(v)||0);
   if(it.auto && k==='qty'){       // editing an auto row's qty updates the real stock
     if(it.auto==='rations') cs.rationsStock = num;
@@ -1968,9 +1975,10 @@ function logMsg(msg, cls){
   rebuildLog();
   scheduleSync();   // log-only changes (notes, etc.) don't run render(); push them to the room
 }
+const LOG_CLASSES = new Set(['', 'lw', 'lb', 'lg', 'ld', 'lf', 'ln']);
 function rebuildLog(){
   document.getElementById('logEntries').innerHTML =
-    (S.log||[]).map(l=>`<p class="${l.c}"><b>${l.t}</b> · ${l.m}</p>`).join('');
+    (S.log||[]).map(l=>`<p class="${LOG_CLASSES.has(l.c)?l.c:''}"><b>${esc(l.t)}</b> · ${l.m}</p>`).join('');
 }
 function addNote(){   // freeform player/GM note, timestamped at the current game time
   const inp = document.getElementById('noteIn');
@@ -2259,6 +2267,7 @@ const CLOUD = {
   applying: false,   // true while writing a remote update into S (suppresses echo)
   shadow: null,      // sync-subset of the state we believe is on the server (for diffing)
   pending: null,     // a remote update deferred because the user is mid-edit
+  pointerDown: false,// a mouse/touch press is in progress (defer re-renders until the click lands)
   syncTimer: null,   // debounce handle for outbound writes
 };
 
@@ -2371,10 +2380,11 @@ function pushLocal(){
     }
   }
   if(!Object.keys(updates).length) return;
-  CLOUD.shadow = cur;                              // optimistic; reset on failure so we resend
-  CLOUD.db.ref('rooms/'+CLOUD.room+'/state').update(updates)
+  const prevShadow = CLOUD.shadow;
+  CLOUD.shadow = cur;                              // optimistic; on failure fall back to the last acknowledged
+  CLOUD.db.ref('rooms/'+CLOUD.room+'/state').update(updates)   // shadow so the 2 s safety net resends the diff
     .then(()=> CLOUD.db.ref('rooms/'+CLOUD.room+'/meta').set({ by:CLOUD.player, ts:Date.now() }))
-    .catch(e=>{ CLOUD.shadow = null; syncNote('Sync error: '+e.message, 'bad'); });
+    .catch(e=>{ CLOUD.shadow = prevShadow; syncNote('Sync error: '+e.message, 'bad'); });
 }
 
 /* ---- inbound: a room snapshot arrived -------------------------- */
@@ -2396,9 +2406,10 @@ function threeWayMerge(base, local, remote){
   base = base || {};
   for(const k in local){
     if(k==='chars'){
-      const L=local.chars||[], B=base.chars||[];
-      out.chars = out.chars || [];
-      for(let i=0;i<L.length;i++) if(!same(L[i], B[i])) out.chars[i] = L[i];   // we edited this character
+      const byId = arr => Object.fromEntries((arr||[]).map(ch=>[ch.id, ch]));
+      const L=byId(local.chars), B=byId(base.chars);
+      out.chars = (out.chars||[]).map(rc => (L[rc.id] && !same(L[rc.id], B[rc.id])) ? L[rc.id] : rc);  // we edited this character
+      for(const id in L) if(!out.chars.some(rc=>rc.id===id)) out.chars.push(L[id]);                      // the room lacks it: add ours
     } else if(k==='ship'){   // merge ship one level deep, mirroring the per-subkey pushes
       const L=local.ship||{}, B=base.ship||{};
       out.ship = out.ship || {};
@@ -2492,10 +2503,12 @@ function initCloud(){
       CLOUD.db = firebase.database();
     }
   }catch(e){ CLOUD.db=null; syncNote('Live sync unavailable: '+e.message, 'bad'); }
-  // apply a remote update that was deferred while a field had focus
-  document.addEventListener('focusout', ()=> setTimeout(()=>{
-    if(CLOUD.pending && !isEditing()){ const r=CLOUD.pending; CLOUD.pending=null; applyRemote(r); }
-  }, 60));
+  // apply a remote update that was deferred while a field had focus — but never mid-press,
+  // or the re-render would swap the button out from under the click
+  const flushPending = () => { if(CLOUD.pending && !isEditing() && !CLOUD.pointerDown){ const r=CLOUD.pending; CLOUD.pending=null; applyRemote(r); } };
+  document.addEventListener('pointerdown', ()=>{ CLOUD.pointerDown=true; }, true);
+  document.addEventListener('pointerup',   ()=>{ CLOUD.pointerDown=false; setTimeout(flushPending, 0); }, true);  // runs after the click dispatches
+  document.addEventListener('focusout', ()=> setTimeout(flushPending, 60));
   // safety net: every 2s, diff local state against the room and push anything that
   // slipped through (a mutation whose handler forgot to trigger a sync). pushLocal
   // is a no-op when nothing changed, so this is cheap and writes nothing when idle.
