@@ -379,7 +379,7 @@ const CONDS = {
               mult:{water:l=>1+0.1*l, hunger:l=>1+0.1*l},
               hourly:(cs,l,ev,cap)=>{
                 cs.sickHrs=(cs.sickHrs||0)+1;
-                cs.strain += (l>=2?2:1);
+                addStrain(cs, l>=2?2:1);
                 if(l>=3 && cs.sickHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${cfg(cs.id).name} suffers 1 wound — gravely ill.`]); }
                 if(cs.sickHrs%24===0) ev.push(['lw',`🤒 ${cfg(cs.id).name}: daily recovery check — Resilience (or a carer's Medicine) removes 1 Sick stack; a failure or Despair at 3+ stacks ADDS one. +1 Setback ■ while Squalid+, Dehydrated or Starving.`]);
               },
@@ -394,14 +394,14 @@ const CONDS = {
               fx:()=> '🥵 Overheated: 1 Setback ■ to all checks; sweats 40% more water, tires 20% faster. Remove with shade/cooling.'},
   soaked:    {label:'💧 Soaked', mult:{rest:1.1},
               fx:()=> '💧 Soaked: 1 Setback ■ to Agility-based checks; in Cold environments also counts as Chilled.'},
-  poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ cs.strain++; }, mult:{water:1.2},
+  poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ addStrain(cs, 1); }, mult:{water:1.2},
               fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks.'},
   limping:   {label:'🦵 Limping', mult:{rest:1.3},
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
               fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
   drunk:     {label:'🍺 Drunk', lvls:3, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},
-              hourly:(cs,l,ev)=>{ if(l>=2) cs.strain += (l-1); },
+              hourly:(cs,l,ev)=>{ if(l>=2) addStrain(cs, l-1); },
               fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Only time, water & rest sober you up.`
                    : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">1 strain/hr.</b> +30% water use.`
                    :        `🍺 Tipsy (1/3): loosened up. <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception. Mild dehydration (+15% water).`},
@@ -747,7 +747,7 @@ const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
 let S = null;
 
 function newCharState(c){
-  const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0,
+  const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
     conds:[], status:null, prevAct:'light', hourAcc:0,
     inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
@@ -836,6 +836,11 @@ const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.c
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
 function tierOf(x, tiers){ let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
+// Hourly strain from needs and conditions never runs past twice the threshold (the card is unreadable beyond it).
+const strainCapOf = cs => cs.st>0 ? cs.st*2 : 999;
+const addStrain = (cs, n) => { cs.strain = Math.min(strainCapOf(cs), cs.strain + n); };
+// Down = unconscious (strain), dying (wounds) or collapsed from thirst/starvation: the body lies where it fell.
+const isDown = (cs, c) => (cs.strain>=cs.st && cs.st>0) || (cs.wounds>cs.wt && cs.wt>0) || (!c.droid && (cs.water>=100 || cs.hunger>=100));
 function condMult(cs, key){
   let m = 1;
   for(const cd of cs.conds){
@@ -866,7 +871,10 @@ function exhaustion(cs){  // droid degradation meter (organics use per-need tier
 function tick(cs, dt){
   const c = cfg(cs.id), env = ENVS[S.env];
   const events = [];
-  const actKey = activeAct(cs), act = ACTS[actKey];
+  if(cs.status && cs.status.remain < 0.01) endStatus(cs, c, events);   // drift left a sliver — don't run a whole chunk on it
+  let actKey = activeAct(cs);
+  if(actKey!=='sleeping' && isDown(cs, c)) actKey = 'resting';          // an unconscious body isn't marching
+  const act = ACTS[actKey];
   const isStandby = actKey==='sleeping';
   const over = overload(cs);
   const encM = 1 + ENC_DRAIN_PER_PT*over;
@@ -940,10 +948,7 @@ function tick(cs, dt){
     }
     if(def.sleepCredit) cs.sleep = clamp(cs.sleep - def.sleepCredit*sleepRecovery(c)*frac, 0, 100);
     cs.status.remain = +(cs.status.remain - dt).toFixed(3);
-    if(cs.status.remain <= 0){
-      events.push(['lg',`${c.name} finishes ${plainLabel(def.label).toLowerCase()} — status back to normal.`]);
-      cs.status = null; cs.activity = cs.prevAct;
-    }
+    if(cs.status.remain <= 0) endStatus(cs, c, events);
   }
 
   // discrete hourly effects
@@ -970,13 +975,21 @@ function tick(cs, dt){
       }
     }
   }
-  if(cs.strain>=cs.st && cs.st>0) events.push(['lw',`${c.name} has exceeded strain threshold (${cs.strain}/${cs.st}) — ${c.droid?'DISABLED':'UNCONSCIOUS'}.`]);
-  if(cs.wounds>cs.wt && cs.wt>0) events.push(['lb',`☠ ${c.name} has exceeded wound threshold (${cs.wounds}/${cs.wt}) — ${c.droid?'CRITICAL DAMAGE, needs major repairs':'CRITICAL INJURY / DYING'}.`]);
+  // threshold notices fire once, on the crossing (the card keeps showing the state)
+  const uncon = cs.strain>=cs.st && cs.st>0, dead = cs.wounds>cs.wt && cs.wt>0;
+  if(uncon && !cs.wasUncon) events.push(['lw',`${c.name} has exceeded strain threshold (${cs.strain}/${cs.st}) — ${c.droid?'DISABLED':'UNCONSCIOUS'}; needs now accrue as resting.`]);
+  if(dead && !cs.wasDead)   events.push(['lb',`☠ ${c.name} has exceeded wound threshold (${cs.wounds}/${cs.wt}) — ${c.droid?'CRITICAL DAMAGE, needs major repairs':'CRITICAL INJURY / DYING'}.`]);
+  cs.wasUncon = uncon; cs.wasDead = dead;
   return events;
+}
+function endStatus(cs, c, events){
+  const def = STATUSES[cs.status.kind];
+  events.push(['lg',`${c.name} finishes ${plainLabel(def.label).toLowerCase()} — status back to normal.`]);
+  cs.status = null; cs.activity = cs.prevAct;
 }
 
 function applyHourly(cs, c, events, woundCap, isStandby){
-  const strainCap = cs.st>0 ? cs.st*2 : 999;
+  const strainCap = strainCapOf(cs);
 
   // condition hourly effects (organics & droids; custom conditions have none)
   for(const cd of cs.conds) CONDS[cd.id]?.hourly?.(cs, cd.lvl||1, events, woundCap);
@@ -1030,7 +1043,7 @@ function advance(hrs){
     for(const cs of S.chars) for(const ev of tick(cs, dt)) logMsg(ev[1], ev[0]);
     for(const ev of tickShip(dt)) logMsg(ev[1], ev[0]);
     if(S.travelDest && S.travelEta>0){
-      S.travelEta = Math.max(0, +(S.travelEta-dt).toFixed(2));
+      S.travelEta = Math.max(0, +(S.travelEta-dt).toFixed(3));
       if(S.travelEta===0){
         logMsg(`🧭 The party arrives at ${esc(S.travelDest)}.`, 'lg');
         S.location = S.travelDest; S.travelDest = '';
