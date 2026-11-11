@@ -280,3 +280,22 @@ I-01 to I-04 fixed in one commit, verified in the jsc harness and `./tools/sim.s
 | I-04 | `ACTS` water: moderate 3.0, strenuous 8.0 | Cal 2.5 / 7.5 / 20 oz per hour; one hour of desert combat = 20 thirst; Collapse in 5 h of desert fighting |
 
 I-05 to I-19 remain open.
+
+## Resolution, part 2 (2026-11-11)
+
+I-05 to I-12 fixed in one commit; harness and `./tools/sim.sh` green:
+
+| Finding | Change | Measured after |
+|---|---|---|
+| I-05 | onset rolls while asleep; `humid` 0.05; chance × `climateAdapt`; Chilled/Overheated excess × adaptation | sleeper in Extreme Cold gets Chilled; jungle overheats; at a 4.9% roll Cal overheats and Tann (×0.4) does not; Tann's Overheated water ×1.16 instead of ×1.4 |
+| I-06 | Chilled hunger ×1 when the environment is cold | Cal walking in Extreme Cold: Collapse 18 days (was 13.8 with the double count); Chilled in temperate still ×1.3 |
+| I-07 | Sick `rest` ×(1+0.15l), `sleep` ×(1+0.1l) | Sick 2: fatigue ×1.30, sleep ×1.20 |
+| I-08 | `decayHrs`: Drunk 2 (one level), Caffeinated 4 (clear); `cd.hrs` counter, reset by condLvl | Hammered at 0 h → Drunk 2 h → Tipsy 4 h → sober 6 h; Caffeinated gone at 4 h; each step logged |
+| I-09 | `REHYDRATE.waitHrs` 0.25, `cs.lastDrinkAt` | three instant sips at thirst 70 → only the first lands (66); after +15 min the next sip works; hydrated characters unaffected |
+| I-10 | `HYG.wipe` 12, `HYG.clothes` 8 | a wipe removes 1.9 days of Grubby-tier grime |
+| I-11 | `SLEEP.deepDebtFrom` 76, `deepDebtCap` 75 on the sleep status | Wrecked 100 → 25 after night one → 0 after night two; from 60 → 0 in one night; plain Sleeping activity (no status) is uncapped |
+| I-12 | Drowsy `min` 19 | Drowsy at 18–19 h awake (sedentary), Kata 15 h; Sleep-Deprived still 49 h |
+
+Harness: `tools/sim.sh` now pins the needs it is not measuring (and strain/wounds), which the pass-1 "unconscious = resting" rule had made necessary.
+
+Still open: I-13 (water per day, snack size: taste), I-14 (adaptation scope on fatigue), I-15 (thirst death-roll redundancy), I-16 (Poisoned text), I-17 (stim literal), I-18 (hunger curve shape: taste), I-19 (ship idling wear).
