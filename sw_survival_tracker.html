@@ -206,6 +206,7 @@
     <h1 style="margin:0">Survival Tracker</h1>
     <button onclick="exportState()">💾 Save</button>
     <button onclick="document.getElementById('importFile').click()">📂 Load</button>
+    <button onclick="resetAll()" title="Start over at Day 1, 00:00 (asks first)">🆕 New</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
   </div>
   <div class="group" style="margin-left:auto">
@@ -2214,6 +2215,9 @@ function buildRules(){
   <p><b>Location &amp; travel:</b> type the current location, a destination, and travel hours. Every advanced step counts down the ETA; on arrival the destination becomes the current location and the log announces it.</p>
   <p><b>Event log:</b> type in the note field and press Enter (or 📝 add note) to drop a freeform player/GM note into the log, timestamped at the current game time — handy for plot beats, rolls, or reminders. The ⟳ clear button empties the log without touching anything else. Notes are saved with everything else.</p>
 
+  <h2>💾 Saving &amp; sessions</h2>
+  <p>The tracker <b>keeps itself on this device</b>: every change is stored in the browser, so closing the tab or reloading the page brings the session back where it was. <b>💾 Save</b> downloads a JSON file (a backup, or to hand the session to another device); <b>📂 Load</b> reads one back — saves from older builds are patched on the way in, and characters the current build doesn't know are dropped with a note in the log. <b>🆕 New</b> starts over at Day 1, 00:00 after asking (in a live room, it resets the room for everyone). Browser storage is per site and per browser; clearing site data clears the session, so Save before anything drastic.</p>
+
   <h2>🔗 Live multiplayer</h2>
   <p>The <b>🔗 Live</b> bar at the top puts your whole table on one shared tracker in real time. One person clicks <b>✨ Create</b> to start a <b>room</b>, then <b>🔗 Copy link</b> and sends it to the group — anyone who opens that link joins automatically. (You can also paste a room code or link into the <b>Room</b> box and click <b>Join</b>.) Your room is remembered on this device, so you rejoin automatically next time; the status light reads <b style="color:var(--good)">● live</b> when you're connected.</p>
   <p><b>Everyone edits, and changes appear for everyone within about a second — no save or refresh button.</b> Edits are merged per character, so two people updating <i>different</i> characters at the same moment won't overwrite each other. If a live update arrives while you're typing in a field, it waits until you click away rather than yanking the box out from under you. Put your name in the <b>You</b> box so the group can see who's driving. The shared log is best-effort — two log lines created in the same instant can occasionally collide, though the underlying character changes still merge.</p>
@@ -2280,6 +2284,7 @@ const CLOUD = {
   pending: null,     // a remote update deferred because the user is mid-edit
   pointerDown: false,// a mouse/touch press is in progress (defer re-renders until the click lands)
   syncTimer: null,   // debounce handle for outbound writes
+  saveTimer: null,   // debounce handle for the localStorage copy
 };
 
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -2370,7 +2375,27 @@ function isEditing(){
 }
 
 /* ---- outbound: push local changes (debounced, per-character) --- */
+// Local persistence: every change (render/logMsg → scheduleSync) also lands in this
+// device's localStorage, debounced, so a reload or a discarded tab doesn't reset the
+// session to Day 1. A joined room still wins on attach (first snapshot adopts the room).
+const LOCAL_STATE_KEY = 'st_state';
+function scheduleLocalSave(){
+  clearTimeout(CLOUD.saveTimer);
+  CLOUD.saveTimer = setTimeout(()=>{ try{ lsSet(LOCAL_STATE_KEY, JSON.stringify(S)); }catch(e){} }, 400);
+}
+function loadLocalState(){
+  const raw = lsGet(LOCAL_STATE_KEY); if(!raw) return null;
+  try{ const s = JSON.parse(raw); return (s && Array.isArray(s.chars)) ? migrate(s) : null; }catch(e){ return null; }
+}
+function resetAll(){
+  const shared = CLOUD.db && CLOUD.room;
+  if(!confirm(`Start a fresh session? Clock back to Day 1, 00:00, every need at 0.${shared?' This resets the shared room for everyone in it.':''} (💾 Save first to keep this one.)`)) return;
+  S = freshState();
+  logMsg('🆕 New session — Day 1, 00:00. All needs at 0, canteens full, droid packs charged.');
+  rebuildLog(); render();
+}
 function scheduleSync(){
+  scheduleLocalSave();
   if(!CLOUD.db || !CLOUD.room || CLOUD.applying || !CLOUD.synced) return;
   clearTimeout(CLOUD.syncTimer);
   CLOUD.syncTimer = setTimeout(pushLocal, 180);
@@ -2542,7 +2567,8 @@ function initCloud(){
    INIT
    ================================================================ */
 function init(){
-  S = freshState();
+  const restored = loadLocalState();
+  S = restored || freshState();
   document.getElementById('envSel').innerHTML =
     Object.entries(ENVS).map(([k,e])=>`<option value="${k}">${e.label}</option>`).join('');
   document.getElementById('partyAct').innerHTML = `<option value="">activity…</option>` +
@@ -2550,7 +2576,8 @@ function init(){
   document.getElementById('partyCond').innerHTML = `<option value="">condition…</option>` +
     Object.entries(CONDS).map(([k,d])=>`<option value="${k}" title="${condTitle(d)}">${d.label}${d.droid?' (droids)':''}</option>`).join('');
   buildRules();
-  logMsg('Tracker ready — Day 1, 00:00. All needs at 0, canteens full, droid packs charged. May the Force sustain you.');
+  if(restored) logMsg(`💾 Session restored on this device — ${clockStr()}. 🆕 New starts over at Day 1.`);
+  else logMsg('Tracker ready — Day 1, 00:00. All needs at 0, canteens full, droid packs charged. May the Force sustain you.');
   render();
   probeScene(render);   // load img/scene.* if present, then re-render the banner
   initCloud();
