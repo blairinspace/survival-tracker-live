@@ -312,7 +312,7 @@ const OZ_PER_CANTEEN = 20;
 // Organic baseline accrual. Thirst / hunger / hygiene accrue from their
 // per-tier `rate` in NEEDS (pts/hr, see below). Fatigue is activity-driven
 // (ACTS[..].rest, pts/hr). Sleep debt is flat while awake — one tier per day:
-// Drowsy ~25 h, Sleep-Deprived (microsleeps) ~48 h, Delirious ~72 h, Wrecked ~96 h.
+// tier.min ÷ awakeRate → Drowsy ≈25 h, Sleep-Deprived ≈49 h, Delirious ≈73 h, Wrecked ≈96 h (the Rules tab derives these).
 // Quiet rest (lying down, eyes closed) slows the debt a little but never pays it off.
 const SLEEP = { awakeRate:1.04, restingMult:0.75, hoursDefault:8 };
 const MAINT_BASE = 0.14;         // droid wear pts/hr: unmaintained light temperate duty ≈ 30 days to critical
@@ -2036,6 +2036,23 @@ function buildRules(){
   const days = h => (h/24).toFixed(h<72 ? 1 : 0);
   const tierAt = (key, name) => { const ts=NEEDS[key].tiers, i=ts.findIndex(t=>t.name===name); return ts.slice(0,i).reduce((h,t,j)=>h+(ts[j+1].min-t.min)/t.rate, 0); };
   const rateSpan = key => { const r=NEEDS[key].tiers.map(t=>t.rate).filter(x=>x>0); return `+${r[0]}→${r[r.length-1]}/hr`; };
+  const sleepAt = name => Math.round(NEEDS.sleep.tiers.find(t=>t.name===name).min / SLEEP.awakeRate);   // hours awake to reach a sleep tier
+  const sleepLadder = `Drowsy ~${sleepAt('Drowsy')} h · Sleep-Deprived (microsleeps) ~${sleepAt('Sleep-Deprived')} h · Delirious ~${sleepAt('Delirious')} h · Wrecked ~${sleepAt('Wrecked')} h`;
+  const fatigueSleepPct = Math.round((FATIGUE_SLEEP.accrual-1)*100), tranceMin = Math.round(STATUSES.med30.sleepCredit*60);
+  // timed-status table straight from STATUSES, so a changed payload can't desync the text
+  const needWord = {hunger:'hunger', rest:'fatigue', hygiene:'hygiene', sleep:'sleep debt'};
+  const tierWord = n => n===1 ? 'one tier' : n===2 ? 'two tiers' : '';
+  const statusRows = Object.entries(STATUSES).filter(([k])=>k!=='sleep').map(([k,s])=>{
+    const fx = Object.entries(s.deltas).map(([need,v])=>{
+      const tiers = need==='hunger' ? tierWord(Math.round(-v/25)) : need==='hygiene' ? tierWord(Math.round(-v/25)) : '';
+      return `${v<0?'−':'+'}${Math.abs(v)} ${needWord[need]||need}${tiers?` (${tiers})`:''}`;
+    });
+    if(s.act==='resting') fx.push('plus resting recovery');
+    if(k.startsWith('rest')) fx.push(`sleep debt ticks at ×${SLEEP.restingMult} while resting`);
+    if(s.sleepCredit) fx.push(`also counts as ${Math.round(s.sleepCredit*60)} min of sleep`);
+    const cost = s.costMult ? `rations-per-meal ×${s.costMult}` : k==='wash' ? 'ample water (GM approves)' : '—';
+    return `<tr><td>${s.label}${s.fs?' (Force sensitives)':''}</td><td>${fmtDur(s.dur)}</td><td>${fx.join('; ')}${s.deltas.hygiene?', delivered over the status':''}</td><td>${cost}</td></tr>`;
+  }).join('');
   const cal = cfg('cal'), kata = cfg('kata'), pike = cfg('pike');
   const thirstDays = days(ladderHours('water')), hungerDays = days(ladderHours('hunger')), hygDays = days(ladderHours('hygiene'));
   const sleepHrs = 100/SLEEP.awakeRate, fatigueHrs = 100/ACTS.light.rest, wearDays = Math.round(100/MAINT_BASE/24);
@@ -2063,12 +2080,8 @@ function buildRules(){
   <h2>⏳ Timed statuses (eating, resting, sleeping…)</h2>
   <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained — an interrupted meal puts the uneaten rations back in the pack; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
   <table><tr><th>Status</th><th>Takes</th><th>Total effect</th><th>Cost</th></tr>
-  <tr><td>🍽 Eat a ration</td><td>15 min</td><td>−25 hunger (one full tier; plus resting recovery while eating)</td><td>rations-per-meal ×1</td></tr>
-  <tr><td>🍲 Eat a meal (prepared)</td><td>30 min</td><td>−30 hunger, −5 fatigue (plus resting recovery)</td><td>rations-per-meal ×1.25</td></tr>
+  ${statusRows}
   <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>−${SNACK_HUNGER} hunger</td><td>1 snack</td></tr>
-  <tr><td>🪑 Rest 15 / 30 min</td><td>15/30 min</td><td>−3 / −6 fatigue (plus resting recovery); sleep debt ticks at half rate while resting</td><td>—</td></tr>
-  <tr><td>🧘 Meditate 15 / 30 min (Force sensitives)</td><td>15/30 min</td><td>−8 / −14 fatigue; the 30-min trance also counts as 15 min of sleep</td><td>—</td></tr>
-  <tr><td>🛁 Full wash / bath</td><td>30 min</td><td>−${HYG.wash} hygiene (two tiers, delivered over the 30 min)</td><td>ample water (GM approves)</td></tr>
   <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −${sleepRecovery(cal)}/hr (−${sleepRecovery(kata)}/hr for Kata); fatigue ${ACTS.sleeping.rest}/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
   <p><b>Eating caps:</b> while <b>Dehydrated+ (thirst ≥ ${REHYDRATE.thresh})</b> the body can't process food — meals and snacks restore only <b>half</b> their points. At <b>Starving+ (hunger ≥ ${REFEED.thresh})</b> refeeding is gradual and dangerous: only ~<b>${REFEED.capPts} pts</b> absorbed per careful meal, spaced hours apart — gorging triggers <b>refeeding shock</b> (a 🤒 Sick stack, GM's call; the food is wasted). Climbing out of Emaciated takes days of careful eating and rest.</p>
 
@@ -2085,7 +2098,7 @@ function buildRules(){
   <tr><td>💧 Thirst</td><td>${rateSpan('water')} (by tier)</td><td>0 → Collapse in ~${thirstDays} days (~${Math.round(ladderHours('water'))} h) without water; accrual quickens as thirst deepens; wounds begin at 76 (Desiccated)</td></tr>
   <tr><td>🍞 Hunger</td><td>${rateSpan('hunger')} (by tier)</td><td>appetite hits fast — Hungry within a workday — then a long slow burn as the body rations reserves; Collapse at ~${hungerDays} days; wounds (1 per ${STARVE_WOUND_HRS} hrs) begin at 76 (Emaciated)</td></tr>
   <tr><td>🧼 Hygiene</td><td>${rateSpan('hygiene')} (by tier)</td><td>grubby within days, genuine disease at ~${hygDays} days; never lethal by itself — its teeth are the 🤒 Sick stacks and social penalties (with one upside: filth boosts Coercion)</td></tr>
-  <tr><td>😴 Sleep debt</td><td>+${SLEEP.awakeRate}/hr awake (any activity)</td><td>one tier per day awake: Drowsy ~25 h · Sleep-Deprived (microsleeps) ~48 h · Delirious ~72 h · Wrecked ~96 h; quiet rest slows the tick to ×${SLEEP.restingMult}; ${SLEEP.hoursDefault} hrs sleep (${kata.mods.sleepNeed} for Kata) fully restores; Exhausted fatigue makes it accrue +50%</td></tr>
+  <tr><td>😴 Sleep debt</td><td>+${SLEEP.awakeRate}/hr awake (any activity)</td><td>one tier per day awake: ${sleepLadder}; quiet rest slows the tick to ×${SLEEP.restingMult}; ${SLEEP.hoursDefault} hrs sleep (${kata.mods.sleepNeed} for Kata) fully restores; Exhausted fatigue makes it accrue +${fatigueSleepPct}%</td></tr>
   <tr><td>⚡ Fatigue</td><td>+${ACTS.sedentary.rest}/hr sedentary · +${ACTS.light.rest}/hr light · +${ACTS.travel.rest}/hr moderate · +${ACTS.strenuous.rest}/hr combat</td><td>activity-driven, not time-driven: a full unbroken day's march = Spent, sustained combat gets there in ~${+(100/ACTS.strenuous.rest).toFixed(1)} h; recovers ${ACTS.resting.rest}/hr resting, ${ACTS.sleeping.rest}/hr sleeping; sleep-deprivation makes it accrue ×${SLEEP_FATIGUE.accrual} and recover ${Math.round((1-SLEEP_FATIGUE.recovery)*100)}% less</td></tr>
   <tr><td>🔋 Charge (droid)</td><td>+100 ÷ pack-hours per hr</td><td>BD-1 ~${cfg('bd1').packHrs} hrs/pack, Alpha ~${cfg('alpha').packHrs} hrs/pack on light duty; standby ×${ACTS.sleeping.power}, combat ×${ACTS.strenuous.power}</td></tr>
   <tr><td>🔧 Wear (droid)</td><td>+${MAINT_BASE}/hr light duty</td><td>~${wearDays} days of unmaintained light temperate duty to critical; harsh climates &amp; combat wear far faster — a weekly tune-up (−${TUNEUP}) keeps pace</td></tr>
@@ -2177,7 +2190,7 @@ function buildRules(){
   ${ladderTable('hygiene')}
 
   <h2>😴 Sleep ladder (sleep debt — no death)</h2>
-  <p>Mental and <i>time-awake-driven</i>: +${SLEEP.awakeRate}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~25 h); <b>microsleeps begin around the 48 h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~72 h; <b>Wrecked at ~96 h</b> — four days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +50%). Only proper sleep clears it; quiet rest slows the tick to ×${SLEEP.restingMult} but never pays it off; the 30-min Force trance counts as 15 min of sleep.</p>
+  <p>Mental and <i>time-awake-driven</i>: +${SLEEP.awakeRate}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~${sleepAt('Drowsy')} h); <b>microsleeps begin around the ${sleepAt('Sleep-Deprived')} h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~${sleepAt('Delirious')} h; <b>Wrecked at ~${sleepAt('Wrecked')} h</b> — ${days(sleepAt('Wrecked'))} days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +${fatigueSleepPct}%). Only proper sleep clears it; quiet rest slows the tick to ×${SLEEP.restingMult} but never pays it off; the ${fmtDur(STATUSES.med30.dur)} Force trance counts as ${tranceMin} min of sleep.</p>
   ${ladderTable('sleep')}
 
   <h2>⚡ Fatigue ladder (physical — no death)</h2>
