@@ -13,7 +13,6 @@
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px;padding:14px}
   h1{font-size:20px;letter-spacing:2px;color:var(--gold);text-transform:uppercase}
-  .sub{color:var(--dim);font-size:12px;margin-top:2px}
   button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12.5px}
   button:hover{border-color:var(--accent)}
   button.primary{background:#1f3a5f;border-color:var(--accent)}
@@ -249,7 +248,7 @@
     <button class="primary" onclick="advance(0.5)">+30 min</button>
     <button class="primary" onclick="advance(1)">+1 hr</button>
     <input type="number" id="customHrs" min="0.25" step="0.25" max="168" value="12">
-    <button onclick="advance(parseFloat(document.getElementById('customHrs').value)||1)">Advance</button>
+    <button onclick="advanceCustom()">Advance</button>
   </div>
   <div class="group" style="margin-left:auto">
     <span class="label">📍 Location</span>
@@ -756,6 +755,7 @@ function newCharState(c){
     : { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
         lastTiers:Object.fromEntries(NEED_KEYS.map(k=>[k,0])),
         starveHrs:0, hygHrs:0, sickHrs:0, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
+        sleepHrs:c.mods.sleepNeed||SLEEP.hoursDefault,
         stimsToday:0, stimDay:0, stimHrs:0, force:0 });
   syncInv(cs);
   return cs;
@@ -1036,6 +1036,13 @@ function applyHourly(cs, c, events, woundCap, isStandby){
   }
 }
 
+function advanceCustom(){   // the typed span: clamp to the input's range, confirm anything over two days
+  const el = document.getElementById('customHrs');
+  const h = clamp(parseFloat(el.value)||1, 0.25, 168);
+  el.value = h;
+  if(h>48 && !confirm(`Advance ${fmtDur(h)} (${(h/24).toFixed(1)} days) in one step?`)) return;
+  advance(h);
+}
 function advance(hrs){
   if(!hrs || hrs<=0) return;
   let left = hrs;
@@ -1069,8 +1076,9 @@ function startStatus(id, kind, dur){
   if(def.fs && !c.fs) return;   // meditation is for Force sensitives only
   if(cs.status) cancelStatus(id, true);
   const deltas = {...def.deltas};
+  let cost = 0;
   if(kind==='ration' || kind==='meal'){
-    const cost = +(c.rations*def.costMult).toFixed(2);
+    cost = +(c.rations*def.costMult).toFixed(2);
     if(cs.rationsStock < cost){ logMsg(`${c.name} doesn't have enough rations (needs ${cost}, has ${cs.rationsStock}).`,'lw'); render(); return; }
     cs.rationsStock = +(cs.rationsStock - cost).toFixed(2);
     let pts = -deltas.hunger; const notes = [];
@@ -1084,7 +1092,7 @@ function startStatus(id, kind, dur){
   }
   const total = dur || def.dur;
   cs.prevAct = cs.activity;
-  cs.status = { kind, remain:total, total, deltas };
+  cs.status = { kind, remain:total, total, deltas, cost };   // cost: rations paid up front, refunded pro rata on cancel
   logMsg(`${def.label} — ${c.name} (${fmtDur(total)}). Advance the clock to progress.`, kind.startsWith('med')?'lf':'');
   render();
 }
@@ -1092,12 +1100,14 @@ function cancelStatus(id, silent){
   const cs = st(id);
   if(!cs.status) return;
   const def = STATUSES[cs.status.kind];
+  const refund = cs.status.cost ? +(cs.status.cost*clamp(cs.status.remain/cs.status.total, 0, 1)).toFixed(2) : 0;
   cs.status = null; cs.activity = cs.prevAct;
+  if(refund>0){ cs.rationsStock = +(cs.rationsStock + refund).toFixed(2); logMsg(`🍽 ${cfg(id).name} packs away the uneaten food (+${refund} rations back).`); }
   if(!silent){ logMsg(`✖ ${cfg(id).name} stops ${plainLabel(def.label).toLowerCase()} — status back to normal.`); render(); }
 }
+function setSleepHrs(id, v){ st(id).sleepHrs = clamp(parseFloat(v)||SLEEP.hoursDefault, 0.5, 16); render(); }
 function startSleep(id){
-  const hrs = clamp(parseFloat(document.getElementById('slp-'+id).value)||8, 0.5, 16);
-  startStatus(id, 'sleep', hrs);
+  startStatus(id, 'sleep', clamp(st(id).sleepHrs||SLEEP.hoursDefault, 0.5, 16));
 }
 
 /* ================================================================
@@ -1401,9 +1411,9 @@ function setInv(id,i,k,v){
   const num = Math.max(0, parseFloat(v)||0);
   if(it.auto && k==='qty'){       // editing an auto row's qty updates the real stock
     if(it.auto==='rations') cs.rationsStock = num;
-    else if(it.auto==='snacks') cs.snacks = num;
-    else if(it.auto==='stims') cs.stims = num;
-    else if(it.auto==='packs') cs.packsCharged = Math.max(0, num - cs.packsDepleted);
+    else if(it.auto==='snacks') cs.snacks = Math.round(num);
+    else if(it.auto==='stims') cs.stims = Math.round(num);
+    else if(it.auto==='packs') cs.packsCharged = Math.max(0, Math.round(num) - cs.packsDepleted);
   } else {
     it[k] = (k==='qty'||k==='wt') ? num : v;
     if(k==='type' && isDegradable(v)){ if(it.wear==null) it.wear=0; cs.gearOpen=true; }
@@ -1450,7 +1460,7 @@ const hurtOpacity = cs => HURT_MAX_OPACITY * clamp(cs.wounds/(cs.wt||12), 0, 1);
 /* ================================================================
    UI
    ================================================================ */
-const needColor = v => v<35 ? 'var(--good)' : v<60 ? 'var(--warn)' : v<85 ? 'var(--bad)' : 'var(--crit)';
+const needColor = v => v<26 ? 'var(--good)' : v<51 ? 'var(--warn)' : v<76 ? 'var(--bad)' : 'var(--crit)';   // same breaks as the need ladders
 
 function needRow(cs, key, label, extras, tier){
   const v = cs[key];
@@ -1640,15 +1650,15 @@ function organicCard(cs, c, div){
     ${needRow(cs,'hygiene','🧼 Hygiene',
       `<button class="mini" onclick="startStatus('${cs.id}','wash')" title="Full wash / bath — 30-min timed status, ample water (GM approves)">wash</button><button class="mini" onclick="wipeDown('${cs.id}')" title="Quick wipe-down / field clean — uses ${HYG.wipeOz} oz canteen water">wipe</button><button class="mini" onclick="cleanClothes('${cs.id}')" title="Change into clean clothing (GM approves)">👕</button>`, tier('hygiene'))}
     ${needRow(cs,'sleep','😴 Sleep',
-      `<input type="number" id="slp-${cs.id}" min="0.5" max="16" step="0.5" value="8" style="width:50px" title="Hours to sleep"><button class="mini" onclick="startSleep('${cs.id}')">sleep</button>`, tier('sleep'))}
+      `<input type="number" min="0.5" max="16" step="0.5" value="${cs.sleepHrs}" style="width:50px" title="Hours to sleep (remembered; defaults to this character's nightly need)" onchange="setSleepHrs('${cs.id}',this.value)"><button class="mini" onclick="startSleep('${cs.id}')">sleep</button>`, tier('sleep'))}
     ${needRow(cs,'rest','⚡ Fatigue',
       `<button class="mini" onclick="startStatus('${cs.id}','rest15')">15m</button><button class="mini" onclick="startStatus('${cs.id}','rest30')">30m</button>`+
       (c.fs?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
     <div class="gearrow">
       <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
       <span class="gi">🍞 <input type="number" min="0" step="0.5" value="${cs.rationsStock}" onchange="setStock('${cs.id}','rationsStock',this.value)" title="Rations carried"></span>
-      <span class="gi">🍪 <input type="number" min="0" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
-      <span class="gi">💉 <input type="number" min="0" value="${cs.stims}" onchange="setStock('${cs.id}','stims',this.value)" title="Stimpacks carried"> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Used today / safe limit">${cs.stimsToday}/${STIM.maxHeals}</span></span>
+      <span class="gi">🍪 <input type="number" min="0" step="1" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
+      <span class="gi">💉 <input type="number" min="0" step="1" value="${cs.stims}" onchange="setStock('${cs.id}','stims',this.value)" title="Stimpacks carried"> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Used today / safe limit">${cs.stimsToday}/${STIM.maxHeals}</span></span>
       <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
       ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="8" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force points (0–8)"></span>`:''}
     </div>
@@ -1955,7 +1965,8 @@ function partyAddCond(v){
   render();
 }
 function setThresh(id,k,v){ st(id)[k]=parseInt(v)||0; render(); }
-function setStock(id,k,v){ st(id)[k]=Math.max(0,parseFloat(v)||0); render(); }
+const WHOLE_STOCK = new Set(['snacks','stims','packsCharged','packsDepleted']);   // you can't eat half a snack
+function setStock(id,k,v){ const n=Math.max(0,parseFloat(v)||0); st(id)[k]=WHOLE_STOCK.has(k)?Math.round(n):n; render(); }
 function adj(id,k,d){ const cs=st(id); cs[k]=Math.max(0,cs[k]+d); render(); }
 function editNeed(id,key){
   const cs=st(id);
@@ -2049,7 +2060,7 @@ function buildRules(){
   <b>Droids: Degradation = 55% Charge + 45% Wear</b> (a single combined meter) <br>+8 for <i>each</i> meter at 70+ (deprivations compound). Model traits (BD-1's thrift, Alpha's sealed chassis) slow how fast the meters fill, not the formula.</p>
 
   <h2>⏳ Timed statuses (eating, resting, sleeping…)</h2>
-  <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
+  <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained — an interrupted meal puts the uneaten rations back in the pack; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
   <table><tr><th>Status</th><th>Takes</th><th>Total effect</th><th>Cost</th></tr>
   <tr><td>🍽 Eat a ration</td><td>15 min</td><td>−25 hunger (one full tier; plus resting recovery while eating)</td><td>rations-per-meal ×1</td></tr>
   <tr><td>🍲 Eat a meal (prepared)</td><td>30 min</td><td>−30 hunger, −5 fatigue (plus resting recovery)</td><td>rations-per-meal ×1.25</td></tr>
