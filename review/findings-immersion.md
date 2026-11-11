@@ -313,3 +313,12 @@ I-14 to I-17 and I-19 fixed in one commit; harness and `./tools/sim.sh` green:
 | I-19 | `SHIP_ACTS[..].wear`: docked 0, idling 0.25, cruising 1, atmo 1.5, combat 2, hyperspace 1.5 | a day idling adds 6 wear-hours (a pip per 4 weeks), cruising 24, combat 48 |
 
 Still open, both GM taste: I-13 (daily water and snack size) and I-18 (hunger curve shape).
+
+## Resolution, part 4 (2026-11-11)
+
+The GM reviewed the two taste items:
+
+- **I-13:** snack `SNACK_HUNGER` 10 → 5 (a third of a day on the trail, under the refeeding cap). Daily water figures stay at 60/80/60/60/40/50/40 oz: the ladder is anchored in days and the figure only sets a canteen's worth, which the GM prefers at a third of a day.
+- **I-18:** hunger curve left as is. The drop at Gnawing matches hunger pangs fading after two or three days, and keeping the early rate preserves the one-ration-a-day-settles-at-Gnawing signal.
+
+The immersion audit is closed: 19 findings, 17 changed, 2 kept by decision.
