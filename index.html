@@ -328,7 +328,11 @@ const ENC_SLEEP_PER_PT = 0.05;   // +5% sleep-debt accrual
 const FORCE_PER_PT = 0.08;       // −8% accrual per point (8 pts = −64%)
 
 // Stimpacks (organics only, instant injection)
-const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5, fatigueMult:0.5, windowHrs:24 };   // fatigueMult: fatigue accrual while the stimulant lasts; windowHrs: the dose counter's rolling window
+const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5, fatigueMult:0.5, windowHrs:24,
+               crashFatigue:15, crashHrs:2, crashMaxLvl:3 };
+// fatigueMult: fatigue accrual while the stimulant lasts; windowHrs: the dose counter's rolling window.
+// Crash: when the stimulant ends, a 💥 Crash condition starts at level = doses in the window (max
+// crashMaxLvl), hands back crashFatigue × level fatigue at once, and eases one level every crashHrs.
 
 // Drinking. A character's `waterOz` is the water a full day of light activity in a
 // temperate climate costs them, so drinking that much cancels exactly one day of
@@ -404,6 +408,10 @@ const CONDS = {
               fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks; vomiting and sweats: +20% water.'},
   limping:   {label:'🦵 Limping', mult:{rest:1.3},
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
+  crash:     {label:'💥 Crash', lvls:3, decayHrs:2, mult:{rest:l=>1+0.25*l, sleep:l=>1+0.25*l},   // decayHrs is overwritten from STIM.crashHrs below
+              fx:l=> l>=3 ? `💥 Crash (3/3): the stim loan comes due — shaking, foggy, hollow. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty once</span>; fatigue & sleep debt accrue ×1.75. Eases one level every ${STIM.crashHrs} hrs. A fresh stim clears it — and the next crash is a level worse.`
+                   : l>=2 ? `💥 Crash (2/3): drained and irritable. <span class="dice setb">2 Setback ■■</span> to all checks; fatigue & sleep debt accrue ×1.5. Eases one level every ${STIM.crashHrs} hrs.`
+                   :        `💥 Crash (1/3): the stim wears off and the tiredness it hid returns. <span class="dice setb">1 Setback ■</span> to all checks; fatigue & sleep debt accrue ×1.25. Eases in ${STIM.crashHrs} hrs.`},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
               fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
   drunk:     {label:'🍺 Drunk', lvls:3, decayHrs:2, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},   // decayHrs: one level wears off per this many hours
@@ -421,6 +429,8 @@ const CONDS = {
   actuator:  {label:'🦿 Damaged actuator', droid:true, mult:{},
               fx:()=> '🦿 Damaged actuator: speed ×½; 1 Setback ■ to Agility-based checks. Repair with Mechanics.'}
 };
+
+CONDS.crash.decayHrs = STIM.crashHrs;
 
 /* Standard consumable weights (encumbrance units, ~1 enc ≈ 2 kg carried) */
 const AUTO_ITEMS = {
@@ -965,10 +975,6 @@ function tick(cs, dt){
       cs.sleep = clamp(cs.sleep + sRate*(1+ENC_SLEEP_PER_PT*over)*fM*condMult(cs,'sleep')*dt, 0, 100);
       if(prevSleep<100 && cs.sleep>=100) events.push(['lw',`${c.name} is Wrecked — the GM may force an involuntary collapse into sleep at any dramatic moment.`]);
     }
-    if(cs.stimHrs>0){
-      cs.stimHrs = Math.max(0, +(cs.stimHrs - dt).toFixed(3));
-      if(cs.stimHrs===0) events.push(['lg',`${c.name}'s stimpack stimulant wears off.`]);
-    }
   }
 
   // ambient equipment wear: weapons & worn gear age with time (0→100 in ~1 month temperate,
@@ -1003,6 +1009,17 @@ function tick(cs, dt){
   while(cs.hourAcc >= 1){
     cs.hourAcc = +(cs.hourAcc - 1).toFixed(3);
     applyHourly(cs, c, events, woundCap, isStandby, actKey);
+  }
+  // stimulant countdown runs after the hourly step so a crash born at an hour mark keeps its full first hour
+  if(!c.droid && cs.stimHrs>0){
+    cs.stimHrs = Math.max(0, +(cs.stimHrs - dt).toFixed(3));
+    if(cs.stimHrs===0){   // the loan comes due: crash level = doses in the window
+      const lvl = clamp(cs.stimsToday, 1, STIM.crashMaxLvl), back = STIM.crashFatigue*lvl;
+      cs.rest = clamp(cs.rest + back, 0, 100);
+      cs.conds = cs.conds.filter(x=>x.id!=='crash');
+      cs.conds.push({id:'crash', lvl, hrs:0});
+      events.push(['lw',`💥 ${c.name}'s stimulant wears off — Crash ${lvl}/${STIM.crashMaxLvl}: +${back} fatigue back, ${lvl>=3?'2 Setback + upgrade':lvl===2?'2 Setback':'1 Setback'} to all checks for ${lvl*STIM.crashHrs} hrs.`]);
+    }
   }
 
   // tier-change notices
@@ -1227,6 +1244,7 @@ function useStim(id){
   if(cs.stims < 1){ logMsg(`${c.name} has no stimpacks left.`, 'lw'); render(); return; }
   rolloverStimWindow(cs);
   if(cs.stimsToday===0) cs.stimWindowStart = S.hour;   // first dose opens the window
+  if(cs.conds.some(x=>x.id==='crash')){ cs.conds = cs.conds.filter(x=>x.id!=='crash'); logMsg(`💉 ${c.name} stims through the crash — it lifts for now, and the next one will be worse.`,'lw'); }
   cs.stims--; cs.stimsToday++;
   cs.rest   = clamp(cs.rest - STIM.fatigue, 0, 100);
   cs.strain = Math.max(0, cs.strain - STIM.strain);
@@ -1673,7 +1691,7 @@ function organicEffects(cs, c, o){
     return `<div class="fxneed"><span class="fxtier" style="color:${t.color}">${NEEDS[key].label.split(' ')[0]} ${t.name}</span> — ${t.fx}</div>`;
   }).filter(Boolean).join('');
   const stimLine = cs.stimHrs>0
-    ? `<span class="condline">💉 <b>Stim</b> (${fmtDur(cs.stimHrs)} left): fatigue accrues at <b>×${STIM.fatigueMult}</b> while the stimulant lasts; −${STIM.fatigue} fatigue and −${STIM.strain} strain were applied on injection.</span>` : '';
+    ? `<span class="condline">💉 <b>Stim</b> (${fmtDur(cs.stimHrs)} left): fatigue accrues at <b>×${STIM.fatigueMult}</b> while the stimulant lasts; −${STIM.fatigue} fatigue and −${STIM.strain} strain were applied on injection. When it ends: 💥 Crash ${clamp(cs.stimsToday,1,STIM.crashMaxLvl)}/${STIM.crashMaxLvl} (+${STIM.crashFatigue*clamp(cs.stimsToday,1,STIM.crashMaxLvl)} fatigue back).</span>` : '';
   const condLines = [stimLine, condFxLines(cs)].filter(Boolean).join('<br>');
   const alerts =
     (o.dead?`<b class="lb">☠ Wound threshold exceeded — dying/dead without immediate medical aid.</b><br>`:'') +
@@ -2239,6 +2257,7 @@ function buildRules(){
   <table><tr><th>Effect</th><th>Detail</th></tr>
   <tr><td>Wound healing</td><td>Diminishing returns per day (FFG standard): 1st heals <b>5</b> wounds, 2nd <b>4</b>, 3rd <b>3</b>, 4th <b>2</b>, 5th <b>1</b>. <b>Max ${STIM.maxHeals} healing uses per day.</b></td></tr>
   <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue and −${STIM.strain} strain; fatigue accrues at <b>×${STIM.fatigueMult} for ${STIM.hours} hours</b>.</td></tr>
+  <tr><td>💥 Crash</td><td>When the stimulant ends, a <b>Crash</b> condition starts at <b>level = doses in the window</b> (max ${STIM.crashMaxLvl}) and hands back <b>${STIM.crashFatigue} × level fatigue</b> at once: level 1 is 1 Setback and ×1.25 fatigue/sleep accrual for ${STIM.crashHrs} h; level 2 is 2 Setback and ×1.5, easing a level every ${STIM.crashHrs} h (${2*STIM.crashHrs} h total); level 3 adds a difficulty upgrade and ×1.75 (${3*STIM.crashHrs} h total). One stim is a fair loan for ${STIM.hours} fresh hours; two or three in a day leave you worse than rest would. A new stim clears a crash, but the next crash is a level worse. Sleep does not shorten it.</td></tr>
   <tr><td>Overdose (${STIM.maxHeals+1}th+ in a day)</td><td>No healing. Stimulant still works, but the body is pushed past its limits: <b>+${STIM.odWounds} wounds per extra stim</b>.</td></tr></table>
   <p>The dose counter runs on a rolling <b>${STIM.windowHrs} h window</b> that opens with the first stim and clears ${STIM.windowHrs} h later — the card shows the time left in parentheses, and the log notes when tolerance clears.</p>
 
