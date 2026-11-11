@@ -36,7 +36,12 @@ function tierTimes(id, key, act='light', env='temperate', hold={}){
   const cs = st(id), tiers = NEEDS[key].tiers, hit = {};
   cs.activity = act;
   for(let h=1; h<=5000; h++){
-    Object.assign(cs, hold);                     // pin other needs so they don't confound the one measured
+    // pin every other need (and strain/wounds) so collapse, sleep-deprivation strain or
+    // death can't confound the one measured; the sleep rows keep fatigue live so the
+    // Exhausted→sleep coupling shows ("no rest breaks")
+    for(const k of NEED_KEYS) if(k!==key && !(key==='sleep' && k==='rest')) cs[k]=0;
+    cs.strain = 0; cs.wounds = 0;
+    Object.assign(cs, hold);
     tick(cs, 1);
     for(const t of tiers) if(t.min>0 && hit[t.name]===undefined && cs[key] >= t.min) hit[t.name]=h;
     if(cs[key] >= 100) break;
@@ -68,8 +73,8 @@ row('Cal fatigue · light',                tierTimes('cal','rest'));
 row('Cal fatigue · strenuous',            tierTimes('cal','rest','strenuous'));
 
 print('\n=== WOUND CLOCKS (Cal, wt 12, other needs pinned at 0) ===');
-(function(){ fresh(); const cs=st('cal'); cs.hunger=76; let h=0; while(cs.wounds<=cs.wt && h<2000){ cs.water=0; tick(cs,1); h++; } print(`  starvation: wounds exceed threshold ${span(h)} after Emaciated — hunger meter then at ${Math.round(cs.hunger)} (Collapse = 100)`); })();
-(function(){ fresh(); const cs=st('cal'); cs.water=76; let h=0; while(cs.wounds<=cs.wt && h<2000){ tick(cs,1); h++; } print(`  dehydration: wounds exceed threshold ${span(h)} after Desiccated — thirst meter then at ${Math.round(cs.water)}`); })();
+(function(){ fresh(); const cs=st('cal'); cs.hunger=76; let h=0; while(cs.wounds<=cs.wt && h<2000){ cs.water=0; cs.sleep=0; cs.strain=0; tick(cs,1); h++; } print(`  starvation: wounds exceed threshold ${span(h)} after Emaciated — hunger meter then at ${Math.round(cs.hunger)} (Collapse = 100)`); })();
+(function(){ fresh(); const cs=st('cal'); cs.water=76; let h=0; while(cs.wounds<=cs.wt && h<2000){ cs.sleep=0; cs.strain=0; tick(cs,1); h++; } print(`  dehydration: wounds exceed threshold ${span(h)} after Desiccated — thirst meter then at ${Math.round(cs.water)}`); })();
 
 print('\n=== DRINKING ===');
 for(const id of ['cal','bode','pike','kata']){ const c=cfg(id); print(`  ${c.name.padEnd(11)} ${String(c.waterOz).padStart(3)} oz/day · a ${OZ_PER_CANTEEN} oz canteen = −${ozToPts(c,OZ_PER_CANTEEN).toFixed(1)} thirst · a day of walking = ${(24*NEEDS.water.tiers[0].rate*(c.mods.waterRate||1)).toFixed(0)} pts = ${(24*NEEDS.water.tiers[0].rate*(c.mods.waterRate||1)/ozToPts(c,1)).toFixed(0)} oz`); }

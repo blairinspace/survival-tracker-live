@@ -312,9 +312,11 @@ const OZ_PER_CANTEEN = 20;
 // Organic baseline accrual. Thirst / hunger / hygiene accrue from their
 // per-tier `rate` in NEEDS (pts/hr, see below). Fatigue is activity-driven
 // (ACTS[..].rest, pts/hr). Sleep debt is flat while awake — one tier per day:
-// tier.min ÷ awakeRate → Drowsy ≈25 h, Sleep-Deprived ≈49 h, Delirious ≈73 h, Wrecked ≈96 h (the Rules tab derives these).
+// tier.min ÷ awakeRate → Drowsy ≈18 h, Sleep-Deprived ≈49 h, Delirious ≈73 h, Wrecked ≈96 h (the Rules tab derives these).
 // Quiet rest (lying down, eyes closed) slows the debt a little but never pays it off.
-const SLEEP = { awakeRate:1.04, restingMult:0.75, hoursDefault:8, fullNightHrs:6 };   // fullNightHrs: sleep this long and all strain clears on waking
+const SLEEP = { awakeRate:1.04, restingMult:0.75, hoursDefault:8, fullNightHrs:6, deepDebtFrom:76, deepDebtCap:75 };
+// fullNightHrs: sleep this long and all strain clears on waking. deepDebtFrom/Cap: a sleep begun at
+// Delirious or worse recovers at most deepDebtCap points — one night brings you back to Drowsy, a second clears it.
 const MAINT_BASE = 0.14;         // droid wear pts/hr: unmaintained light temperate duty ≈ 30 days to critical
 
 // Encumbrance: per point OVER threshold (threshold = Brawn + 5)
@@ -332,7 +334,7 @@ const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5 };
 // baseline thirst (see ozToPts). For Cal that is 0.4 pts/oz: a 20 oz canteen ≈ 8 pts,
 // a third of his day. At Dehydrated+ (thirst ≥ thresh) a cramping gut keeps down only
 // ~capOz per drink — the rest stays in the canteen. Sip, rest, repeat.
-const REHYDRATE = { thresh:51, capOz:10 };
+const REHYDRATE = { thresh:51, capOz:10, waitHrs:0.25 };   // waitHrs: no second sip until the clock has moved this far
 
 // Refeeding: at Starving+ (hunger ≥ thresh) the body safely absorbs only
 // ~capPts of food per meal — gorging risks refeeding shock (a Sick stack).
@@ -346,9 +348,11 @@ const SLEEP_FATIGUE = { thresh:51, accrual:1.5, recovery:0.75 }; // sleep-depriv
 const FATIGUE_SLEEP = { thresh:76, accrual:1.5 };                // exhausted body craves rest: sleep debt ×1.5
 
 // Hygiene actions (points removed; wipe-down draws canteen water)
-const HYG = { wash:50, wipe:25, wipeOz:5, clothes:10 };
+const HYG = { wash:50, wipe:12, wipeOz:5, clothes:8 };   // wipe ≈ two days of Grubby-tier grime; a wash is the real reset
 // Environmental condition onset chance per hour of exposure
-const ENV_COND_CHANCE = { scorching:0.12, hot:0.05, frozen:0.12, cold:0.05 };
+// Rolled every hour of exposure, asleep or awake (shelter and gear are the GM's waiver),
+// and scaled by the character's heat/cold adaptation (Tann ×0.4 in heat, Merrin ×0.6 in cold).
+const ENV_COND_CHANCE = { scorching:0.12, hot:0.05, humid:0.05, frozen:0.12, cold:0.05 };
 
 // Wound-tint portrait: red overlay opacity at max wounds
 const HURT_MAX_OPACITY = 0.75;
@@ -376,7 +380,7 @@ const CONDS = {
      Resilience (or a carer's Medicine) check removes 1; a medpac or bacta
      removes 1 outright. */
   sick:      {label:'🤒 Sick', lvls:5,
-              mult:{water:l=>1+0.1*l, hunger:l=>1+0.1*l},
+              mult:{water:l=>1+0.1*l, hunger:l=>1+0.1*l, rest:l=>1+0.15*l, sleep:l=>1+0.1*l},
               hourly:(cs,l,ev,cap)=>{
                 cs.sickHrs=(cs.sickHrs||0)+1;
                 addStrain(cs, l>=2?1:0.5);
@@ -385,13 +389,13 @@ const CONDS = {
               },
               fx:l=> l>=3 ? `🤒 Gravely Ill (${l} stacks): fever & delirium — <b>−1 Brawn, −1 Intellect</b>; <b class="lb">1 wound every 4 hrs</b>; 1 strain/hr${l>3?`; upgrade ${l-3} more check(s)`:''}. Untreated, this is where it can kill. Clear each stack separately (daily Resilience/Medicine, medpac or bacta).`
                    : l>=2 ? `🤒 Sick (2 stacks): <span class="dice chal">upgrade the difficulty</span> of physical checks once; 1 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.`
-                   :        `🤒 Ill (1 stack): 1 Setback ■ to physical checks; 1 strain per 2 hrs; accelerates thirst & hunger.`},
+                   :        `🤒 Ill (1 stack): 1 Setback ■ to physical checks; 1 strain per 2 hrs. Per stack: thirst & hunger +10%, fatigue +15%, sleep debt +10%.`},
   fear:      {label:'😨 Fear', lvls:3, mult:{sleep:l=>1+0.15*l},
               fx:l=>`😨 Fear (${l}/3): ${l} Setback ■ to all checks; restless — sleep debt grows ${15*l}% faster${l>=3?'; must pass a Fear check (Discipline) to act against the source':''}.`},
   chilled:   {label:'🥶 Chilled', mult:{hunger:1.3, rest:1.2},
-              fx:()=> '🥶 Chilled: 1 Setback ■ to Agility-based checks; burns 30% more calories, tires 20% faster. Remove with shelter/warm gear.'},
+              fx:()=> '🥶 Chilled: 1 Setback ■ to Agility-based checks; burns 30% more calories (in a Cold environment that is already counted), tires 20% faster; cold-adapted species feel proportionally less. Remove with shelter/warm gear.'},
   overheated:{label:'🥵 Overheated', mult:{water:1.4, rest:1.2},
-              fx:()=> '🥵 Overheated: 1 Setback ■ to all checks; sweats 40% more water, tires 20% faster. Remove with shade/cooling.'},
+              fx:()=> '🥵 Overheated: 1 Setback ■ to all checks; sweats 40% more water, tires 20% faster; heat-adapted species feel proportionally less. Remove with shade/cooling.'},
   soaked:    {label:'💧 Soaked', mult:{rest:1.1},
               fx:()=> '💧 Soaked: 1 Setback ■ to Agility-based checks; in Cold environments also counts as Chilled.'},
   poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ addStrain(cs, 1); }, mult:{water:1.2},
@@ -400,13 +404,13 @@ const CONDS = {
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
               fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
-  drunk:     {label:'🍺 Drunk', lvls:3, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},
+  drunk:     {label:'🍺 Drunk', lvls:3, decayHrs:2, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},   // decayHrs: one level wears off per this many hours
               hourly:(cs,l,ev)=>{ if(l>=2) addStrain(cs, l-1); },
-              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Only time, water & rest sober you up.`
+              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Sobers one level every ${CONDS.drunk.decayHrs} hrs.`
                    : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">1 strain/hr.</b> +30% water use.`
                    :        `🍺 Tipsy (1/3): loosened up. <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception. Mild dehydration (+15% water).`},
-  caffeinated:{label:'☕ Caffeinated', mult:{sleep:0.6, rest:0.85, water:1.1},
-              fx:()=> '☕ Caffeinated: <span class="dice boost">1 Boost ▲</span> to Vigilance & Perception and to checks made to resist sleep. Wired and alert — sleep debt accrues 40% slower and fatigue 15% slower. Mild diuretic (+10% water). Wears off after a few hours; a crash may follow (GM\'s call).'},
+  caffeinated:{label:'☕ Caffeinated', decayHrs:4, mult:{sleep:0.6, rest:0.85, water:1.1},   // decayHrs: clears after this many hours
+              fx:()=> `☕ Caffeinated: <span class="dice boost">1 Boost ▲</span> to Vigilance & Perception and to checks made to resist sleep. Wired and alert — sleep debt accrues 40% slower and fatigue 15% slower. Mild diuretic (+10% water). Wears off after ${CONDS.caffeinated.decayHrs} hrs; a crash may follow (GM's call).`},
   // droid conditions
   ion:       {label:'⚡ Ion-scrambled', droid:true, mult:{charge:1.5},
               fx:()=> '⚡ Ion-scrambled: 1 Setback ■ to all checks; power drains 50% faster. Clears with a Mechanics check or reboot.'},
@@ -577,7 +581,7 @@ const NEEDS = {
   ]},
   sleep: { label:'😴 Sleep', tiers:[
     {min:0,   name:'Rested',         color:'#3fb950', fx:'Well-rested. No effects.'},
-    {min:26,  name:'Drowsy',         color:'#9acd32',
+    {min:19,  name:'Drowsy',         color:'#9acd32',
      fx:'Attention slipping. Add <span class="dice setb">1 Setback ■</span> to Intellect, Cunning, Perception and Vigilance checks.'},
     {min:51,  name:'Sleep-Deprived', color:'#d29922', strain:0.5,
      fx:'<b>−1 Intellect, −1 Cunning.</b> <span class="dice chal">Upgrade</span> Perception/Vigilance difficulty once. <b class="lw">1 strain per 2 hours.</b> Prone to microsleeps — the GM may spend <b>✕✕ (Threat)</b> on any check to nod them off (lose next maneuver). Fatigue accrues ×1.5 and rest recovers 25% less.'},
@@ -758,7 +762,7 @@ function newCharState(c){
     ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
     : { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
         lastTiers:Object.fromEntries(NEED_KEYS.map(k=>[k,0])),
-        starveHrs:0, hygHrs:0, sickHrs:0, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
+        starveHrs:0, hygHrs:0, sickHrs:0, lastDrinkAt:-99, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
         sleepHrs:c.mods.sleepNeed||SLEEP.hoursDefault,
         stimsToday:0, stimDay:0, stimHrs:0, force:0 });
   syncInv(cs);
@@ -846,6 +850,7 @@ const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold +
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
+const climateAdapt = (c, heat) => heat ? (c.mods.heatAdapt??1) : (c.mods.coldAdapt??1);   // 1 = feels all of it
 function tierOf(x, tiers){ let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
 // Hourly strain from needs and conditions never runs past twice the threshold (the card is unreadable beyond it).
 const strainCapOf = cs => cs.st>0 ? cs.st*2 : 999;
@@ -859,14 +864,25 @@ const sleepStrainPerHr = cs => Math.max(1, Math.ceil((cs.st||8)/8));   // a nigh
 // Down = unconscious (strain), dying (wounds) or collapsed from thirst/starvation: the body lies where it fell.
 const isDown = (cs, c) => (cs.strain>=cs.st && cs.st>0) || (cs.wounds>cs.wt && cs.wt>0) || (!c.droid && (cs.water>=100 || cs.hunger>=100));
 function condMult(cs, key){
+  const c = cfg(cs.id), env = ENVS[S.env];
+  // Chilled/Overheated: a Cold environment already charges the extra calories, so Chilled
+  // adds no more hunger there (it still tires you and costs the Setback); adapted species
+  // feel only their share of the excess.
+  const climateMult = (id, mm) => {
+    if(id==='chilled' && key==='hunger' && env.cold) return 1;
+    return 1 + (mm-1)*climateAdapt(c, id==='overheated');
+  };
   let m = 1;
   for(const cd of cs.conds){
-    const mm = CONDS[cd.id]?.mult?.[key];   // custom conditions carry no multipliers
-    if(mm) m *= (typeof mm==='function' ? mm(cd.lvl||1) : mm);
+    let mm = CONDS[cd.id]?.mult?.[key];   // custom conditions carry no multipliers
+    if(!mm) continue;
+    mm = typeof mm==='function' ? mm(cd.lvl||1) : mm;
+    if(cd.id==='chilled' || cd.id==='overheated') mm = climateMult(cd.id, mm);
+    m *= mm;
   }
   // soaked in a cold environment also counts as chilled
-  if(cs.conds.some(c=>c.id==='soaked') && ENVS[S.env].cold && !cs.conds.some(c=>c.id==='chilled')){
-    const mm = CONDS.chilled.mult[key]; if(mm) m *= mm;
+  if(cs.conds.some(x=>x.id==='soaked') && env.cold && !cs.conds.some(x=>x.id==='chilled')){
+    const mm = CONDS.chilled.mult[key]; if(mm) m *= climateMult('chilled', mm);
   }
   return m;
 }
@@ -928,7 +944,9 @@ function tick(cs, dt){
 
     const prevSleep = cs.sleep;
     if(isStandby){
-      cs.sleep = clamp(cs.sleep - sleepRecovery(c)*dt, 0, 100);
+      let d = sleepRecovery(c)*dt;
+      if(cs.status?.sleepCap!=null){ d = Math.min(d, Math.max(0, cs.status.sleepCap - cs.status.recovered)); cs.status.recovered = +(cs.status.recovered + d).toFixed(3); }
+      cs.sleep = clamp(cs.sleep - d, 0, 100);
     } else {
       let sRate = SLEEP.awakeRate*(c.mods.sleepRate||1);
       if(actKey==='resting') sRate *= SLEEP.restingMult;                 // quiet rest eases the debt a little
@@ -1013,6 +1031,15 @@ function endStatus(cs, c, events){
 function applyHourly(cs, c, events, woundCap, isStandby, actKey){
   // condition hourly effects (organics & droids; custom conditions have none)
   for(const cd of cs.conds) CONDS[cd.id]?.hourly?.(cs, cd.lvl||1, events, woundCap);
+  // timed conditions wear off on their own: one level per decayHrs if leveled, else cleared
+  for(const cd of [...cs.conds]){
+    const def = CONDS[cd.id]; if(!def?.decayHrs) continue;
+    cd.hrs = (cd.hrs||0) + 1;
+    if(cd.hrs < def.decayHrs) continue;
+    cd.hrs = 0;
+    if(def.lvls && (cd.lvl||1) > 1){ cd.lvl--; events.push(['lg',`${def.label} eases to ${cd.lvl}/${def.lvls} — ${c.name}.`]); }
+    else { cs.conds = cs.conds.filter(x=>x!==cd); events.push(['lg',`${def.label} wears off — ${c.name}.`]); }
+  }
 
   // strain recovery (core rules: rest heals strain): sleep/standby pays off a threshold
   // per night, quiet rest 1 per hour — so an unconscious body resting comes round
@@ -1043,9 +1070,10 @@ function applyHourly(cs, c, events, woundCap, isStandby, actKey){
   if(!cs.conds.some(x=>x.id==='sick')) cs.sickHrs = 0;
 
   // environmental conditions from prolonged exposure
-  const chance = ENV_COND_CHANCE[S.env];
-  if(chance && !isStandby){
-    const condId = ENVS[S.env].heat ? 'overheated' : 'chilled';
+  const base = ENV_COND_CHANCE[S.env];
+  if(base){
+    const heat = !!ENVS[S.env].heat, condId = heat ? 'overheated' : 'chilled';
+    const chance = base * climateAdapt(c, heat);
     if(!cs.conds.some(x=>x.id===condId) && Math.random()<chance){
       cs.conds.push({id:condId});
       events.push(['lw',`${c.name} is ${condId} by the ${ENVS[S.env].label.toLowerCase()} (GM may waive with proper gear).`]);
@@ -1110,6 +1138,10 @@ function startStatus(id, kind, dur){
   const total = dur || def.dur;
   cs.prevAct = cs.activity;
   cs.status = { kind, remain:total, total, deltas, cost };   // cost: rations paid up front, refunded pro rata on cancel
+  if(kind==='sleep' && cs.sleep >= SLEEP.deepDebtFrom){        // days of debt: one night recovers most of it, not all
+    cs.status.sleepCap = SLEEP.deepDebtCap; cs.status.recovered = 0;
+    logMsg(`😴 ${c.name} is ${tierOf(cs.sleep, NEEDS.sleep.tiers).name} — this sleep recovers at most ${SLEEP.deepDebtCap} sleep debt; a second night finishes the job.`,'lw');
+  }
   logMsg(`${def.label} — ${c.name} (${fmtDur(total)}). Advance the clock to progress.`, kind.startsWith('med')?'lf':'');
   render();
 }
@@ -1134,12 +1166,17 @@ function drink(id, oz){
   const cs = st(id), c = cfg(id);
   let ozUsed = Math.min(oz, cs.canteen);
   if(ozUsed<=0){ logMsg(`${c.name}'s canteen is empty!`, 'lw'); render(); return; }
-  const capped = cs.water >= REHYDRATE.thresh && ozUsed > REHYDRATE.capOz;  // a dehydrated gut keeps down only so much
+  const dehydrated = cs.water >= REHYDRATE.thresh;
+  if(dehydrated && S.hour - (cs.lastDrinkAt??-99) < REHYDRATE.waitHrs){   // the cap is per quarter hour, not per click
+    logMsg(`${c.name} is still cramping from the last sip — advance the clock ${Math.round(REHYDRATE.waitHrs*60)} min before drinking again.`,'lw'); render(); return;
+  }
+  const capped = dehydrated && ozUsed > REHYDRATE.capOz;  // a dehydrated gut keeps down only so much
   if(capped) ozUsed = REHYDRATE.capOz;
   const pts = ozToPts(c, ozUsed);
+  cs.lastDrinkAt = S.hour;
   cs.canteen = +(cs.canteen - ozUsed).toFixed(1);
   cs.water = clamp(cs.water - pts, 0, 100);
-  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?` — severely dehydrated, the body keeps down only ~${REHYDRATE.capOz} oz per drink; sip and rest`:''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?` — severely dehydrated, the body keeps down only ~${REHYDRATE.capOz} oz per ${Math.round(REHYDRATE.waitHrs*60)} min; sip and rest`:''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
   render();
 }
 function refill(id){
@@ -1249,7 +1286,7 @@ function rmCond(id, condId){
 function condLvl(id, condId, d){
   const cs = st(id), cd = cs.conds.find(x=>x.id===condId);
   if(!cd || cd.custom) return;
-  cd.lvl = clamp((cd.lvl||1)+d, 1, CONDS[condId].lvls||1);
+  cd.lvl = clamp((cd.lvl||1)+d, 1, CONDS[condId].lvls||1); cd.hrs = 0;   // another round restarts the clock
   render();
 }
 
@@ -2105,7 +2142,7 @@ function buildRules(){
   <p>Getting clean needs water — which competes with drinking, so in scarcity washing is a real choice. A <b>full wash is a 30-min timed status</b> (see above); wipe-downs and clothing changes are instant.</p>
   <table><tr><th>Action</th><th>Effect</th><th>Requires</th></tr>
   <tr><td>🛁 Full wash / bath (30-min timed status)</td><td>−${HYG.wash} hygiene (two tiers) — a proper scrub resets toward Fresh; delivered over 30 min as the clock advances</td><td>ample water (GM approves)</td></tr>
-  <tr><td>🧻 Quick wipe-down / field clean</td><td>−${HYG.wipe} hygiene (one tier)</td><td>${HYG.wipeOz} oz canteen water (or a sonic shower — GM approves)</td></tr>
+  <tr><td>🧻 Quick wipe-down / field clean</td><td>−${HYG.wipe} hygiene (about two days of grime)</td><td>${HYG.wipeOz} oz canteen water (or a sonic shower — GM approves)</td></tr>
   <tr><td>👕 Change into clean clothing</td><td>−${HYG.clothes} hygiene</td><td>a clean change of clothes (GM approves)</td></tr>
   <tr><td>💊 Bacta / medical treatment</td><td>clears a 🤒 Sick stack — but not the grime; you still need to wash</td><td>medpac / bacta</td></tr></table>
 
@@ -2114,7 +2151,7 @@ function buildRules(){
   <tr><td>💧 Thirst</td><td>${rateSpan('water')} (by tier)</td><td>0 → Collapse in ~${thirstDays} days (~${Math.round(ladderHours('water'))} h) without water; accrual quickens as thirst deepens; wounds begin at 76 (Desiccated)</td></tr>
   <tr><td>🍞 Hunger</td><td>${rateSpan('hunger')} (by tier)</td><td>appetite hits fast — Hungry within a workday — then a long slow burn as the body rations reserves; Collapse at ~${hungerDays} days; wounds (1 per ${STARVE_WOUND_HRS} hrs) begin at 76 (Emaciated)</td></tr>
   <tr><td>🧼 Hygiene</td><td>${rateSpan('hygiene')} (by tier)</td><td>grubby within days, genuine disease at ~${hygDays} days; never lethal by itself — its teeth are the 🤒 Sick stacks and social penalties (with one upside: filth boosts Coercion)</td></tr>
-  <tr><td>😴 Sleep debt</td><td>+${SLEEP.awakeRate}/hr awake (any activity)</td><td>one tier per day awake: ${sleepLadder}; quiet rest slows the tick to ×${SLEEP.restingMult}; ${SLEEP.hoursDefault} hrs sleep (${kata.mods.sleepNeed} for Kata) fully restores; Exhausted fatigue makes it accrue +${fatigueSleepPct}%</td></tr>
+  <tr><td>😴 Sleep debt</td><td>+${SLEEP.awakeRate}/hr awake (any activity)</td><td>Drowsy by the end of a long day, then a tier per day awake: ${sleepLadder}; quiet rest slows the tick to ×${SLEEP.restingMult}; ${SLEEP.hoursDefault} hrs sleep (${kata.mods.sleepNeed} for Kata) fully restores; Exhausted fatigue makes it accrue +${fatigueSleepPct}%</td></tr>
   <tr><td>⚡ Fatigue</td><td>+${ACTS.sedentary.rest}/hr sedentary · +${ACTS.light.rest}/hr light · +${ACTS.travel.rest}/hr moderate · +${ACTS.strenuous.rest}/hr combat</td><td>activity-driven, not time-driven: a full unbroken day's march = Spent, sustained combat gets there in ~${+(100/ACTS.strenuous.rest).toFixed(1)} h; recovers ${ACTS.resting.rest}/hr resting, ${ACTS.sleeping.rest}/hr sleeping; sleep-deprivation makes it accrue ×${SLEEP_FATIGUE.accrual} and recover ${Math.round((1-SLEEP_FATIGUE.recovery)*100)}% less</td></tr>
   <tr><td>🔋 Charge (droid)</td><td>+100 ÷ pack-hours per hr</td><td>BD-1 ~${cfg('bd1').packHrs} hrs/pack, Alpha ~${cfg('alpha').packHrs} hrs/pack on light duty; standby ×${ACTS.sleeping.power}, combat ×${ACTS.strenuous.power}</td></tr>
   <tr><td>🔧 Wear (droid)</td><td>+${MAINT_BASE}/hr light duty</td><td>~${wearDays} days of unmaintained light temperate duty to critical; harsh climates &amp; combat wear far faster — a weekly tune-up (−${TUNEUP}) keeps pace</td></tr>
@@ -2154,7 +2191,7 @@ function buildRules(){
   <h2>🤒 Sick / Illness — the shared stacking condition</h2>
   <p>One condition sits behind <b>dirty water</b> (Thirst), <b>spoiled food &amp; refeeding shock</b> (Hunger), and <b>infection</b> (Hygiene). Each bad exposure adds <b>1 stack</b> (the + on the badge). Washing or eating clean stops <i>new</i> stacks but never cures existing ones — each must be treated on its own.</p>
   <table><tr><th>Stacks</th><th>State</th><th>Effect</th></tr>
-  <tr><td>1</td><td><b>Ill</b></td><td>1 Setback ■ to physical checks; 1 strain per 2 hrs; accelerates thirst &amp; hunger.</td></tr>
+  <tr><td>1</td><td><b>Ill</b></td><td>1 Setback ■ to physical checks; 1 strain per 2 hrs. Per stack: thirst &amp; hunger +10%, fatigue +15%, sleep debt +10%.</td></tr>
   <tr><td>2</td><td><b>Sick</b></td><td>Upgrade the difficulty of physical checks once; 1 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.</td></tr>
   <tr><td>3+</td><td><b>Gravely Ill</b></td><td>Fever/delirium: <b>−1 Brawn, −1 Intellect</b>; <b>1 wound every 4 hrs</b>; each stack past 3 upgrades another check. <b>Untreated, this is where it can kill</b> — the illness, not the meter.</td></tr></table>
   <p><b>Recovery — each stack cleared separately:</b> once per day, a <b>Resilience check</b> (or a carer's <b>Medicine check</b>) removes 1 stack — but a failure or Despair at 3+ stacks <b>adds</b> a stack (a spiral if ignored). A <b>medpac</b> (successful Medicine) or <b>bacta</b> removes 1 stack outright. Recovery checks take <b>+1 Setback ■</b> while Squalid+, Dehydrated, or Starving — you can't shake illness in filthy or malnourished shape. Adjust stacks with −/+ on the badge; × removes the condition entirely.</p>
@@ -2193,7 +2230,7 @@ function buildRules(){
   <h2>💧 Thirst ladder</h2>
   <p>Reaches Collapse in <b>~${thirstDays} days</b> (~${Math.round(ladderHours('water'))} h) walking in a temperate climate; about twice that resting in shade, well under two days in desert heat. Each tier carries its own accrual rate: thirst quickens as it deepens, because every percent of body water lost hurts more than the last.</p>
   ${ladderTable('water')}
-  <p><b>Recovery:</b> clean water pulls thirst down, and the arithmetic is honest — a character's <b>oz water/day</b> is what a day of walking costs them, so a full ${OZ_PER_CANTEEN} oz canteen removes ~${ozToPts(cal, OZ_PER_CANTEEN).toFixed(0)} pts for Cal (a third of his day), ~${ozToPts(pike, OZ_PER_CANTEEN).toFixed(0)} for Pike's small frame, ~${ozToPts(cfg('bode'), OZ_PER_CANTEEN).toFixed(0)} for Bode. Staying level means roughly three canteens a day on the march, far more in heat. From <b>Dehydrated (${REHYDRATE.thresh}+)</b> a cramping gut keeps down only ~${REHYDRATE.capOz} oz per drink — chugging past that is wasted, so climbing out of the deep tiers takes real in-game time and a safe place to rest. <b>Dirty/unfiltered water</b> forces a Resilience check; failure adds a 🤒 Sick stack — which accelerates the thirst clock rather than relieving it. Desperate, but sometimes the only option.</p>
+  <p><b>Recovery:</b> clean water pulls thirst down, and the arithmetic is honest — a character's <b>oz water/day</b> is what a day of walking costs them, so a full ${OZ_PER_CANTEEN} oz canteen removes ~${ozToPts(cal, OZ_PER_CANTEEN).toFixed(0)} pts for Cal (a third of his day), ~${ozToPts(pike, OZ_PER_CANTEEN).toFixed(0)} for Pike's small frame, ~${ozToPts(cfg('bode'), OZ_PER_CANTEEN).toFixed(0)} for Bode. Staying level means roughly three canteens a day on the march, far more in heat. From <b>Dehydrated (${REHYDRATE.thresh}+)</b> a cramping gut keeps down only ~${REHYDRATE.capOz} oz per ${Math.round(REHYDRATE.waitHrs*60)} minutes — chugging past that is wasted and the tracker refuses a second sip until the clock moves, so climbing out of the deep tiers takes real in-game time and a safe place to rest. <b>Dirty/unfiltered water</b> forces a Resilience check; failure adds a 🤒 Sick stack — which accelerates the thirst clock rather than relieving it. Desperate, but sometimes the only option.</p>
 
   <h2>🍞 Hunger ladder</h2>
   <p>Reaches Collapse in <b>~${hungerDays} days</b> for a default frame walking in a temperate climate — roughly a month, the realistic low end for a lean, active adult with water. Appetite hits fast (Hungry within a workday, Gnawing after a day, Famished by day ${Math.round(tierAt('hunger','Famished')/24)}) to encourage daily eating, then a long slow burn as the body rations reserves: Starving around day ${Math.round(tierAt('hunger','Starving')/24)}, Emaciated around day ${Math.round(tierAt('hunger','Emaciated')/24)}. One ration a day holds the line at Hungry or below.</p>
@@ -2206,7 +2243,7 @@ function buildRules(){
   ${ladderTable('hygiene')}
 
   <h2>😴 Sleep ladder (sleep debt — no death)</h2>
-  <p>Mental and <i>time-awake-driven</i>: +${SLEEP.awakeRate}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~${sleepAt('Drowsy')} h); <b>microsleeps begin around the ${sleepAt('Sleep-Deprived')} h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~${sleepAt('Delirious')} h; <b>Wrecked at ~${sleepAt('Wrecked')} h</b> — ${days(sleepAt('Wrecked'))} days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +${fatigueSleepPct}%). Only proper sleep clears it; quiet rest slows the tick to ×${SLEEP.restingMult} but never pays it off; the ${fmtDur(STATUSES.med30.dur)} Force trance counts as ${tranceMin} min of sleep.</p>
+  <p>Mental and <i>time-awake-driven</i>: +${SLEEP.awakeRate}/hr while conscious regardless of activity — one tier per full day awake. A long day leaves you <b>Drowsy</b> (~${sleepAt('Drowsy')} h awake); <b>microsleeps begin around the ${sleepAt('Sleep-Deprived')} h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~${sleepAt('Delirious')} h; <b>Wrecked at ~${sleepAt('Wrecked')} h</b> — ${days(sleepAt('Wrecked'))} days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +${fatigueSleepPct}%). Only proper sleep clears it — and from <b>Delirious or worse a single night recovers at most ${SLEEP.deepDebtCap}</b>, so it takes two nights; quiet rest slows the tick to ×${SLEEP.restingMult} but never pays it off; the ${fmtDur(STATUSES.med30.dur)} Force trance counts as ${tranceMin} min of sleep.</p>
   ${ladderTable('sleep')}
 
   <h2>⚡ Fatigue ladder (physical — no death)</h2>
