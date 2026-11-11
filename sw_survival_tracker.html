@@ -30,7 +30,6 @@
   #ambience img{width:100%;height:190px;object-fit:cover;display:block}
   #ambience .cap{position:absolute;left:12px;bottom:8px;font-size:15px;font-weight:700;color:#fff;text-shadow:0 1px 6px #000}
   #ambience .cap small{display:block;font-size:11px;font-weight:400;opacity:.85}
-  #ambience .rm{position:absolute;top:8px;right:8px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
   .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
   .card.dead{border-color:var(--crit);box-shadow:0 0 12px rgba(255,46,46,.35)}
@@ -39,7 +38,6 @@
   .portrait{position:relative;border-radius:8px;overflow:hidden;margin-bottom:8px;max-height:150px}
   .portrait img{width:100%;height:150px;object-fit:cover;object-position:center 20%;display:block}
   .portrait .hurt{position:absolute;inset:0;background:#e00;pointer-events:none}
-  .portrait .rm{position:absolute;top:6px;right:6px;padding:1px 6px;font-size:11px}
   .cardhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
   .cname{font-size:16px;font-weight:700}
   .cmeta{color:var(--dim);font-size:11px}
@@ -136,7 +134,6 @@
   .shiphead .sactivity{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
   .shipportrait{position:relative;border-radius:8px;overflow:hidden;margin-bottom:14px;max-height:220px}
   .shipportrait img{width:100%;height:220px;object-fit:cover;object-position:center;display:block}
-  .shipportrait .rm{position:absolute;top:8px;right:8px;padding:1px 6px;font-size:11px}
   .shiphead .stitle .mini{font-size:11px;vertical-align:middle;margin-left:4px}
   .statbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;margin-bottom:14px}
   .stat{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center}
@@ -313,11 +310,12 @@
 const OZ_PER_CANTEEN = 20;
 
 // Organic baseline accrual. Thirst / hunger / hygiene accrue from their
-// per-tier `rate` in NEEDS (pts/hr, see below). Sleep debt is flat while awake:
-// one tier per day — Drowsy ~25 h, Sleep-Deprived (microsleeps) ~48 h,
-// Delirious ~72 h, Wrecked ~96 h. Fatigue is activity-driven (ACTS[..].rest, pts/hr).
-const BASE = { sleepAwake: 1.04 };
-const MAINT_BASE = 0.45;         // droid wear pts/hr (light duty, temperate ≈ 9 days to critical)
+// per-tier `rate` in NEEDS (pts/hr, see below). Fatigue is activity-driven
+// (ACTS[..].rest, pts/hr). Sleep debt is flat while awake — one tier per day:
+// Drowsy ~25 h, Sleep-Deprived (microsleeps) ~48 h, Delirious ~72 h, Wrecked ~96 h.
+// Quiet rest (lying down, eyes closed) slows the debt a little but never pays it off.
+const SLEEP = { awakeRate:1.04, restingMult:0.75, hoursDefault:8 };
+const MAINT_BASE = 0.14;         // droid wear pts/hr: unmaintained light temperate duty ≈ 30 days to critical
 
 // Encumbrance: per point OVER threshold (threshold = Brawn + 5)
 const ENC_DRAIN_PER_PT = 0.10;   // +10% thirst/hunger/fatigue (droids: charge/wear) accrual
@@ -329,26 +327,19 @@ const FORCE_PER_PT = 0.08;       // −8% accrual per point (8 pts = −64%)
 // Stimpacks (organics only, instant injection)
 const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5 };
 
-// Drinking: thirst removed = oz × DRINK_OZ_TO_PTS ÷ body waterOz. The constant is
-// calibrated so a full 20 oz canteen ≈ 25 pts (one tier) for a 60 oz body; bigger
-// bodies get proportionally less relief per oz. At Dehydrated+ (thirst ≥ thresh)
-// the body absorbs only ~capPts per drink — more just cramps and stays in the canteen.
-const DRINK_OZ_TO_PTS = 75;
-const REHYDRATE = { thresh:51, capPts:10 };
+// Drinking. A character's `waterOz` is the water a full day of light activity in a
+// temperate climate costs them, so drinking that much cancels exactly one day of
+// baseline thirst (see ozToPts). For Cal that is 0.4 pts/oz: a 20 oz canteen ≈ 8 pts,
+// a third of his day. At Dehydrated+ (thirst ≥ thresh) a cramping gut keeps down only
+// ~capOz per drink — the rest stays in the canteen. Sip, rest, repeat.
+const REHYDRATE = { thresh:51, capOz:10 };
 
 // Refeeding: at Starving+ (hunger ≥ thresh) the body safely absorbs only
 // ~capPts of food per meal — gorging risks refeeding shock (a Sick stack).
 // Hunger–thirst link: while Dehydrated+ (thirst ≥ REHYDRATE.thresh), meals
 // restore only half their points until rehydrated.
 const REFEED = { thresh:51, capPts:10 };
-
-// Metabolic physiology: a distinctive frame (Bode's mass, Pike's racing burn)
-// also carries a small FLAT hunger accrual, scaled by its hungerRate deviation
-// from 1.0. Hunger's tiers decelerate steeply (0.63→0.17 pts/hr), so a pure %
-// multiplier compresses to ~2 pts/day of separation; this flat term keeps a big
-// or fast metabolism visibly hungrier through the slow reserve-burning tiers too.
-// Still scaled by activity/environment/encumbrance/Force like the base rate.
-const HUNGER_PHYSIO_FLAT = 0.95;   // pts/hr per +1.00 of hungerRate deviation
+const STARVE_WOUND_HRS = 12;     // Emaciated+: one wound of organ damage per this many hours
 
 // Sleep ↔ Fatigue coupling
 const SLEEP_FATIGUE = { thresh:51, accrual:1.5, recovery:0.75 }; // sleep-deprived: fatigue ×1.5, rest recovery ×0.75
@@ -449,24 +440,33 @@ function typeSelect(val, onchangeExpr, width){
   return `<select style="width:${width||82}px" onchange="${onchangeExpr}">${blank}${opts}${custom}</select>`;
 }
 
-const ENVS = {  // water/hunger/hyg = organics (rest = fatigue accrual mult) · power/maint = droids
+/* Environments. water/hunger/hyg = organic multipliers, rest = fatigue accrual
+   multiplier, power/maint = droid multipliers. Cold does NOT cut water needs:
+   dry air, heavier breathing and cold diuresis keep losses at or above temperate
+   (the danger is that thirst is felt less). Cold raises calorie burn ~30–60%;
+   altitude raises both water loss and metabolism. */
+const ENVS = {
   temperate:{label:'Temperate',       water:1.00, hunger:1.00, hyg:1.00, rest:1.00, power:1.00, maint:1.0},
   hot:      {label:'Hot / Arid',      water:2.00, hunger:1.00, hyg:1.50, rest:1.25, power:1.15, maint:1.4, heat:true},
   scorching:{label:'Extreme Heat',    water:2.50, hunger:1.10, hyg:1.50, rest:1.50, power:1.30, maint:1.8, heat:true},
-  humid:    {label:'Humid / Jungle',  water:1.40, hunger:1.00, hyg:2.50, rest:1.20, power:1.10, maint:1.6, heat:true},
-  cold:     {label:'Cold',            water:0.75, hunger:1.50, hyg:0.75, rest:1.25, power:1.25, maint:1.3, cold:true},
-  frozen:   {label:'Extreme Cold',    water:0.50, hunger:1.80, hyg:0.75, rest:1.50, power:1.50, maint:1.7, cold:true},
-  thin:     {label:'Thin Atmosphere', water:1.30, hunger:1.20, hyg:1.00, rest:1.60, power:1.00, maint:1.1}
+  humid:    {label:'Humid / Jungle',  water:1.60, hunger:1.00, hyg:2.50, rest:1.20, power:1.10, maint:1.6, heat:true},
+  cold:     {label:'Cold',            water:1.00, hunger:1.30, hyg:0.75, rest:1.25, power:1.25, maint:1.3, cold:true},
+  frozen:   {label:'Extreme Cold',    water:1.10, hunger:1.60, hyg:0.75, rest:1.50, power:1.50, maint:1.7, cold:true},
+  thin:     {label:'Thin Atmosphere', water:1.50, hunger:1.20, hyg:1.00, rest:1.60, power:1.00, maint:1.1}
 };
 
-// water/hunger/hyg/power/maint are multipliers; rest is flat fatigue pts/hr (negative = recovery)
+/* Activities. water/hunger/hyg/power/maint are multipliers against the light-duty
+   baseline; rest is flat fatigue pts/hr (negative = recovery). Hunger follows
+   physical-activity-level ratios (sleep ≈ 0.5, basal rest ≈ 0.6, hard work ≈ 1.75).
+   Water follows sweat: a rough-terrain march roughly doubles the walking rate and
+   sustained combat triples it — an hour of hard fighting costs a canteen. */
 const ACTS = {
   sleeping: {label:'😴 Sleeping', dLabel:'🔌 Standby / low power', water:0.5,  hunger:0.5,  hyg:0.5,  rest:-10, power:0.2, maint:0.3},
-  resting:  {label:'🪑 Resting',  dLabel:'🪑 Idle',                water:0.5,  hunger:0.75, hyg:0.5,  rest:-6,  power:0.5, maint:0.5},
-  sedentary:{label:'🎛 Sedentary (watch, piloting)', dLabel:'🎛 Sedentary operation', water:0.75, hunger:0.9, hyg:0.75, rest:+2, power:0.7, maint:0.7},
+  resting:  {label:'🪑 Resting',  dLabel:'🪑 Idle',                water:0.5,  hunger:0.6,  hyg:0.5,  rest:-6,  power:0.5, maint:0.5},
+  sedentary:{label:'🎛 Sedentary (watch, piloting)', dLabel:'🎛 Sedentary operation', water:0.75, hunger:0.8, hyg:0.75, rest:+2, power:0.7, maint:0.7},
   light:    {label:'🚶 Light (travel, walking, light labor)', dLabel:'🚶 Light operation', water:1.0, hunger:1.0, hyg:1.0, rest:+8, power:1.0, maint:1.0},
-  travel:   {label:'🥾 Moderate (rough terrain, forced march)', dLabel:'🥾 Moderate operation', water:1.25, hunger:1.25, hyg:1.25, rest:+16, power:1.4, maint:1.5},
-  strenuous:{label:'⚔️ Strenuous/Combat', dLabel:'⚔️ Strenuous/Combat', water:1.5, hunger:1.5, hyg:1.5, rest:+32, power:2.2, maint:2.5}
+  travel:   {label:'🥾 Moderate (rough terrain, forced march)', dLabel:'🥾 Moderate operation', water:2.0, hunger:1.25, hyg:1.25, rest:+16, power:1.4, maint:1.5},
+  strenuous:{label:'⚔️ Strenuous/Combat', dLabel:'⚔️ Strenuous/Combat', water:3.0, hunger:1.75, hyg:1.5, rest:+32, power:2.2, maint:2.5}
 };
 
 /* Characters. attr = default characteristics (players should correct from sheets).
@@ -479,29 +479,29 @@ const CHARS = [
         ['BD-1 battery packs','Gear',2,0.1], ['Armored clothing (worn)','Armor',1,0] ],
   trait:'Jedi — may commit Force points to sustain his body.'},
  {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true,
-  waterOz:80, rations:2.0, mods:{hungerRate:1.15}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
+  waterOz:80, rations:2.0, mods:{hungerRate:1.25}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
   kit:[ ['Blaster pistol','Weapon',1,0.5], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
-  trait:'Force sensitive. Massive frame — highest food & water demand; a big body\'s steady burn means hunger sets in far faster and keeps gnawing.'},
+  trait:'Force sensitive. Massive, lean frame — highest food & water demand; muscle burns hot and carries little fat, so hunger runs 25% ahead of the party.'},
  {id:'tann',  name:'Tann',        species:"Twi'lek", h:`6'1"`, build:'Average', fs:false,
   waterOz:60, rations:1.5, mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster carbine','Weapon',1,1], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
   trait:'Ryloth heritage — heat raises her water needs only ~40% as much as anyone else\'s.'},
  {id:'gibbs', name:'Gibbs',       species:'Human', h:`5'5"`,  build:'Muscular', fs:false,
-  waterOz:60, rations:1.5, mods:{hungerRate:1.1}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
+  waterOz:60, rations:1.5, mods:{hungerRate:1.15}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.25], ['Comlink','Gear',1,0.1] ],
-  trait:'Compact and dense — burns fuel like a much bigger man; hunger sets in noticeably faster and stays ahead of the party.'},
+  trait:'Compact and dense — burns fuel like a much bigger man; hunger runs 15% ahead of the party.'},
  {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Slender', fs:true,
-  waterOz:40, rations:1.0, mods:{hungerRate:1.2, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
+  waterOz:40, rations:1.0, mods:{hungerRate:1.35, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
   kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Gear (pack)',1,2] ],
-  trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party, burning through reserves fastest; tireless (fatigues 15% slower).'},
+  trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party: a small body has the fastest burn and the thinnest reserves (+35%); tireless (fatigues 15% slower).'},
  {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
   waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
   kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.1] ],
   trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less.'},
  {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Slender', fs:false,
-  waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
+  waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1, hungerRate:1.15}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Doll','Gear',1,0.1], ['Comlink','Gear',1,0.1] ],
-  trait:'Child — needs ~10 hrs sleep and tires into sleep debt 25% faster; dehydrates 10% faster, fatigues 10% faster.'},
+  trait:'Child — needs ~10 hrs sleep and tires into sleep debt 25% faster; dehydrates 10% faster, fatigues 10% faster; a growing body with thin reserves starves 15% faster.'},
  {id:'bd1',   name:'BD-1',        species:'BD-unit explorer droid', h:`1'8"`, build:'Compact', droid:true,
   packHrs:40, mods:{maintRate:0.9}, attr:{br:1,ag:2,int:3,cun:2,wil:1,pr:1},
   kit:[ ['Tool attachments','Tool',1,0] ],
@@ -515,88 +515,93 @@ const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunni
 
 /* Per-need condition ladders (organics). Each need has its own tier ladder; the
    current-tier effects of every need stack/compound on the card. Each tier:
-     {min, name, color, rate (pts/hr accrual while in this tier — null = the
-      need doesn't accrue by tier: sleep is flat while awake, fatigue is
-      activity-driven), strain (per hour), wounds (per hour),
-      hourly?(cs,c,events,cap), fx (GM-facing effect text)}. */
+     {min, name, color, fx (GM-facing effect text),
+      rate?   pts/hr accrual while in this tier (thirst/hunger/hygiene only —
+              sleep is flat while awake, fatigue is activity-driven),
+      strain? per hour while awake, wounds? per hour, hourly?(cs,c,events,cap)}.
+   Thirst accelerates (each % of body water lost hurts more than the last);
+   hunger and grime decelerate (appetite is loud early, then the body rations). */
+const starveTick = (cs,c,ev,cap) => {   // shared by Emaciated and Collapse
+  cs.starveHrs++;
+  if(cs.starveHrs%STARVE_WOUND_HRS===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); }
+};
 const NEEDS = {
-  water: { key:'water', label:'💧 Thirst', tiers:[
-    {min:0,   name:'Satisfied',  color:'#3fb950', rate:1.0, strain:0, wounds:0,
+  water: { label:'💧 Thirst', tiers:[
+    {min:0,   name:'Satisfied',  color:'#3fb950', rate:1.0,
      fx:'Well-hydrated. No effects of any kind.'},
-    {min:11,  name:'Thirsty',    color:'#9acd32', rate:1.0, strain:0, wounds:0,
+    {min:11,  name:'Thirsty',    color:'#9acd32', rate:1.0,
      fx:'Dry mouth, mild nagging awareness. No dice penalty — the "top off your canteen" window before anything bites.'},
-    {min:26,  name:'Parched',    color:'#d29922', rate:1.2, strain:0, wounds:0,
+    {min:26,  name:'Parched',    color:'#d29922', rate:1.2,
      fx:'Headache, sticky mouth, irritability. Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions (sprint, climb, melee) cost <b class="lw">+1 strain</b> each. Fully reversible with a real drink.'},
-    {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6, strain:0, wounds:0,
+    {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6,
      fx:'Dizziness, cramps, mental fog. <b>−1 Brawn and −1 Agility</b>. <span class="dice chal">Upgrade the difficulty</span> of all Intellect and Cunning checks once. <b>Disoriented</b>: moving one range band costs an extra maneuver. <b class="lw">2 strain at the start of every encounter.</b> Meals restore only half nourishment until rehydrated.'},
-    {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, strain:0, wounds:1,
+    {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, wounds:1,
      fx:'Delirium, sunken eyes, muscles failing. <b>−2 Brawn, −2 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lb">1 wound per hour</b> untended. <b>Staggered</b> on any <b>Despair</b> as consciousness slips.'},
-    {min:100, name:'Collapse',   color:'#a40000', rate:0, strain:0, wounds:1,
+    {min:100, name:'Collapse',   color:'#a40000', rate:0, wounds:1,
      hourly:(cs,c,ev)=>{ ev.push(['lb',`💧 ${c.name} is collapsed from dehydration — Daunting (◆◆◆◆) Resilience check this hour or death; the difficulty upgrades every hour after.`]); },
-     fx:'Unconscious. Each hour: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, and the difficulty upgrades every hour after. <b class="lb">1 wound / hour.</b> Careful rehydration (~10 pts per drink) must begin before failure. This is the rescue window.'}
+     fx:`Unconscious. Each hour: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, and the difficulty upgrades every hour after. <b class="lb">1 wound / hour.</b> Careful rehydration (~${REHYDRATE.capOz} oz per drink) must begin before failure. This is the rescue window.`}
   ]},
-  hunger: { key:'hunger', label:'🍞 Hunger', tiers:[
-    {min:0,   name:'Satisfied', color:'#3fb950', rate:0.63, strain:0, wounds:0,
+  hunger: { label:'🍞 Hunger', tiers:[
+    {min:0,   name:'Satisfied', color:'#3fb950', rate:0.63,
      fx:'Fed and steady. No effects.'},
-    {min:6,   name:'Hungry',    color:'#9acd32', rate:0.63, strain:0, wounds:0,
+    {min:6,   name:'Hungry',    color:'#9acd32', rate:0.63,
      fx:'Stomach growling, thoughts drifting to food. No dice penalty — narrative "should eat soon." A daily meal resets you here or below.'},
-    {min:16,  name:'Gnawing',   color:'#d29922', rate:0.21, strain:0, wounds:0,
+    {min:16,  name:'Gnawing',   color:'#d29922', rate:0.21,
      fx:'More than a day without food; concentration slips. Add <span class="dice setb">1 Setback ■</span> to Intellect and Cunning checks (poor focus). No physical penalty, no stat loss — eat and it clears.'},
-    {min:26,  name:'Famished',  color:'#e8590c', rate:0.17, strain:0, wounds:0,
+    {min:26,  name:'Famished',  color:'#e8590c', rate:0.12,
      fx:'Low energy, irritability, weakness setting in. Setback ■ to Intellect/Cunning <b>continues</b>, plus <span class="dice setb">1 Setback ■</span> to Brawn and Agility. <b>Strain threshold −2.</b> Strenuous actions cost <b class="lw">+1 strain</b>. Still no stat loss.'},
-    {min:51,  name:'Starving',  color:'#f85149', rate:0.17, strain:0, wounds:0,
-     fx:'Body eating its own muscle; weakness, apathy, always cold. <b>−1 Brawn, −1 Intellect.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade the difficulty</span> of all Brawn and Agility checks once. Begins every encounter with <b class="lw">3 strain</b>; recovers strain from rest at half rate. Refeeding is gradual — only ~10 pts of food absorbed per meal.'},
-    {min:76,  name:'Emaciated', color:'#c9184a', rate:0.17, strain:0, wounds:0,
-     hourly:(cs,c,ev,cap)=>{ cs.starveHrs++; if(cs.starveHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); } },
-     fx:'Skeletal, organs stressed, immune system failing. <b>−2 Brawn, −2 Intellect, −1 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4, Strain threshold −6.</b> <b class="lb">1 wound every 4 hours</b> untended; <b>cannot heal wounds naturally.</b> <b>Staggered</b> on any Despair.'},
-    {min:100, name:'Collapse',  color:'#a40000', rate:0, strain:0, wounds:0,
-     hourly:(cs,c,ev,cap)=>{ cs.starveHrs++; if(cs.starveHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${c.name} suffers 1 wound — starvation.`]); } if(cs.starveHrs%6===0) ev.push(['lb',`🍞 ${c.name} has collapsed from starvation — Daunting (◆◆◆◆) Resilience check every 6 hours or death; difficulty upgrades each check.`]); },
-     fx:'Unconscious. Every <b>6 hours</b>: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, difficulty upgrades each check. Careful refeeding (~10 pts per meal, spaced hours apart) must begin.'}
+    {min:51,  name:'Starving',  color:'#f85149', rate:0.12,
+     fx:`Body eating its own muscle; weakness, apathy, always cold. <b>−1 Brawn, −1 Intellect.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade the difficulty</span> of all Brawn and Agility checks once. Begins every encounter with <b class="lw">3 strain</b>; recovers strain from rest at half rate. Refeeding is gradual — only ~${REFEED.capPts} pts of food absorbed per meal.`},
+    {min:76,  name:'Emaciated', color:'#c9184a', rate:0.12, hourly:starveTick,
+     fx:`Skeletal, organs stressed, immune system failing. <b>−2 Brawn, −2 Intellect, −1 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4, Strain threshold −6.</b> <b class="lb">1 wound every ${STARVE_WOUND_HRS} hours</b> untended; <b>cannot heal wounds naturally.</b> <b>Staggered</b> on any Despair.`},
+    {min:100, name:'Collapse',  color:'#a40000', rate:0,
+     hourly:(cs,c,ev,cap)=>{ starveTick(cs,c,ev,cap); if(cs.starveHrs%6===0) ev.push(['lb',`🍞 ${c.name} has collapsed from starvation — Daunting (◆◆◆◆) Resilience check every 6 hours or death; difficulty upgrades each check.`]); },
+     fx:`Unconscious. Every <b>6 hours</b>: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, difficulty upgrades each check. <b class="lb">1 wound every ${STARVE_WOUND_HRS} hours.</b> Careful refeeding (~${REFEED.capPts} pts per meal, spaced hours apart) must begin.`}
   ]},
-  hygiene: { key:'hygiene', label:'🧼 Hygiene', tiers:[
-    {min:0,   name:'Fresh',    color:'#3fb950', rate:0.52, strain:0, wounds:0,
+  hygiene: { label:'🧼 Hygiene', tiers:[
+    {min:0,   name:'Fresh',    color:'#3fb950', rate:0.52,
      fx:'Clean and presentable. No effects.'},
-    {min:26,  name:'Grubby',   color:'#9acd32', rate:0.26, strain:0, wounds:0,
+    {min:26,  name:'Grubby',   color:'#9acd32', rate:0.26,
      fx:'Dirt, sweat, odor. <span class="dice setb">1 Setback ■</span> to social checks that rely on appeal (Charm, Negotiation, Leadership). <b>+1 Boost □ to Coercion</b> — you look rough. No health effect.'},
-    {min:51,  name:'Filthy',   color:'#d29922', rate:0.13, strain:0, wounds:0,
+    {min:51,  name:'Filthy',   color:'#d29922', rate:0.13,
      fx:'Caked grime, strong stench, minor skin trouble. <span class="dice setb">1 Setback ■</span> to ALL social checks except Coercion (still Boosted). <span class="dice setb">1 Setback ■</span> to Stealth vs anything that tracks by smell; predators and trackers gain <b>1 Boost □</b> to follow you. When a wound is suffered, the GM may spend <b>✕✕ (Threat)</b> to infect it — a 🤒 Sick stack.'},
-    {min:76,  name:'Squalid',  color:'#f85149', rate:0.065, strain:0, wounds:0,
+    {min:76,  name:'Squalid',  color:'#f85149', rate:0.065,
      hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0) ev.push(['lw',`🧼 ${c.name} is Squalid — daily Resilience check or gain a Sick stack (a Triumph wards it off AND buys a day's grace).`]); },
      fx:'Infested and sore — lice, festering scrapes. <b>−1 Presence.</b> <span class="dice chal">Upgrade the difficulty</span> of all social checks once (except Coercion). <b>Wounds heal at half rate.</b> Once per day: <b>Resilience check or gain a Sick stack.</b> Begins every encounter with <b class="lw">2 strain</b>.'},
-    {min:100, name:'Diseased', color:'#a40000', rate:0, strain:0, wounds:0,
+    {min:100, name:'Diseased', color:'#a40000', rate:0,
      hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0){ const sk=cs.conds.find(x=>x.id==='sick'); if(sk) sk.lvl=Math.min(5,(sk.lvl||1)+1); else cs.conds.push({id:'sick', lvl:1}); ev.push(['lb',`🦠 ${c.name} is Diseased — gains a Sick stack (compounds daily until washed and treated).`]); } },
      fx:'Full infection/infestation. <b class="lb">Gains a Sick stack each day</b> (it compounds). <b>−1 Presence, −1 Brawn.</b> Maximum social penalty; Coercion still Boosted. The meter itself never kills — but the stacked illness can turn lethal.'}
   ]},
-  sleep: { key:'sleep', label:'😴 Sleep', tiers:[
-    {min:0,   name:'Rested',         color:'#3fb950', rate:null, strain:0, wounds:0, fx:'Well-rested. No effects.'},
-    {min:26,  name:'Drowsy',         color:'#9acd32', rate:null, strain:0, wounds:0,
+  sleep: { label:'😴 Sleep', tiers:[
+    {min:0,   name:'Rested',         color:'#3fb950', fx:'Well-rested. No effects.'},
+    {min:26,  name:'Drowsy',         color:'#9acd32',
      fx:'Attention slipping. Add <span class="dice setb">1 Setback ■</span> to Intellect, Cunning, Perception and Vigilance checks.'},
-    {min:51,  name:'Sleep-Deprived', color:'#d29922', rate:null, strain:1, wounds:0,
+    {min:51,  name:'Sleep-Deprived', color:'#d29922', strain:1,
      fx:'<b>−1 Intellect, −1 Cunning.</b> <span class="dice chal">Upgrade</span> Perception/Vigilance difficulty once. <b class="lw">1 strain per hour.</b> Prone to microsleeps — the GM may spend <b>✕✕ (Threat)</b> on any check to nod them off (lose next maneuver). Fatigue accrues ×1.5 and rest recovers 25% less.'},
-    {min:76,  name:'Delirious',      color:'#f85149', rate:null, strain:1, wounds:0,
+    {min:76,  name:'Delirious',      color:'#f85149', strain:1,
      fx:'<b>−2 Intellect, −1 Cunning, −1 Willpower.</b> <span class="dice chal">Upgrade all mental and social checks once.</span> <b>Strain threshold −4.</b> Hallucinations possible. <b class="lw">1 strain / hour.</b>'},
-    {min:100, name:'Wrecked',        color:'#a40000', rate:null, strain:1, wounds:0,
+    {min:100, name:'Wrecked',        color:'#a40000', strain:1,
      fx:'<b>−2 to all mental characteristics</b>; <span class="dice chal">upgrade ALL checks once.</span> No death — but the GM may force an involuntary collapse into sleep at any dramatic moment (or spend a <b>Despair</b> to trigger it immediately). Only real sleep clears it.'}
   ]},
-  rest: { key:'rest', label:'⚡ Fatigue', tiers:[
-    {min:0,   name:'Fresh',     color:'#3fb950', rate:null, strain:0, wounds:0, fx:'No effects.'},
-    {min:26,  name:'Winded',    color:'#9acd32', rate:null, strain:0, wounds:0,
+  rest: { label:'⚡ Fatigue', tiers:[
+    {min:0,   name:'Fresh',     color:'#3fb950', fx:'No effects.'},
+    {min:26,  name:'Winded',    color:'#9acd32',
      fx:'Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions cost <b class="lw">+1 strain</b>.'},
-    {min:51,  name:'Weary',     color:'#d29922', rate:null, strain:0, wounds:0,
+    {min:51,  name:'Weary',     color:'#d29922',
      fx:'<b>−1 Brawn, −1 Agility.</b> <b>Strain threshold −2.</b> <span class="dice chal">Upgrade the difficulty</span> of Athletics, Coordination and combat checks once. Moving one range band costs an extra maneuver.'},
-    {min:76,  name:'Exhausted', color:'#f85149', rate:null, strain:0, wounds:0,
+    {min:76,  name:'Exhausted', color:'#f85149',
      fx:'<b>−2 Brawn, −2 Agility.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade all physical checks once.</span> Limited to <b>1 maneuver per turn</b> (can\'t buy a second with strain). Begins every encounter with <b class="lw">3 strain</b>. Sleep debt accrues +50%.'},
-    {min:100, name:'Spent',     color:'#a40000', rate:null, strain:0, wounds:0,
+    {min:100, name:'Spent',     color:'#a40000',
      fx:'Cannot take strenuous actions at all — any attempt auto-fails and inflicts <b>Staggered</b> next turn. Movement halved, massive strain. No death — but useless for exertion until they rest. Spend a <b>Triumph</b> on Athletics/Resilience to drop one fatigue tier for the scene.'}
   ]}
 };
-const NEED_KEYS = ['water','hunger','hygiene','sleep','rest'];
+const NEED_KEYS = Object.keys(NEEDS);
 
-const DTIERS = [  // droids — degradation
- {min:0,  name:'Optimal',    color:'#3fb950', strain:0, fx:'All systems nominal.'},
- {min:15, name:'Degraded',   color:'#9acd32', strain:0,
+const DTIERS = [  // droids — combined degradation meter; strain = per hour of operation
+ {min:0,  name:'Optimal',    color:'#3fb950', fx:'All systems nominal.'},
+ {min:15, name:'Degraded',   color:'#9acd32',
   fx:'Add <span class="dice setb">1 Setback ■</span> to all skill checks.'},
- {min:30, name:'Strained',   color:'#d29922', strain:0,
+ {min:30, name:'Strained',   color:'#d29922',
   fx:'Add <span class="dice setb">2 Setback ■■</span> to all checks. Speed ×¾.'},
  {min:45, name:'Impaired',   color:'#e8590c', strain:1,
   fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Agility &amp; Intellect count as 1 lower (min 1). Speed ×½. <b class="lw">1 system-stress strain / hour.</b>'},
@@ -608,11 +613,15 @@ const DTIERS = [  // droids — degradation
   fx:'🔋 at 100 ⇒ <b class="lb">full shutdown</b> until a fresh pack or recharge. 🔧 at 100 ⇒ mechanisms grind themselves apart: <b class="lb">1 wound / hour while operating.</b>'}
 ];
 
-/* Equipment wear — weapons & worn gear degrade with use (not the clock).
-   Wear 0 (pristine) → 100 (broken). */
-const WEAR_PER_USE = 8;   // wear added each time an item is used
-const GEAR_TUNEUP  = 15;  // field tune-up wear relief for equipment
-const WEAR_PER_HOUR = 100/720;  // ambient wear from age/exposure — 0→100 in ~1 month (30 days) in-game
+/* Equipment wear — weapons & worn gear, 0 (pristine) → 100 (broken). Two sources:
+   ambient aging from grit, damp and knocks while carried in the field (scaled by
+   the environment's ×maint), plus a flat hit each time the item is pressed into
+   hard use. Field gear that is never cleaned goes from pristine to broken in
+   about a season; a tune-up undoes a couple of weeks of neglect. */
+const WEAR_DAYS      = 90;                 // ambient: pristine → broken, carried in a temperate climate
+const WEAR_PER_HOUR  = 100/(WEAR_DAYS*24);
+const WEAR_PER_USE   = 5;                  // wear added each time an item is used hard
+const GEAR_TUNEUP    = 15;                 // field tune-up wear relief for equipment
 const WTIERS = [
  {min:0,   name:'Pristine', color:'#3fb950', fx:'Factory-fresh — no penalty.'},
  {min:20,  name:'Worn',     color:'#9acd32', fx:'Cosmetic wear only — fully functional.'},
@@ -672,7 +681,8 @@ const SHIP_ENERGY_BONUS = {
 };
 const overcharged = id => S.ship.energy[id]===SHIP_ENERGY_MAX && !!SHIP_ENERGY_BONUS[id];
 
-// tph = fuel tons/hour. Calibrated so mixed idle/cruise ≈ 30 days on a full 60t tank.
+// tph = fuel tons/hour. On a full tank (SHIP.fuelCap): ~55 days of continuous sublight
+// cruising, ~100 hrs in hyperspace — the Rules tab derives the exact figures.
 const SHIP_ACTS = {
   docked:    {label:'⚓ Docked / Powered Down',            tph:0},
   idling:    {label:'🅿️ Idling (systems on, stationary)',  tph:0.05},
@@ -725,9 +735,11 @@ function freshShip(){
     systems:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,5])),
     sysHrs:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,0])),
     energy:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,SHIP_ENERGY_DEFAULT])), reserve:0,
-    shieldBoost:{fore:0, port:0, stbd:0, aft:0},
+    shieldBoost:noBoost(),
     ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'' };
 }
+const noBoost   = () => ({fore:0, port:0, stbd:0, aft:0});
+const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
 
 /* ================================================================
    STATE
@@ -735,24 +747,23 @@ function freshShip(){
 let S = null;
 
 function newCharState(c){
-  const base = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0,
+  const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
     conds:[], status:null, prevAct:'light', hourAcc:0,
     inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
-  return c.droid
-    ? Object.assign(base, { charge:0, maint:0, packsCharged:2, packsDepleted:0,
-        wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 })
-    : Object.assign(base, { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
-        lastTiers:{water:0, hunger:0, hygiene:0, sleep:0, rest:0},
+  Object.assign(cs, c.droid
+    ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
+    : { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
+        lastTiers:Object.fromEntries(NEED_KEYS.map(k=>[k,0])),
         starveHrs:0, hygHrs:0, sickHrs:0, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
         stimsToday:0, stimDay:0, stimHrs:0, force:0 });
+  syncInv(cs);
+  return cs;
 }
 function freshState(){
-  const s = { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
+  return { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
     chars: CHARS.map(newCharState), ship: freshShip(), log: [] };
-  s.chars.forEach(syncInv);
-  return s;
 }
 function migrate(s){ // patch older saves
   if(!s.visible){
@@ -766,7 +777,7 @@ function migrate(s){ // patch older saves
   for(const cs of s.chars){
     const def = newCharState(cfg(cs.id));
     for(const k in def) if(cs[k]===undefined) cs[k]=def[k];
-    if(cs.lastTiers && cs.lastTiers.hygiene===undefined) cs.lastTiers.hygiene=0;
+    if(cs.lastTiers) for(const k of NEED_KEYS) cs.lastTiers[k] ??= 0;
     if(cs.conds){  // old 'infected' condition folds into the stacking Sick condition
       let sickLvl = 0;
       for(const cd of cs.conds) if(cd.id==='sick'||cd.id==='infected') sickLvl=Math.max(sickLvl, cd.lvl||1);
@@ -785,12 +796,6 @@ function migrate(s){ // patch older saves
   else {  // patch older ship saves
     const d = freshShip();
     for(const k in d) if(s.ship[k]===undefined) s.ship[k]=d[k];
-    if(!s.ship.defense) s.ship.defense = {...SHIP.defense};
-    if(!s.ship.energy)  s.ship.energy = {};
-    if(s.ship.reserve===undefined) s.ship.reserve = 0;
-    if(!s.ship.shieldBoost) s.ship.shieldBoost = {fore:0, port:0, stbd:0, aft:0};
-    if(!s.ship.cargo) s.ship.cargo = [];
-    if(!s.ship.smuggle) s.ship.smuggle = [];
     for(const sy of SHIP_SYSTEMS){
       if(s.ship.systems[sy.id]===undefined) s.ship.systems[sy.id]=5;
       if(s.ship.sysHrs[sy.id]===undefined)  s.ship.sysHrs[sy.id]=0;
@@ -816,6 +821,10 @@ function clockStr(){
   return `Day ${dayNow()+1} — ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 const fmtDur = h => h>=1 ? `${(+h.toFixed(2))} hr` : `${Math.round(h*60)} min`;
+const plainLabel = s => s.replace(/^\S+ /,'');          // '🍲 Eating (meal)' → 'Eating (meal)'
+// Thirst points a drink restores: a character's waterOz cancels one day of baseline accrual.
+const ozToPts = (c, oz) => oz * 24*NEEDS.water.tiers[0].rate / c.waterOz;
+const sleepRecovery = c => 100/(c.mods.sleepNeed||SLEEP.hoursDefault);   // sleep-debt pts restored per hour asleep
 // Gear (pack): counts 0 toward carried weight; its "Enc ea" value is capacity granted per pack.
 const isPack    = it => (it.type||'').toLowerCase()==='gear (pack)';
 // Armor never counts toward encumbrance (worn or not); weapons & Gear (worn) do.
@@ -826,7 +835,7 @@ const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold +
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
-function tierOf(x, tiers){ tiers=tiers||DTIERS; let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
+function tierOf(x, tiers){ let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
 function condMult(cs, key){
   let m = 1;
   for(const cd of cs.conds){
@@ -879,17 +888,12 @@ function tick(cs, dt){
     cs.water = clamp(cs.water + wRate*act.water*wEnv*(c.mods.waterRate||1)*encM*fM*condMult(cs,'water')*dt, 0, 100);
 
     const hEnv = envMult(env.hunger, env.cold ? (c.mods.coldAdapt??1) : 1);
-    const hMod = c.mods.hungerRate || 1;
     const hRate = tierOf(cs.hunger, NEEDS.hunger.tiers).rate;  // fast appetite, then a slow burn on reserves
-    // flat metabolic offset: full through the early/mid tiers (daily-scale visibility),
-    // fading to 0 by Emaciated so deep-starvation stays near-proportional (not runaway)
-    const hFade = clamp((76 - cs.hunger)/50, 0, 1);
-    const hPhysio = HUNGER_PHYSIO_FLAT*(hMod-1)*hFade;
-    cs.hunger = clamp(cs.hunger + (hRate*hMod + hPhysio)*act.hunger*hEnv*encM*fM*condMult(cs,'hunger')*dt, 0, 100);
+    cs.hunger = clamp(cs.hunger + hRate*(c.mods.hungerRate||1)*act.hunger*hEnv*encM*fM*condMult(cs,'hunger')*dt, 0, 100);
 
     // hygiene: grime decelerates as it accumulates; the Force can't keep you clean
     const gRate = tierOf(cs.hygiene, NEEDS.hygiene.tiers).rate;
-    cs.hygiene = clamp(cs.hygiene + gRate*(act.hyg||1)*(env.hyg||1)*condMult(cs,'hygiene')*dt, 0, 100);
+    cs.hygiene = clamp(cs.hygiene + gRate*act.hyg*env.hyg*condMult(cs,'hygiene')*dt, 0, 100);
 
     // fatigue: activity-driven; sleep deprivation slows recovery and speeds accrual
     const sleepDep = cs.sleep >= SLEEP_FATIGUE.thresh;
@@ -898,10 +902,10 @@ function tick(cs, dt){
 
     const prevSleep = cs.sleep;
     if(isStandby){
-      cs.sleep = clamp(cs.sleep - (100/(c.mods.sleepNeed||8))*dt, 0, 100);
+      cs.sleep = clamp(cs.sleep - sleepRecovery(c)*dt, 0, 100);
     } else {
-      let sRate = BASE.sleepAwake*(c.mods.sleepRate||1);
-      if(actKey==='resting') sRate *= 0.5;                               // resting: sleep debt ticks at half rate
+      let sRate = SLEEP.awakeRate*(c.mods.sleepRate||1);
+      if(actKey==='resting') sRate *= SLEEP.restingMult;                 // quiet rest eases the debt a little
       if(cs.rest >= FATIGUE_SLEEP.thresh) sRate *= FATIGUE_SLEEP.accrual; // a worn-out body craves rest
       cs.sleep = clamp(cs.sleep + sRate*(1+ENC_SLEEP_PER_PT*over)*fM*condMult(cs,'sleep')*dt, 0, 100);
       if(prevSleep<100 && cs.sleep>=100) events.push(['lw',`${c.name} is Wrecked — the GM may force an involuntary collapse into sleep at any dramatic moment.`]);
@@ -934,10 +938,10 @@ function tick(cs, dt){
       if(k==='rest' && dv<0 && cs.sleep>=SLEEP_FATIGUE.thresh) dv *= SLEEP_FATIGUE.recovery;
       cs[k] = clamp(cs[k] + dv, 0, 100);
     }
-    if(def.sleepCredit) cs.sleep = clamp(cs.sleep - def.sleepCredit*(100/(c.mods.sleepNeed||8))*frac, 0, 100);
+    if(def.sleepCredit) cs.sleep = clamp(cs.sleep - def.sleepCredit*sleepRecovery(c)*frac, 0, 100);
     cs.status.remain = +(cs.status.remain - dt).toFixed(3);
     if(cs.status.remain <= 0){
-      events.push(['lg',`${c.name} finishes ${def.label.replace(/^\S+ /,'').toLowerCase()} — status back to normal.`]);
+      events.push(['lg',`${c.name} finishes ${plainLabel(def.label).toLowerCase()} — status back to normal.`]);
       cs.status = null; cs.activity = cs.prevAct;
     }
   }
@@ -961,7 +965,7 @@ function tick(cs, dt){
       const tiers = NEEDS[key].tiers, t = tierOf(cs[key], tiers), ti = tiers.indexOf(t);
       const prev = cs.lastTiers[key]||0;
       if(ti !== prev){
-        if(ti>0 || prev>0) events.push([ti>prev?'lw':'', `${c.name} is now ${t.name} (${NEEDS[key].label.replace(/^\S+ /,'').toLowerCase()} ${Math.round(cs[key])}).`]);
+        if(ti>0 || prev>0) events.push([ti>prev?'lw':'', `${c.name} is now ${t.name} (${plainLabel(NEEDS[key].label).toLowerCase()} ${Math.round(cs[key])}).`]);
         cs.lastTiers[key] = ti;
       }
     }
@@ -993,7 +997,7 @@ function applyHourly(cs, c, events, woundCap, isStandby){
     if(t.strain>0 && !isStandby) cs.strain = Math.min(strainCap, cs.strain + t.strain);
     if(t.wounds>0 && cs.wounds<woundCap){
       cs.wounds += t.wounds;
-      events.push(['lb',`${c.name} suffers ${t.wounds} wound — ${NEEDS[key].label.replace(/^\S+ /,'').toLowerCase()} (${t.name}).`]);
+      events.push(['lb',`${c.name} suffers ${t.wounds} wound — ${plainLabel(NEEDS[key].label).toLowerCase()} (${t.name}).`]);
     }
     t.hourly?.(cs, c, events, woundCap);
   }
@@ -1069,7 +1073,7 @@ function cancelStatus(id, silent){
   if(!cs.status) return;
   const def = STATUSES[cs.status.kind];
   cs.status = null; cs.activity = cs.prevAct;
-  if(!silent){ logMsg(`✖ ${cfg(id).name} stops ${def.label.replace(/^\S+ /,'').toLowerCase()} — status back to normal.`); render(); }
+  if(!silent){ logMsg(`✖ ${cfg(id).name} stops ${plainLabel(def.label).toLowerCase()} — status back to normal.`); render(); }
 }
 function startSleep(id){
   const hrs = clamp(parseFloat(document.getElementById('slp-'+id).value)||8, 0.5, 16);
@@ -1081,16 +1085,14 @@ function startSleep(id){
    ================================================================ */
 function drink(id, oz){
   const cs = st(id), c = cfg(id);
-  const avail = Math.min(oz, cs.canteen);
-  if(avail<=0){ logMsg(`${c.name}'s canteen is empty!`, 'lw'); render(); return; }
-  const ptsPerOz = DRINK_OZ_TO_PTS / c.waterOz;  // full 20oz ≈ 25 pts for a 60oz body
-  let ozUsed = avail, pts = avail * ptsPerOz, capped = false;
-  if(cs.water >= REHYDRATE.thresh && pts > REHYDRATE.capPts){  // severe dehydration limits absorption
-    pts = REHYDRATE.capPts; ozUsed = +(pts / ptsPerOz).toFixed(1); capped = true;
-  }
+  let ozUsed = Math.min(oz, cs.canteen);
+  if(ozUsed<=0){ logMsg(`${c.name}'s canteen is empty!`, 'lw'); render(); return; }
+  const capped = cs.water >= REHYDRATE.thresh && ozUsed > REHYDRATE.capOz;  // a dehydrated gut keeps down only so much
+  if(capped) ozUsed = REHYDRATE.capOz;
+  const pts = ozToPts(c, ozUsed);
   cs.canteen = +(cs.canteen - ozUsed).toFixed(1);
   cs.water = clamp(cs.water - pts, 0, 100);
-  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?' — severely dehydrated, the body absorbs only ~'+REHYDRATE.capPts+' per drink; sip and rest':''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?` — severely dehydrated, the body keeps down only ~${REHYDRATE.capOz} oz per drink; sip and rest`:''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
   render();
 }
 function refill(id){
@@ -1272,7 +1274,7 @@ function shipBurn(){
   if(!actKey || hrs<=0){ logMsg('⛽ Pick an activity and a duration to log a fuel burn.','lw'); return; }
   const a = SHIP_ACTS[actKey], used = +(a.tph*hrs).toFixed(2);
   sh.fuel = clamp(+(sh.fuel - used).toFixed(2), 0, SHIP.fuelCap);
-  const name = a.label.replace(/^\S+ /,'');
+  const name = plainLabel(a.label);
   shipFuelLog(`−${used}t · ${name} · ${fmtDur(hrs)}`);
   logMsg(`⛽ Mantis burns ${used}t — ${fmtDur(hrs)} of ${name.toLowerCase()}. Fuel: ${sh.fuel}/${SHIP.fuelCap}t.`);
   render();
@@ -1325,7 +1327,7 @@ function energyAdj(id, d){
     if(sh.energy[id]<=0) return;
     sh.energy[id]--; sh.reserve++;
   }
-  if(id==='shields' && sh.energy.shields!==SHIP_ENERGY_MAX) sh.shieldBoost={fore:0,port:0,stbd:0,aft:0};
+  if(id==='shields' && sh.energy.shields!==SHIP_ENERGY_MAX) sh.shieldBoost=noBoost();
   const m = energyWearMult(sh.energy[id]), bonus = overcharged(id) ? ` · ⚡overcharged: ${SHIP_ENERGY_BONUS[id].label}` : '';
   logMsg(`⚡ ${sysName(id)} energy ${sh.energy[id]} (wear ×${m.toFixed(2)})${id==='sensors'?` · sensor range ${sensorRangeFor(sh.energy.sensors)}`:''}${bonus} · reserve ${sh.reserve}.`);
   render();
@@ -1334,8 +1336,7 @@ function shieldBoostAdj(arc, d){
   const sh = S.ship;
   if(sh.energy.shields!==SHIP_ENERGY_MAX){ logMsg('🛡 Route Shields to full energy first to gain distributable defense.','lw'); return; }
   const cap = SHIP_ENERGY_BONUS.shields.defense;
-  const used = sh.shieldBoost.fore+sh.shieldBoost.port+sh.shieldBoost.stbd+sh.shieldBoost.aft;
-  if(d>0){ if(used>=cap){ logMsg(`🛡 All ${cap} shield-boost dice are already assigned.`,'lw'); return; } sh.shieldBoost[arc]++; }
+  if(d>0){ if(boostUsed(sh)>=cap){ logMsg(`🛡 All ${cap} shield-boost dice are already assigned.`,'lw'); return; } sh.shieldBoost[arc]++; }
   else { if(sh.shieldBoost[arc]<=0) return; sh.shieldBoost[arc]--; }
   render();
 }
@@ -1354,7 +1355,7 @@ function setSensorRange(name){
 function resetEnergy(){
   const sh = S.ship;
   for(const s of SHIP_SYSTEMS) sh.energy[s.id]=SHIP_ENERGY_DEFAULT;
-  sh.reserve=0; sh.shieldBoost={fore:0,port:0,stbd:0,aft:0};
+  sh.reserve=0; sh.shieldBoost=noBoost();
   logMsg('⚡ Energy distribution reset to default — every system balanced, reserve empty.');
   render();
 }
@@ -1525,7 +1526,7 @@ function gearSection(cs){
       <div class="fx gearfx">${t.fx}</div>
     </div>`;
   }).join('');
-  return `<details class="inv gearsec" ${cs.gearOpen?'open':''} ontoggle="st('${cs.id}').gearOpen=this.open">
+  return `<details class="inv" ${cs.gearOpen?'open':''} ontoggle="st('${cs.id}').gearOpen=this.open">
     <summary>🗡 Weapons &amp; Gear${items.length?` <b>${items.length}</b>`:''}</summary>
     ${rows||`<div class="gearempty">No weapons or worn gear yet — set an inventory item's <b>Type</b> to <b>Weapon</b> or <b>Gear (worn)</b> and it appears here with a wear track.</div>`}
   </details>`;
@@ -1696,9 +1697,9 @@ function render(){
   }
   const wrap = document.getElementById('cards');
   wrap.innerHTML = '';
+  S.chars.forEach(syncInv);   // every character, not just the visible ones — encumbrance reads the auto rows
   for(const cs of S.chars){
     if(!S.visible[cs.id]) continue;
-    syncInv(cs);
     const c = cfg(cs.id);
     const div = document.createElement('div');
     (c.droid ? droidCard : organicCard)(cs, c, div);
@@ -1733,7 +1734,6 @@ function renderShip(){
   };
 
   const def = sh.defense, shields5 = overcharged('shields');
-  const boostUsed = sh.shieldBoost.fore+sh.shieldBoost.port+sh.shieldBoost.stbd+sh.shieldBoost.aft;
   const defCell = (arc, label) => {
     const bst = shields5 ? sh.shieldBoost[arc] : 0, eff = def[arc]+bst;
     return `<div class="defcell">
@@ -1748,7 +1748,7 @@ function renderShip(){
     ${mid}${defCell('fore','Fore ▲')}${mid}
     ${defCell('port','◀ Port')}<div class="defcell mid"><div class="shipnav">🚀</div></div>${defCell('stbd','Stbd ▶')}
     ${mid}${defCell('aft','Aft ▼')}${mid}
-  </div>${shields5?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--gold)">⚡ Shields overcharged: +${SHIP_ENERGY_BONUS.shields.defense} defense to distribute (${boostUsed}/${SHIP_ENERGY_BONUS.shields.defense} assigned)</div>`:''}`;
+  </div>${shields5?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--gold)">⚡ Shields overcharged: +${SHIP_ENERGY_BONUS.shields.defense} defense to distribute (${boostUsed(sh)}/${SHIP_ENERGY_BONUS.shields.defense} assigned)</div>`:''}`;
 
   const cargoWt = holdWeight('cargo'), cargoOver = Math.max(0, Math.ceil(cargoWt) - SHIP.encumbrance);
   const hyperDisp = overcharged('hyperdrive') ? `${SHIP_ENERGY_BONUS.hyperdrive.jump} · backup ⚡` : SHIP.hyperdrive;
@@ -1900,9 +1900,9 @@ function viewAll(){
 function setAct(id,v){
   const cs = st(id);
   if(cs.status){  // switching activity interrupts any timed status (keeps what was already gained)
-    const label = STATUSES[cs.status.kind].label.replace(/^\S+ /,'').toLowerCase();
+    const label = plainLabel(STATUSES[cs.status.kind].label).toLowerCase();
     cancelStatus(id, true);
-    logMsg(`✖ ${cfg(id).name} stops ${label} — now ${ACTS[v].label.replace(/^\S+ /,'').toLowerCase()}.`);
+    logMsg(`✖ ${cfg(id).name} stops ${label} — now ${plainLabel(ACTS[v].label).toLowerCase()}.`);
   }
   cs.activity = v;
   render();
@@ -1993,24 +1993,19 @@ function importState(inp){
   r.readAsText(f);
   inp.value='';
 }
-let resetArm = null;
-function resetAll(){  // two-click confirm (no blocking popup — works in embedded browsers too)
-  const btn = document.getElementById('resetBtn');
-  if(resetArm){
-    clearTimeout(resetArm); resetArm = null; btn.textContent = '↺ Reset';
-    S = freshState(); rebuildLog();
-    logMsg('↺ Tracker reset — Day 1, 00:00. All needs at 0, canteens full, droid packs recharged.');
-    render();
-  } else {
-    btn.textContent = '⚠ Click again to confirm';
-    resetArm = setTimeout(()=>{ resetArm = null; btn.textContent = '↺ Reset'; }, 4000);
-  }
-}
 
 /* ================================================================
    RULES REFERENCE
    ================================================================ */
 function buildRules(){
+  // Every figure below is derived from the constants, so the reference can't drift from the simulation.
+  const ladderHours = (key, mult=1) => NEEDS[key].tiers.reduce((h,t,i,ts)=> ts[i+1] ? h + (ts[i+1].min-t.min)/(t.rate*mult) : h, 0);
+  const days = h => (h/24).toFixed(h<72 ? 1 : 0);
+  const tierAt = (key, name) => { const ts=NEEDS[key].tiers, i=ts.findIndex(t=>t.name===name); return ts.slice(0,i).reduce((h,t,j)=>h+(ts[j+1].min-t.min)/t.rate, 0); };
+  const rateSpan = key => { const r=NEEDS[key].tiers.map(t=>t.rate).filter(x=>x>0); return `+${r[0]}→${r[r.length-1]}/hr`; };
+  const cal = cfg('cal'), kata = cfg('kata'), pike = cfg('pike');
+  const thirstDays = days(ladderHours('water')), hungerDays = days(ladderHours('hunger')), hygDays = days(ladderHours('hygiene'));
+  const sleepHrs = 100/SLEEP.awakeRate, fatigueHrs = 100/ACTS.light.rest, wearDays = Math.round(100/MAINT_BASE/24);
   const envRows  = Object.values(ENVS).map(e=>`<tr><td>${e.label}</td><td>×${e.water}</td><td>×${e.hunger}</td><td>×${e.hyg}</td><td>×${e.rest}</td><td>×${e.power}</td><td>×${e.maint}</td></tr>`).join('');
   const actRows  = Object.values(ACTS).map(a=>`<tr><td>${a.label}${a.dLabel!==a.label?` / ${a.dLabel}`:''}</td><td>×${a.water}</td><td>×${a.hunger}</td><td>×${a.hyg}</td><td>${a.rest>0?'+':''}${a.rest}/hr</td><td>×${a.power}</td><td>×${a.maint}</td></tr>`).join('');
   const charRows = CHARS.filter(c=>!c.droid).map(c=>`<tr><td><b>${c.name}</b>${c.fs?' ✨':''}</td><td>${c.species}</td><td>${c.h}</td><td>${c.waterOz} oz (${(c.waterOz/OZ_PER_CANTEEN).toFixed(1)} canteens)</td><td>${c.rations} rations/meal</td><td>${c.trait}</td></tr>`).join('');
@@ -2022,14 +2017,14 @@ function buildRules(){
       const rate = (t.rate!=null && t.rate>0) ? `+${+t.rate.toFixed(2)}/hr (~${Math.round(t.rate*24*10)/10}/day)` : '—';
       return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${rate}</td><td>${t.fx}</td></tr>`;
     }).join('') + `</table>`;
-  const dtierRows = DTIERS.map((t,i)=>`<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.min}–${(DTIERS[i+1]?.min-1)??100}</td><td>${t.fx}</td></tr>`).join('');
-  const condRows = Object.entries(CONDS).map(([k,d])=>`<tr><td>${d.label}${d.droid?' (droid)':''}${d.lvls?` — up to ${d.lvls} levels`:''}</td><td>${typeof d.fx==='function'?d.fx(d.lvls||1):d.fx}</td></tr>`).join('');
+  const dtierRows = DTIERS.map((t,i)=>`<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.min}–${DTIERS[i+1] ? DTIERS[i+1].min-1 : 100}</td><td>${t.fx}</td></tr>`).join('');
+  const condRows = Object.values(CONDS).map(d=>`<tr><td>${d.label}${d.droid?' (droid)':''}${d.lvls?` — up to ${d.lvls} levels`:''}</td><td>${fxText(d, d.lvls)}</td></tr>`).join('');
   const wtRows = Object.values(AUTO_ITEMS).map(a=>`<tr><td>${a.name}</td><td>${a.type}</td><td>${a.wt}</td></tr>`).join('');
   document.getElementById('rules').innerHTML = `
   <h2>How it works</h2>
   <p>The game clock starts each day at <b>00:00</b> and can advance in 15-minute steps (+15 min, +30 min, +1 hr, or a custom span). Everyone begins fully provisioned with <b>all needs at 0</b>. <b>Organics</b> track five needs — 💧 thirst, 🍞 hunger, 🧼 hygiene, 😴 sleep debt, and ⚡ fatigue (0 = satisfied → 100 = critical); <b>droids</b> (BD-1, Alpha) track 🔋 charge and 🔧 wear. Needs rise with <b>environment</b>, <b>activity</b>, <b>encumbrance</b>, and <b>conditions</b>; organics also benefit from <b>Force commitment</b> (though the Force can't keep you clean).</p>
   <p style="text-align:center"><b>Each organic need has its own condition ladder.</b> As a need climbs it crosses named tiers, and the effects of <i>every</i> need's current tier <b>stack together</b> in the card's effects box.<br>
-  Baseline (Cal, temperate, light activity): thirst kills in <b>~3 days</b> · hunger in <b>~21 days</b> · hygiene reaches Diseased in <b>~30 days</b> (never lethal by itself) · sleep debt maxes after <b>~4 days awake</b> · fatigue maxes after <b>~12.5 h</b> of unbroken light effort. <b>Sleep and fatigue never kill</b> — their top tiers cripple instead.<br>
+  Baseline (Cal, temperate, light activity): thirst kills in <b>~${thirstDays} days</b> · hunger in <b>~${hungerDays} days</b> · hygiene reaches Diseased in <b>~${hygDays} days</b> (never lethal by itself) · sleep debt maxes after <b>~${days(sleepHrs)} days awake</b> · fatigue maxes after <b>~${+fatigueHrs.toFixed(1)} h</b> of unbroken light effort. <b>Sleep and fatigue never kill</b> — their top tiers cripple instead.<br>
   <b>Droids: Degradation = 55% Charge + 45% Wear</b> (a single combined meter) <br>+8 for <i>each</i> meter at 70+ (deprivations compound). Model traits (BD-1's thrift, Alpha's sealed chassis) slow how fast the meters fill, not the formula.</p>
 
   <h2>⏳ Timed statuses (eating, resting, sleeping…)</h2>
@@ -2041,7 +2036,7 @@ function buildRules(){
   <tr><td>🪑 Rest 15 / 30 min</td><td>15/30 min</td><td>−3 / −6 fatigue (plus resting recovery); sleep debt ticks at half rate while resting</td><td>—</td></tr>
   <tr><td>🧘 Meditate 15 / 30 min (Force sensitives)</td><td>15/30 min</td><td>−8 / −14 fatigue; the 30-min trance also counts as 15 min of sleep</td><td>—</td></tr>
   <tr><td>🛁 Full wash / bath</td><td>30 min</td><td>−${HYG.wash} hygiene (two tiers, delivered over the 30 min)</td><td>ample water (GM approves)</td></tr>
-  <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −12.5/hr (−10/hr for Kata); fatigue −10/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
+  <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −${sleepRecovery(cal)}/hr (−${sleepRecovery(kata)}/hr for Kata); fatigue ${ACTS.sleeping.rest}/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
   <p><b>Eating caps:</b> while <b>Dehydrated+ (thirst ≥ ${REHYDRATE.thresh})</b> the body can't process food — meals and snacks restore only <b>half</b> their points. At <b>Starving+ (hunger ≥ ${REFEED.thresh})</b> refeeding is gradual and dangerous: only ~<b>${REFEED.capPts} pts</b> absorbed per careful meal, spaced hours apart — gorging triggers <b>refeeding shock</b> (a 🤒 Sick stack, GM's call; the food is wasted). Climbing out of Emaciated takes days of careful eating and rest.</p>
 
   <h2>🧼 Hygiene actions</h2>
@@ -2054,18 +2049,18 @@ function buildRules(){
 
   <h2>Baseline depletion (temperate, light activity)</h2>
   <table><tr><th>Need</th><th>Rate</th><th>Anchor</th></tr>
-  <tr><td>💧 Thirst</td><td>+1.0→2.0/hr (by tier)</td><td>0 → Collapse in ~3 days (~73 h) without water; accrual quickens as thirst deepens; wounds begin at 76 (Desiccated)</td></tr>
-  <tr><td>🍞 Hunger</td><td>+0.63/hr → +0.17/hr (by tier)</td><td>appetite hits fast — Hungry within a workday — then a long slow burn as the body rations reserves; Collapse at ~21 days; wounds (1/4 hrs) begin at 76 (Emaciated)</td></tr>
-  <tr><td>🧼 Hygiene</td><td>+0.52/hr → +0.065/hr (by tier)</td><td>grubby within days, genuine disease at ~30 days; never lethal by itself — its teeth are the 🤒 Sick stacks and social penalties (with one upside: filth boosts Coercion)</td></tr>
-  <tr><td>😴 Sleep debt</td><td>+${BASE.sleepAwake}/hr awake (any activity)</td><td>one tier per day awake: Drowsy ~25 h · Sleep-Deprived (microsleeps) ~48 h · Delirious ~72 h · Wrecked ~96 h; resting halves the tick; 8 hrs sleep (10 for Kata) fully restores; Exhausted fatigue makes it accrue +50%</td></tr>
-  <tr><td>⚡ Fatigue</td><td>+2/hr sedentary · +8/hr light · +16/hr moderate · +32/hr combat</td><td>activity-driven, not time-driven: a full unbroken day's march = Spent, sustained combat gets there in ~3 h; recovers −6/hr resting, −10/hr sleeping; sleep-deprivation makes it accrue ×1.5 and recover 25% less</td></tr>
-  <tr><td>🔋 Charge (droid)</td><td>+100 ÷ pack-hours per hr</td><td>BD-1 ~40 hrs/pack, Alpha ~20 hrs/pack on light duty; standby ×0.2, combat ×2.2</td></tr>
-  <tr><td>🔧 Wear (droid)</td><td>+${MAINT_BASE}/hr light duty</td><td>~9 days of light temperate duty to critical; harsh climates &amp; combat wear far faster</td></tr>
-  <tr><td>🗡 Wear (weapons &amp; worn gear)</td><td>+${WEAR_PER_HOUR.toFixed(3)}/hr (~${(WEAR_PER_HOUR*24).toFixed(1)}/day) ×env</td><td>ambient aging: pristine → broken in ~1 month (30 days) temperate, scaled by the environment's ×maint (up to ${ENVS.scorching.maint}× in Extreme Heat); plus +${WEAR_PER_USE} per use; tune-up/overhaul restore it</td></tr></table>
+  <tr><td>💧 Thirst</td><td>${rateSpan('water')} (by tier)</td><td>0 → Collapse in ~${thirstDays} days (~${Math.round(ladderHours('water'))} h) without water; accrual quickens as thirst deepens; wounds begin at 76 (Desiccated)</td></tr>
+  <tr><td>🍞 Hunger</td><td>${rateSpan('hunger')} (by tier)</td><td>appetite hits fast — Hungry within a workday — then a long slow burn as the body rations reserves; Collapse at ~${hungerDays} days; wounds (1 per ${STARVE_WOUND_HRS} hrs) begin at 76 (Emaciated)</td></tr>
+  <tr><td>🧼 Hygiene</td><td>${rateSpan('hygiene')} (by tier)</td><td>grubby within days, genuine disease at ~${hygDays} days; never lethal by itself — its teeth are the 🤒 Sick stacks and social penalties (with one upside: filth boosts Coercion)</td></tr>
+  <tr><td>😴 Sleep debt</td><td>+${SLEEP.awakeRate}/hr awake (any activity)</td><td>one tier per day awake: Drowsy ~25 h · Sleep-Deprived (microsleeps) ~48 h · Delirious ~72 h · Wrecked ~96 h; quiet rest slows the tick to ×${SLEEP.restingMult}; ${SLEEP.hoursDefault} hrs sleep (${kata.mods.sleepNeed} for Kata) fully restores; Exhausted fatigue makes it accrue +50%</td></tr>
+  <tr><td>⚡ Fatigue</td><td>+${ACTS.sedentary.rest}/hr sedentary · +${ACTS.light.rest}/hr light · +${ACTS.travel.rest}/hr moderate · +${ACTS.strenuous.rest}/hr combat</td><td>activity-driven, not time-driven: a full unbroken day's march = Spent, sustained combat gets there in ~${+(100/ACTS.strenuous.rest).toFixed(1)} h; recovers ${ACTS.resting.rest}/hr resting, ${ACTS.sleeping.rest}/hr sleeping; sleep-deprivation makes it accrue ×${SLEEP_FATIGUE.accrual} and recover ${Math.round((1-SLEEP_FATIGUE.recovery)*100)}% less</td></tr>
+  <tr><td>🔋 Charge (droid)</td><td>+100 ÷ pack-hours per hr</td><td>BD-1 ~${cfg('bd1').packHrs} hrs/pack, Alpha ~${cfg('alpha').packHrs} hrs/pack on light duty; standby ×${ACTS.sleeping.power}, combat ×${ACTS.strenuous.power}</td></tr>
+  <tr><td>🔧 Wear (droid)</td><td>+${MAINT_BASE}/hr light duty</td><td>~${wearDays} days of unmaintained light temperate duty to critical; harsh climates &amp; combat wear far faster — a weekly tune-up (−${TUNEUP}) keeps pace</td></tr>
+  <tr><td>🗡 Wear (weapons &amp; worn gear)</td><td>+${WEAR_PER_HOUR.toFixed(3)}/hr (~${(WEAR_PER_HOUR*24).toFixed(1)}/day) ×env</td><td>ambient aging: pristine → broken in ~${WEAR_DAYS} days carried in a temperate climate, scaled by the environment's ×maint (up to ${ENVS.scorching.maint}× in Extreme Heat); plus +${WEAR_PER_USE} per hard use; tune-up/overhaul restore it</td></tr></table>
 
   <h2>Environment multipliers</h2>
   <table><tr><th>Environment</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${envRows}</table>
-  <p>Species/model adaptations (Tann's Twi'lek heat tolerance ~60% off, Merrin's Zabrak cold tolerance ~40% off, Alpha's sealed chassis) shrink the relevant penalty. Prolonged exposure can inflict 🥵 Overheated / 🥶 Chilled automatically (${Math.round(ENV_COND_CHANCE.scorching*100)}%/hr in extreme environments, ${Math.round(ENV_COND_CHANCE.hot*100)}%/hr in Hot/Cold) — the GM may waive or remove these with proper gear or shelter.</p>
+  <p>Cold never lowers water needs — dry air, heavier breathing and cold diuresis keep losses at or above temperate while thirst is felt less — but it does raise calorie burn. Species/model adaptations (Tann's Twi'lek heat tolerance ~60% off, Merrin's Zabrak cold tolerance ~40% off, Alpha's sealed chassis) shrink the relevant penalty. Prolonged exposure can inflict 🥵 Overheated / 🥶 Chilled automatically (${Math.round(ENV_COND_CHANCE.scorching*100)}%/hr in extreme environments, ${Math.round(ENV_COND_CHANCE.hot*100)}%/hr in Hot/Cold) — the GM may waive or remove these with proper gear or shelter.</p>
 
   <h2>Activity multipliers</h2>
   <table><tr><th>Activity (organic / droid)</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue (flat /hr)</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${actRows}</table>
@@ -2090,7 +2085,7 @@ function buildRules(){
   <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; Gear — equipment wear</h2>
-  <p>Any inventory row typed <b>Weapon</b> or <b>Gear (worn)</b> automatically appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from age &amp; exposure (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about a month of ownership — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(30/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b>. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <p>Any inventory row typed <b>Weapon</b> or <b>Gear (worn)</b> automatically appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while carried (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b> for a hard use (a firefight, a day of digging). <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
   <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
   ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
 
@@ -2134,22 +2129,22 @@ function buildRules(){
   <p>Force sensitives may commit <b>0–8 Force points</b> to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
 
   <h2>💧 Thirst ladder</h2>
-  <p>Reaches Collapse in <b>~3 days</b> (~73 h). Each tier carries its own accrual rate; thirst quickens as it deepens.</p>
+  <p>Reaches Collapse in <b>~${thirstDays} days</b> (~${Math.round(ladderHours('water'))} h) walking in a temperate climate; about twice that resting in shade, well under two days in desert heat. Each tier carries its own accrual rate: thirst quickens as it deepens, because every percent of body water lost hurts more than the last.</p>
   ${ladderTable('water')}
-  <p><b>Recovery:</b> clean water pulls thirst down — a full 20 oz canteen removes ~${DRINK_OZ_TO_PTS*OZ_PER_CANTEEN/60|0} pts (one tier) for a 60 oz body, a sip proportionally less. From <b>Dehydrated (${REHYDRATE.thresh}+)</b> the body can only absorb ~${REHYDRATE.capPts} pts per drink — chugging past that cramps and is wasted, so climbing out of the deep tiers takes real in-game time and a safe place to rest. <b>Dirty/unfiltered water</b> forces a Resilience check; failure adds a 🤒 Sick stack — which accelerates the thirst clock rather than relieving it. Desperate, but sometimes the only option.</p>
+  <p><b>Recovery:</b> clean water pulls thirst down, and the arithmetic is honest — a character's <b>oz water/day</b> is what a day of walking costs them, so a full ${OZ_PER_CANTEEN} oz canteen removes ~${ozToPts(cal, OZ_PER_CANTEEN).toFixed(0)} pts for Cal (a third of his day), ~${ozToPts(pike, OZ_PER_CANTEEN).toFixed(0)} for Pike's small frame, ~${ozToPts(cfg('bode'), OZ_PER_CANTEEN).toFixed(0)} for Bode. Staying level means roughly three canteens a day on the march, far more in heat. From <b>Dehydrated (${REHYDRATE.thresh}+)</b> a cramping gut keeps down only ~${REHYDRATE.capOz} oz per drink — chugging past that is wasted, so climbing out of the deep tiers takes real in-game time and a safe place to rest. <b>Dirty/unfiltered water</b> forces a Resilience check; failure adds a 🤒 Sick stack — which accelerates the thirst clock rather than relieving it. Desperate, but sometimes the only option.</p>
 
   <h2>🍞 Hunger ladder</h2>
-  <p>Reaches Collapse in <b>~21 days</b> for a default frame. Appetite hits fast (Hungry within a workday) to encourage daily eating, then a long slow burn as the body rations reserves. One ration a day holds the line at Hungry or below.</p>
-  <p><b>Metabolism matters:</b> a distinctive frame carries a small <i>flat</i> hunger burn on top of the percentage, so a big or fast metabolism stays visibly hungrier day to day (Bode and Pike run a few points ahead of the party within the first day, and Collapse in ~14–15 days rather than 21) — the offset eases off as true starvation sets in, so the deep tiers stay near-proportional. Bode (massive frame) and Pike (racing metabolism) run hungriest; Gibbs a step behind.</p>
+  <p>Reaches Collapse in <b>~${hungerDays} days</b> for a default frame walking in a temperate climate — roughly a month, the realistic low end for a lean, active adult with water. Appetite hits fast (Hungry within a workday, Gnawing after a day, Famished by day ${Math.round(tierAt('hunger','Famished')/24)}) to encourage daily eating, then a long slow burn as the body rations reserves: Starving around day ${Math.round(tierAt('hunger','Starving')/24)}, Emaciated around day ${Math.round(tierAt('hunger','Emaciated')/24)}. One ration a day holds the line at Hungry or below.</p>
+  <p><b>Metabolism matters:</b> metabolic rate is a multiplier on the whole ladder. Pike's small racing frame (+${Math.round((pike.mods.hungerRate-1)*100)}%) and Bode's lean muscle mass (+${Math.round((cfg('bode').mods.hungerRate-1)*100)}%) burn reserves fastest — Pike reaches Collapse in ~${days(ladderHours('hunger', pike.mods.hungerRate))} days — with Gibbs and the child Kata (+${Math.round((kata.mods.hungerRate-1)*100)}%) a step behind.</p>
   ${ladderTable('hunger')}
-  <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration removes ~25 pts (one tier), a snack ~10. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
+  <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration removes ~${-STATUSES.ration.deltas.hunger} pts (one tier), a snack ~${SNACK_HUNGER}. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
 
   <h2>🧼 Hygiene ladder</h2>
-  <p>Reaches Diseased in <b>~30 days</b>. Grime is decelerating — you feel grubby within days, but genuine disease takes a month. Hygiene never threatens life on its own: its teeth are the 🤒 Sick stacks and social penalties — with one upside: filth makes you scarier (Coercion stays Boosted at every dirty tier).</p>
+  <p>Reaches Diseased in <b>~${hygDays} days</b>. Grime is decelerating — you feel grubby within days, but genuine disease takes a month. Hygiene never threatens life on its own: its teeth are the 🤒 Sick stacks and social penalties — with one upside: filth makes you scarier (Coercion stays Boosted at every dirty tier).</p>
   ${ladderTable('hygiene')}
 
   <h2>😴 Sleep ladder (sleep debt — no death)</h2>
-  <p>Mental and <i>time-awake-driven</i>: +${BASE.sleepAwake}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~25 h); <b>microsleeps begin around the 48 h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~72 h; <b>Wrecked at ~96 h</b> — four days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +50%). Only proper sleep clears it; resting ticks it at half rate; the 30-min Force trance counts as 15 min of sleep.</p>
+  <p>Mental and <i>time-awake-driven</i>: +${SLEEP.awakeRate}/hr while conscious regardless of activity — one tier per full day awake. An all-nighter leaves you <b>Drowsy</b> (~25 h); <b>microsleeps begin around the 48 h mark</b> (Sleep-Deprived); <b>Delirious</b> at ~72 h; <b>Wrecked at ~96 h</b> — four days without sleep. A worn-out body accelerates the slide (Exhausted fatigue: +50%). Only proper sleep clears it; quiet rest slows the tick to ×${SLEEP.restingMult} but never pays it off; the 30-min Force trance counts as 15 min of sleep.</p>
   ${ladderTable('sleep')}
 
   <h2>⚡ Fatigue ladder (physical — no death)</h2>
@@ -2174,7 +2169,7 @@ function buildRules(){
   <h2>Need-specific dangers (organics)</h2>
   <table><tr><th>Condition</th><th>Effect</th></tr>
   <tr><td>💧 Thirst ≥ 76 (Desiccated)</td><td><b>1 wound per hour</b> (ignores soak) — organ failure; continues through Collapse. At 100: hourly Daunting Resilience check or death.</td></tr>
-  <tr><td>🍞 Hunger ≥ 76 (Emaciated)</td><td><b>1 wound every 4 hours</b> untended; cannot heal wounds naturally. At 100: Daunting Resilience check every 6 hours or death.</td></tr>
+  <tr><td>🍞 Hunger ≥ 76 (Emaciated)</td><td><b>1 wound every ${STARVE_WOUND_HRS} hours</b> untended; cannot heal wounds naturally. At 100: Daunting Resilience check every 6 hours or death.</td></tr>
   <tr><td>🧼 Hygiene at 100 (Diseased)</td><td>Gains a 🤒 <b>Sick stack each day</b> — the meter never kills, but Gravely Ill (3+ stacks) can.</td></tr>
   <tr><td>🤒 Sick at 3+ stacks</td><td><b>1 wound every 4 hours</b> — untreated illness is lethal on its own clock.</td></tr>
   <tr><td>😴 Sleep / ⚡ fatigue extremes</td><td>Never lethal — at their worst they cripple checks and force collapse into sleep / stagger rather than wounds</td></tr>
@@ -2182,8 +2177,8 @@ function buildRules(){
   <tr><td>Wounds &gt; threshold</td><td>Critical Injury; dying without aid per core rules (droids: critical damage, major repairs)</td></tr></table>
 
   <h2>🖼 Portraits, scene, location &amp; travel</h2>
-  <p><b>Portraits:</b> the 🖼 button on each card uploads a character image, tinted red as damage mounts — clear at 0 wounds up to a ${HURT_MAX_OPACITY*100}%-opacity red overlay at the wound threshold. Images live in the save file.</p>
-  <p><b>Scene:</b> the 🖼 scene button (next to Environment) sets an ambience banner that displays the <b>current location and environment</b>; swap it whenever the story moves.</p>
+  <p><b>Portraits:</b> each card shows the image file the GM has placed at <code>img/&lt;id&gt;.jpg</code> (or <code>.png</code>) in the site's repository, tinted red as damage mounts — clear at 0 wounds up to a ${HURT_MAX_OPACITY*100}%-opacity red overlay at the wound threshold. A missing file simply shows no portrait.</p>
+  <p><b>Scene:</b> if the GM has placed <code>img/scene.jpg</code> in the repository, an ambience banner shows it above the cards together with the <b>current location and environment</b>.</p>
   <p><b>Location &amp; travel:</b> type the current location, a destination, and travel hours. Every advanced step counts down the ETA; on arrival the destination becomes the current location and the log announces it.</p>
   <p><b>Event log:</b> type in the note field and press Enter (or 📝 add note) to drop a freeform player/GM note into the log, timestamped at the current game time — handy for plot beats, rolls, or reminders. The ⟳ clear button empties the log without touching anything else. Notes are saved with everything else.</p>
 
@@ -2198,7 +2193,7 @@ function buildRules(){
   <p>The <b>🚀 Mantis</b> tab tracks the ship on the same party clock. Set its <b>flight status</b> and every advance of the clock burns fuel at that rate; systems also wear with sustained operation. Fuel, hull, strain, system conditions, torpedo ammo and crew assignments are all saved and loaded with everything else.</p>
   <p>The <b>${SHIP.name}</b> is an <b>${SHIP.class}</b>. Standard FFG stat block: <b>Silhouette ${SHIP.silhouette}, Speed ${SHIP.speed}, Handling ${SHIP.handling}, Armor ${SHIP.armor}</b>; Hull Trauma ${SHIP.hullThreshold}, System Strain ${SHIP.strainThreshold}; Defense ${SHIP.defense.fore}/${SHIP.defense.port}/${SHIP.defense.stbd}/${SHIP.defense.aft} (F/P/S/A); Hyperdrive ${SHIP.hyperdrive}; Sensors ${sensorRangeFor(SHIP_ENERGY_DEFAULT)} (at default energy); ${SHIP.hardpoints} hard points; ${SHIP.passengers} passengers; consumables ${SHIP.consumables}.</p>
   <h2>⛽ Fuel (homebrew — ${SHIP.fuelCap}-ton tank)</h2>
-  <p>The tank holds <b>${SHIP.fuelCap} tons</b>, calibrated so mixed idling/cruising lasts <b>~30 days</b> — matching the 1-month consumables rating. As the clock advances the ship burns at its current flight status. Use <b>Log burn</b> to deduct a one-off jump without advancing the party clock, <b>Set</b> to override the gauge, or <b>refuel</b> at port.</p>
+  <p>The tank holds <b>${SHIP.fuelCap} tons</b> — enough for ~${Math.round(SHIP.fuelCap/SHIP_ACTS.cruising.tph/24)} days of continuous sublight cruising or ~${Math.round(SHIP.fuelCap/SHIP_ACTS.hyperspace.tph)} hours in hyperspace. As the clock advances the ship burns at its current flight status. Use <b>Log burn</b> to deduct a one-off jump without advancing the party clock, <b>Set</b> to override the gauge, or <b>refuel</b> at port.</p>
   <table><tr><th>Flight status</th><th>Fuel burn</th></tr>${Object.values(SHIP_ACTS).map(a=>`<tr><td>${a.label}</td><td>${a.tph} t/hr${a.tph>0?` (~${+(a.tph*24).toFixed(1)} t/day)`:''}</td></tr>`).join('')}</table>
   <h2>🔩 System condition (homebrew — 0 to 5)</h2>
   <p>Eight major systems each carry a rating from <b>5 Pristine</b> down to <b>0 Offline</b>. A system loses one pip per in-game <b>week of powered operation without maintenance</b> (docked/powered-down time doesn't count), or immediately from a critical hit (use 💥 damage). Restore a pip with a <b>Mechanics check</b> (🔧 repair, ~4 hrs) whose difficulty scales with how degraded the system is — success restores one level, a Triumph may restore two, a Despair may cause further damage (GM's call).</p>
@@ -2310,6 +2305,7 @@ function stable(v){
   if(Array.isArray(v)) return '['+v.map(stable).join(',')+']';
   return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';
 }
+const same = (a,b) => stable(a)===stable(b);
 
 function syncNote(msg, cls){
   const el = document.getElementById('syncMsg'); if(!el) return;
@@ -2352,12 +2348,12 @@ function pushLocal(){
   for(const k in cur){
     if(k==='chars'){
       const a = cur.chars||[], b = (prev&&prev.chars)||[];
-      for(let i=0;i<a.length;i++) if(JSON.stringify(a[i])!==JSON.stringify(b[i])) updates['chars/'+i]=a[i];
+      for(let i=0;i<a.length;i++) if(!same(a[i], b[i])) updates['chars/'+i]=a[i];
     } else if(k==='ship'){   // per-subkey, so concurrent edits to different ship systems don't clobber
       const a = cur.ship||{}, b = (prev&&prev.ship)||{};
       for(const kk of new Set([...Object.keys(a), ...Object.keys(b)]))
-        if(JSON.stringify(a[kk])!==JSON.stringify(b[kk])) updates['ship/'+kk] = a[kk]===undefined ? null : a[kk];
-    } else if(JSON.stringify(cur[k])!==JSON.stringify(prev?prev[k]:undefined)){
+        if(!same(a[kk], b[kk])) updates['ship/'+kk] = a[kk]===undefined ? null : a[kk];
+    } else if(!same(cur[k], prev?prev[k]:undefined)){
       updates[k]=cur[k];
     }
   }
@@ -2375,8 +2371,7 @@ function onRoomSnap(remote){
   }
   remote.chars = arrayify(remote.chars);
   remote.log   = arrayify(remote.log);
-  const rSub = syncSubset(remote);
-  if(CLOUD.shadow && stable(rSub)===stable(CLOUD.shadow)) return;  // our own echo — ignore
+  if(CLOUD.shadow && same(syncSubset(remote), CLOUD.shadow)) return;  // our own echo — ignore
   if(isEditing()){ CLOUD.pending = remote; syncNote('Update waiting — finishing your edit…', 'ok'); return; }
   applyRemote(remote);
 }
@@ -2385,19 +2380,18 @@ function onRoomSnap(remote){
 // Any key/character WE changed since base wins locally; everything else takes remote.
 function threeWayMerge(base, local, remote){
   const out = JSON.parse(JSON.stringify(remote));
-  const eq = (a,b)=> JSON.stringify(a)===JSON.stringify(b);
   base = base || {};
   for(const k in local){
     if(k==='chars'){
       const L=local.chars||[], B=base.chars||[];
       out.chars = out.chars || [];
-      for(let i=0;i<L.length;i++) if(!eq(L[i], B[i])) out.chars[i] = L[i];   // we edited this character
+      for(let i=0;i<L.length;i++) if(!same(L[i], B[i])) out.chars[i] = L[i];   // we edited this character
     } else if(k==='ship'){   // merge ship one level deep, mirroring the per-subkey pushes
       const L=local.ship||{}, B=base.ship||{};
       out.ship = out.ship || {};
-      for(const kk in L) if(!eq(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
-      for(const kk in B) if(!(kk in L)) delete out.ship[kk];                 // we emptied this list
-    } else if(!eq(local[k], base[k])){
+      for(const kk in L) if(!same(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
+      for(const kk in B) if(!(kk in L)) delete out.ship[kk];                   // we emptied this list
+    } else if(!same(local[k], base[k])){
       out[k] = local[k];                                                     // we edited this field
     }
   }
@@ -2519,7 +2513,7 @@ function init(){
   document.getElementById('partyCond').innerHTML = `<option value="">condition…</option>` +
     Object.entries(CONDS).map(([k,d])=>`<option value="${k}" title="${condTitle(d)}">${d.label}${d.droid?' (droids)':''}</option>`).join('');
   buildRules();
-  logMsg('Tracker v6 initialized — full five-need overhaul (thirst · hunger · hygiene · sleep · fatigue). Day 1, 00:00. May the Force sustain you.');
+  logMsg('Tracker ready — Day 1, 00:00. All needs at 0, canteens full, droid packs charged. May the Force sustain you.');
   render();
   probeScene(render);   // load img/scene.* if present, then re-render the banner
   initCloud();
