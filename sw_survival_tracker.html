@@ -71,6 +71,7 @@
   .invtable th{color:var(--dim);font-size:10px;text-transform:uppercase;text-align:left;padding:2px 3px}
   .invtable td{padding:2px 3px}
   .invtable input{padding:2px 4px;font-size:11.5px;width:100%}
+  .invtable input[type=checkbox]{width:auto}
   .invtable input[type=number]{width:52px}
   .invtable .tot{color:var(--gold);text-align:right;white-space:nowrap}
   .invtable .auto{color:var(--dim);font-style:italic}
@@ -596,10 +597,15 @@ const AUTO_ITEMS = {
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Gear (pack)','Snack','Ration','Meal','Medical','Other'];
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (pack)','Snack','Ration','Meal','Medical','Other'];
 /* Types that carry a wear/degradation track in the Weapons & Gear section */
-const DEGRADABLE = ['Weapon','Gear (worn)'];
-function isDegradable(type){ return DEGRADABLE.some(t=>t.toLowerCase()===(type||'').toLowerCase()); }
+
+// carry: on the character's person (ticked on the sheet; unticked = stowed on the ship or at camp). Only carried
+// items show on the Tracker card, count toward encumbrance, and can be eaten, used or equipped.
+// eq: equipped (ticked in the card's inventory) — in hand or worn. Equipped items get a wear track under
+// Weapons & Gear, and equipped armor/weapons feed soak and defense. (This replaced the 'Gear (worn)' type.)
+const isCarried  = it => !!it && (it.auto || it.carry!==0);
+const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0;
 /* Build a <select> of inventory types; preserves any custom saved value as its own option. */
 function typeSelect(val, onchangeExpr, width){
   const v = val||'';
@@ -1027,10 +1033,10 @@ const ozToPts = (c, oz) => oz * 24*NEEDS.water.tiers[0].rate / c.waterOz;
 const sleepRecovery = c => 100/(c.mods.sleepNeed||SLEEP.hoursDefault);   // sleep-debt pts restored per hour asleep
 // Gear (pack): counts 0 toward carried weight; its "Enc ea" value is capacity granted per pack.
 const isPack    = it => (it.type||'').toLowerCase()==='gear (pack)';
-// Armor never counts toward encumbrance (worn or not); weapons & Gear (worn) do.
+// Only carried items weigh anything. Armor never counts toward encumbrance (worn or not).
 const isArmor   = it => (it.type||'').toLowerCase()==='armor';
-const invWeight = cs => cs.inv.reduce((a,it)=>a + ((isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
-const packBonus = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
+const invWeight = cs => cs.inv.reduce((a,it)=>a + ((!isCarried(it)||isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
+const packBonus = cs => cs.inv.reduce((a,it)=>a + (isCarried(it)&&isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
 const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
 const FORCE_COMMIT_MAX = 8;
@@ -1163,11 +1169,11 @@ function tick(cs, dt){
   // faster in harsh environments), on top of per-use wear
   const wearEnv = env.maint || 1;
   for(const it of cs.inv){
-    if(it.auto || !isDegradable(it.type)) continue;
+    if(!isEquipped(it)) continue;   // stowed gear doesn't wear
     const before = it.wear||0;
     if(before>=100) continue;
     it.wear = clamp(before + WEAR_PER_HOUR*wearEnv*dt, 0, 100);
-    if(before<100 && it.wear>=100) events.push(['lw',`🗡 ${c.name}'s ${esc(it.name||'equipment')} is worn out (Broken) — repair before relying on it.`]);
+    if(before<100 && it.wear>=100) events.push(['lw',`🗡 ${c.name}'s ${esc(it.alias||it.name||'equipment')} is worn out (Broken) — repair before relying on it.`]);
   }
 
   // timed status payload & countdown
@@ -1336,7 +1342,7 @@ const STOCK = {
 };
 const LEGACY_AUTO = ['rations','snacks','stims'];   // pre-overhaul counter rows (an un-refreshed browser may still send them)
 const isStim = it => it.ref==='Stimpack' || /^stim ?packs?$/i.test(it.name||'');
-const stockRows = (cs, kind) => cs.inv.filter(it=>it && !it.auto && (kind==='Stim' ? isStim(it) : it.type===kind));
+const stockRows = (cs, kind) => cs.inv.filter(it=>it && !it.auto && isCarried(it) && (kind==='Stim' ? isStim(it) : it.type===kind));   // you can only eat what you carry
 const stockOf   = (cs, kind) => Math.floor(stockRows(cs, kind).reduce((a,it)=>a+(+it.qty||0), 0));
 const stockRow  = (kind, qty) => ({...STOCK[kind].row, qty});
 function takeStock(cs, kind){
@@ -1358,6 +1364,7 @@ function upgradeInv(cs, c, invV0){
   cs.inv = cs.inv.filter(it=>!LEGACY_AUTO.includes(it.auto));
   delete cs.rationsStock; delete cs.snacks; delete cs.stims; cs.invV = 2;
   for(const it of cs.inv){
+    if((it.type||'').toLowerCase()==='gear (worn)'){ it.type = 'Gear'; it.eq = 1; }   // the type became the equipped tick
     if((it.type||'').toLowerCase()==='food') it.type = /snack/i.test(it.name) ? 'Snack' : /meal/i.test(it.name) ? 'Meal' : 'Ration';
     linkRow(it);
   }
@@ -1721,7 +1728,7 @@ function useItem(id,i){
 function tuneItem(id,i){
   const cs=st(id), it=cs.inv[i]; if(!it) return;
   it.wear = clamp((it.wear||0)-GEAR_TUNEUP, 0, 100);
-  logMsg(`🔧 ${cfg(id).name} tunes up ${esc(it.name||'an item')} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
+  logMsg(`🔧 ${cfg(id).name} tunes up ${esc(it.alias||it.name||'an item')} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
   render();
 }
 function overhaulItem(id,i){
@@ -1795,12 +1802,15 @@ function statusBadge(cs){
 
 function invSection(cs){   // read-only on the card — the inventory is edited on the character's sheet
   const w = invWeight(cs), over = overload(cs);
-  const rows = cs.inv.map(it=>{
+  const stowed = cs.inv.filter(it=>!isCarried(it)).length;
+  const rows = cs.inv.map((it,i)=>{
+    if(!isCarried(it)) return '';
     const pack = isPack(it), tot = (it.qty||0)*(it.wt||0);
     const totCell = pack ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${tot.toFixed(2)}</td>`
       : isArmor(it) ? `<td class="tot" style="color:var(--dim)" title="Armor is worn — doesn't count toward encumbrance">—</td>`
       : `<td class="tot">${tot.toFixed(2)}</td>`;
-    return `<tr><td>${it.eq?'<span title="Equipped" style="color:var(--gold)">✔</span> ':''}<span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it))}</span></td>
+    const eq = it.auto ? '' : `<input type="checkbox" ${it.eq?'checked':''} onchange="invSet('${cs.id}',${i},'eq',this.checked)" title="Equipped — in hand or worn. Equipped items get a wear track under Weapons &amp; Gear; equipped armor and weapons count toward soak and defense.">`;
+    return `<tr><td style="text-align:center">${eq}</td><td><span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it))}</span></td>
       <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('');
   const eff = effThresh(cs), pb = packBonus(cs);
@@ -1808,17 +1818,18 @@ function invSection(cs){   // read-only on the card — the inventory is edited 
     <summary>🎒 Inventory — enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'} threshold${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
       &nbsp;<button class="mini" onclick="event.preventDefault();sheetPick('${cs.id}');showTab('sheet')" title="The inventory is edited on this character's sheet">✎ edit on sheet</button></summary>
     <table class="invtable">
-      <tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>
-      ${rows||'<tr><td colspan="4" style="color:var(--dim)">empty pack</td></tr>'}
+      <tr><th title="Equipped">Eq</th><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>
+      ${rows||'<tr><td colspan="5" style="color:var(--dim)">nothing carried — tick <b>Carry</b> on the sheet</td></tr>'}
+      ${stowed?`<tr><td colspan="5" style="color:var(--dim)">+ ${stowed} stowed item${stowed===1?'':'s'} not carried (see the sheet)</td></tr>`:''}
     </table></details>`;
 }
 
-// Weapons & Gear — a wear/degradation view over inventory rows typed Weapon or Gear (worn).
+// Weapons & Gear — a wear/degradation view over the EQUIPPED inventory rows.
 function gearSection(cs){
-  const items = cs.inv.map((it,i)=>({it,i})).filter(x=>!x.it.auto && isDegradable(x.it.type));
+  const items = cs.inv.map((it,i)=>({it,i})).filter(x=>isEquipped(x.it));
   const rows = items.map(({it,i})=>{
     const w = clamp(it.wear||0,0,100), t = tierOf(w, WTIERS);
-    const worn = /worn/i.test(it.type);
+    const worn = !isWeapon(it);
     const icon = worn ? '🧥' : '🗡';
     const nm = invLabel(it) || (worn?'(unnamed gear)':'(unnamed weapon)');
     return `<div class="gearitem">
@@ -1836,7 +1847,7 @@ function gearSection(cs){
   }).join('');
   return `<details class="inv" ${cs.gearOpen?'open':''} ontoggle="st('${cs.id}').gearOpen=this.open">
     <summary>🗡 Weapons &amp; Gear${items.length?` <b>${items.length}</b>`:''}</summary>
-    ${rows||`<div class="gearempty">No weapons or worn gear yet — set an inventory item's <b>Type</b> to <b>Weapon</b> or <b>Gear (worn)</b> and it appears here with a wear track.</div>`}
+    ${rows||`<div class="gearempty">Nothing equipped — tick <b>Eq</b> beside an item in 🎒 Inventory and it appears here with a wear track.</div>`}
   </details>`;
 }
 
@@ -2451,7 +2462,6 @@ function fillFromDb(row, rec, force){
     set('dam', numOr(rec.dam)); set('crit', numOr(rec.crit)); if(WEAPON_RANGES.includes(rec.rng)) set('rng', rec.rng); set('q', rec.q ? String(rec.q) : (force ? '' : undefined));
   }
   if(rec.g==='Armour'){ set('def', numOr(rec.def)); set('soak', numOr(rec.soak)); }
-  if(isDegradable(row.type) && row.wear==null) row.wear = 0;
 }
 function linkRow(row){
   if(!row || row.auto || row.ref || !row.name) return;
@@ -2480,7 +2490,7 @@ const qualN = (q, name) => { const m = String(q||'').match(new RegExp('\\b'+name
 // Soak = Brawn + every equipped armor's soak + bonus. Defense = the best equipped armor's defense,
 // + Deflection (ranged) / Defensive (melee) from equipped weapons, + bonus.
 function combatStats(cs){
-  const sh = cs.sheet, eq = cs.inv.filter(it=>it.eq && !it.auto);
+  const sh = cs.sheet, eq = cs.inv.filter(isEquipped);
   const armors = eq.filter(isArmor).map(armorState), weps = eq.filter(isWeapon).map(it=>weaponState(cs, it));
   const aSoak = armors.reduce((a,x)=>a+x.soak, 0), aDef = armors.reduce((a,x)=>Math.max(a,x.def), 0);
   const defl = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Deflection')), 0), dfns = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Defensive')), 0);
@@ -2492,7 +2502,9 @@ function combatStats(cs){
 function invSet(id, i, k, v){
   const it = st(id).inv[i]; if(!it) return;
   if(it.auto){ if(k==='wt') it.wt = Math.max(0, parseFloat(v)||0); render(); return; }   // canteen / droid packs: only the weight is editable
-  if(k==='eq' || k==='brn') it[k] = v ? 1 : 0;
+  if(k==='carry'){ if(v) delete it.carry; else { it.carry = 0; it.eq = 0; } }   // stowing an item unequips it
+  else if(k==='eq'){ it.eq = (v && isCarried(it)) ? 1 : 0; if(it.eq) st(id).gearOpen = true; }
+  else if(k==='brn') it.brn = v ? 1 : 0;
   else if(k==='db'){            // the Item box: a database name links the row (and imports its stats); anything else is a free-typed name
     const name = String(v).trim().slice(0,80), rec = dbFind(name);
     if(rec){ it.name = rec.n; it.ref = rec.n; fillFromDb(it, rec, true); }
@@ -2500,7 +2512,7 @@ function invSet(id, i, k, v){
   }
   else if(k==='alias'){ const a = String(v).trim().slice(0,60); if(a) it.alias = a; else delete it.alias; }
   else if(k==='q') it.q = String(v).slice(0,160);
-  else if(k==='type'){ it.type = String(v).slice(0,30); if(isDegradable(it.type) && it.wear==null) it.wear = 0; }
+  else if(k==='type') it.type = String(v).slice(0,30);
   else if(k==='sk'){ if(COMBAT_SKILLS.some(x=>x.k===v)) it.sk = v; }
   else if(k==='rng'){ if(WEAPON_RANGES.includes(v)) it.rng = v; }
   else if(k==='qty' || k==='wt') it[k] = Math.max(0, +(parseFloat(v)||0).toFixed(2));
@@ -2512,8 +2524,6 @@ function rowFromDb(rec){ const row = { name:rec.n, ref:rec.n, qty:1 }; fillFromD
 function invAdd(id, type, text){
   const cs = st(id), name = String(text||'').trim().slice(0,80), rec = name && dbFind(name);
   const row = rec ? rowFromDb(rec) : { name, type, qty:1, wt:type==='Armor'?0:(type==='Weapon'?1:0) };
-  if(isDegradable(row.type) && row.wear==null) row.wear = 0;
-  if(isWeapon(row) || isArmor(row)) row.eq = 1;
   cs.inv.push(row); render();
 }
 // An item with no database match becomes a homebrew entry (Items tab), linked to the row.
@@ -2548,7 +2558,8 @@ function refreshDbNames(){   // the shared <datalist> behind every Item box
 function gearHtml(cs){
   refreshDbNames();
   const id = cs.id, rows = cs.inv.map((it,i)=>({it,i}));
-  const eqBox = (it,i,what) => `<input type="checkbox" ${it.eq?'checked':''} onchange="invSet('${id}',${i},'eq',this.checked)" title="Equipped — ${what}">`;
+  const eqBox = (it,i) => `<input type="checkbox" ${isCarried(it)?'checked':''} onchange="invSet('${id}',${i},'carry',this.checked)" title="Carry — on your person. Only carried items appear on the Tracker card, count toward encumbrance, and can be eaten, used or equipped. Untick to stow it (on the ship, at camp).">`;
+  const eqTag = it => isEquipped(it) ? `<span class="badge b-hb" title="Equipped — ticked in the inventory on the Tracker card">equipped</span> ` : '';
   const itemIn = (it,i) => `<input type="text" class="wname" list="dbNames" value="${esc(it.name)}" placeholder="item — type to search the database" title="The Items database entry. Pick another name to swap the item (its stats are re-imported); free text makes an unlinked item." onchange="invSet('${id}',${i},'db',this.value)">`;
   const aliasIn = (it,i) => `<input type="text" class="ialias" value="${esc(it.alias||'')}" placeholder="alias" title="What this item is called on the Tracker card. Leave blank to use the database name." onchange="invSet('${id}',${i},'alias',this.value)">`;
   const n2 = (i,k,v,tip,step) => `<input type="number" class="n2" value="${v}" ${step?`step="${step}" min="0"`:''} title="${tip}" onchange="invSet('${id}',${i},'${k}',this.value)">`;
@@ -2559,14 +2570,14 @@ function gearHtml(cs){
     const body = rec ? (esc(d) || '<i>No description in the database yet.</i>') + (rec.hb||rec.id ? ' <span class="badge b-hb">HB</span>' : rec.cu ? ' <span class="badge b-cu" title="From items-custom.js">custom</span>' : '')
       : it.name ? `<span class="nomatch">⚠ “${esc(it.name)}” is not in the Items database.</span> Pick a database item in the name box, or <button class="mini" onclick="invCreateEntry('${id}',${i})" title="Create a homebrew entry for this item on the Items tab and link it">✨ create an entry</button>`
       : `<span class="nomatch">Type a name — matching database items are suggested as you type.</span>`;
-    return `<tr class="idesc ${it.eq||span<9?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${body}</td></tr>`;
+    return `<tr class="idesc ${isCarried(it)?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${eqTag(it)}${body}</td></tr>`;
   };
   const addRow = (type, span, ph) => `<tr><td colspan="${span}"><input type="text" class="addin" list="dbNames" placeholder="＋ add ${ph} — type a name" title="Type a database item's name to bring it in with its stats, or any other name for an unlinked item. Press Enter." onchange="invAdd('${id}','${type}',this.value)"></td></tr>`;
   const weps = rows.filter(x=>isWeapon(x.it)).map(({it,i})=>{
     const w = weaponState(cs, it), s = skillState(cs, w.skill);
     const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
-    return `<tr class="irow ${it.eq?'':'uneq'}">
-      <td class="c keep">${eqBox(it,i,'only equipped weapons lend their Defensive / Deflection ratings to your defense.')}</td>
+    return `<tr class="irow ${isCarried(it)?'':'uneq'}">
+      <td class="c keep">${eqBox(it,i)}</td>
       <td class="keep">${itemIn(it,i)}</td><td class="keep">${aliasIn(it,i)}</td>${qtyEnc(it,i)}
       <td><select title="Skill used to attack with this weapon" onchange="invSet('${id}',${i},'sk',this.value)">${COMBAT_SKILLS.map(x=>`<option value="${x.k}" ${x.k===w.sk?'selected':''}>${x.n}</option>`).join('')}</select></td>
       <td style="white-space:nowrap">${n2(i,'dam',w.dam,'Base damage. Each net success on the attack adds +1.')}
@@ -2579,8 +2590,8 @@ function gearHtml(cs){
   }).join('');
   const arms = rows.filter(x=>isArmor(x.it)).map(({it,i})=>{
     const a = armorState(it);
-    return `<tr class="irow ${it.eq?'':'uneq'}">
-      <td class="c keep">${eqBox(it,i,'equipped armor adds its soak and defense to your totals above.')}</td>
+    return `<tr class="irow ${isCarried(it)?'':'uneq'}">
+      <td class="c keep">${eqBox(it,i)}</td>
       <td class="keep">${itemIn(it,i)}</td><td class="keep">${aliasIn(it,i)}</td>${qtyEnc(it,i)}
       <td class="c">${n2(i,'def',a.def,'Defense: Setback dice added to attacks against you. Only the best equipped armor counts.')}</td>
       <td class="c">${n2(i,'soak',a.soak,'Soak this armor adds to your Brawn.')}</td>
@@ -2589,8 +2600,8 @@ function gearHtml(cs){
   const other = rows.filter(x=>!isWeapon(x.it) && !isArmor(x.it)).map(({it,i})=>{
     if(it.auto) return `<tr class="irow"><td></td><td class="skn" colspan="2"><i>${esc(it.name)}</i></td><td class="c">${+it.qty||0}</td><td class="c">${n2(i,'wt',+it.wt||0,'Encumbrance each','0.05')}</td><td>${esc(it.type)}</td><td></td></tr>
       <tr class="idesc"><td></td><td colspan="6">${it.auto==='canteen' ? 'Fill level and refills are on the Tracker card.' : 'Charged and depleted counts are on the Tracker card.'}</td></tr>`;
-    return `<tr class="irow">
-      <td class="c">${eqBox(it,i,'worn or in hand. Shown with a ✔ on the Tracker card.')}</td>
+    return `<tr class="irow ${isCarried(it)?'':'uneq'}">
+      <td class="c keep">${eqBox(it,i)}</td>
       <td>${itemIn(it,i)}</td><td>${aliasIn(it,i)}</td>${qtyEnc(it,i)}
       <td>${typeSelect(it.type, `invSet('${id}',${i},'type',this.value)`, 96)}</td>
       <td>${del(i)}</td></tr>` + descRow(it, i, 7);
@@ -2604,11 +2615,11 @@ function gearHtml(cs){
       <span class="label" style="margin-left:14px">Food</span> <span style="font-size:12px;color:var(--dim)" title="The hunger buttons on the Tracker card each eat one item of the matching type">🍪 ${stockOf(cs,'Snack')} snacks · 🍞 ${stockOf(cs,'Ration')} rations · 🍲 ${stockOf(cs,'Meal')} meals</span>
       ${unlinked ? `<span class="nomatch" style="color:var(--warn);font-size:12px;margin-left:14px">⚠ ${unlinked} item${unlinked===1?'':'s'} not matched to the database</span>` : ''}
     </div>
-    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
+    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
       ${weps}${addRow('Weapon', 11, 'a weapon')}</table>
-    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
+    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
       ${arms}${addRow('Armor', 8, 'armor')}</table>
-    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
+    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
       ${other}${addRow('Gear', 7, 'gear, food or medical supplies')}</table>
   </div>`;
 }
@@ -3100,7 +3111,6 @@ function hbDel(id){
 function giveItem(key, id){
   const it = itemByKey(key), cs = id && st(id); if(!it || !cs) return;
   const row = rowFromDb(it), type = row.type;
-  if(isDegradable(type)) cs.gearOpen = true;
   cs.inv.push(row); cs.invOpen = true;
   const d = itemDetails(it);
   logMsg(`🛒 ${cfg(id).name} picks up <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
@@ -3203,7 +3213,7 @@ function buildRules(){
   <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
-  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and shown read-only on the Tracker card. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
+  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
   <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
   <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
   <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>0.5</td></tr>
@@ -3219,7 +3229,7 @@ function buildRules(){
   <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; Gear — equipment wear</h2>
-  <p>Any inventory row typed <b>Weapon</b> or <b>Gear (worn)</b> automatically appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while carried (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b> for a hard use (a firefight, a day of digging). <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <p>Any carried item ticked <b>Eq</b> (equipped) in the card's 🎒 Inventory appears in the character's <b>Weapons &amp; Gear</b> section with its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). The name comes straight from the inventory row — rename or delete it there and the wear entry follows. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b> for a hard use (a firefight, a day of digging). <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
   <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
   ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
 

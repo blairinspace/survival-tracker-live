@@ -88,7 +88,7 @@ for(const id of ['cal','bode','pike','kata']){ const c=cfg(id); print(`  ${c.nam
 print('\n=== DROIDS, EQUIPMENT, SHIP ===');
 (function(){ fresh(); const cs=st('bd1'); let h=0; while(cs.charge<100&&h<2000){ tick(cs,1); h++; } print(`  BD-1 pack drained after ${h} h light duty (spec ${cfg('bd1').packHrs})`); })();
 (function(){ fresh(); const cs=st('alpha'); let h=0; while(cs.maint<100&&h<9000){ cs.charge=0; tick(cs,1); h++; } print(`  Alpha wear 0→100 after ${span(h)} unmaintained light temperate duty`); })();
-(function(){ fresh(); const cs=st('cal'); const it=cs.inv.find(i=>i.type==='Weapon'); let h=0; while((it.wear||0)<100&&h<50000){ tick(cs,1); h++; } print(`  weapon ambient wear 0→100: ${span(h)} temperate · +${WEAR_PER_USE}/use ⇒ ${Math.ceil(100/WEAR_PER_USE)} hard uses`); })();
+(function(){ fresh(); const cs=st('cal'); const it=cs.inv.find(i=>i.type==='Weapon'); it.eq=1; let h=0; while((it.wear||0)<100&&h<50000){ tick(cs,1); h++; } print(`  weapon ambient wear 0→100: ${span(h)} temperate · +${WEAR_PER_USE}/use ⇒ ${Math.ceil(100/WEAR_PER_USE)} hard uses`); })();
 print(`  ship: ${SHIP.fuelCap} t ⇒ cruising ${(SHIP.fuelCap/SHIP_ACTS.cruising.tph/24).toFixed(0)} d · hyperspace ${(SHIP.fuelCap/SHIP_ACTS.hyperspace.tph).toFixed(0)} h · one condition pip per ${SHIP_MAINT_WEEK/24} d powered`);
 
 print('\n=== SMOKE TEST — UI code paths ===');
@@ -101,7 +101,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   addCond('cal','sick'); condLvl('cal','sick',1); addCond('bd1','ion'); partySetAct('travel'); partyAddCond('chilled'); rmCond('cal','sick');
   setEnv('scorching'); S.travelDest='Koboh'; S.travelEta=3;
   setShipAct('cruising'); energyAdj('shields',-1); energyAdj('engines',1); setSensorRange('Long'); fireTorp(); shipBurn(); repairSys('engines',-1);
-  invAdd('cal','Weapon','Test club'); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
+  invAdd('cal','Weapon','Test club'); invSet('cal', st('cal').inv.length-1, 'eq', true); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
   showTab('items'); itemsSet('q','blaster pistol'); const hits = itemsFiltered().length; itemsSet('g','Gear'); itemsSet('c','Survival'); itemsSet('g',''); itemsSet('q','');
   hbAdd(); const hb = S.homebrew[0]; hbSet(hb.id,'n','Test Gadget'); hbSet(hb.id,'p','125'); hbSet(hb.id,'r',true); hbSet(hb.id,'e','abc'); hbSet(hb.id,'d','does a thing');
   giveItem('c0','cal'); giveItem('h'+hb.id,'bode'); itemsSet('q','test gadget'); const hbHit = itemsFiltered().length; itemsSet('q',''); hbDel(hb.id);
@@ -142,7 +142,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   giveItem(ci('Vibroknife'),'cal'); const knife = cal.inv.length-1; if(cal.inv[knife].sk!=='melee' || !cal.inv[knife].brn || weaponState(cal,cal.inv[knife]).total!==1+cal.attr.br) throw new Error('catalog weapon stats wrong');
   const pistolRow = st('bode').inv.find(x=>x.name==='Blaster Pistol'), pw = weaponState(st('bode'), pistolRow);
   if(pw.sk!=='ranged_light' || pw.dam!==6 || pw.crit!==3 || pw.rng!=='Medium') throw new Error('kit weapon did not borrow catalog stats: '+JSON.stringify(pw));
-  const soak0 = combatStats(cal).soak; invAdd('cal','Armor','beskar plating'); const ar = cal.inv.length-1; if(cal.inv[ar].ref!=='Beskar Plating' || !cal.inv[ar].eq) throw new Error('custom armor not linked');
+  const soak0 = combatStats(cal).soak; invAdd('cal','Armor','beskar plating'); const ar = cal.inv.length-1; if(cal.inv[ar].ref!=='Beskar Plating' || cal.inv[ar].eq) throw new Error('custom armor not linked'); invSet('cal',ar,'eq',1);
   invSet('cal',knife,'q','Pierce 2, Defensive 1'); invSet('cal',knife,'eq',1);
   const cb1 = combatStats(cal); if(cb1.soak!==soak0+3 || cb1.defR!==2 || cb1.defM!==3) throw new Error('derived soak/defense wrong: '+JSON.stringify(cb1));
   invSet('cal',ar,'eq',0); if(combatStats(cal).soak!==soak0) throw new Error('stowed armor still counted');
@@ -166,6 +166,17 @@ print('\n=== SMOKE TEST — UI code paths ===');
   invAdd('pike','Gear','Mystery widget'); const mw = pk.inv.length-1; if(dbOf(pk.inv[mw])) throw new Error('unknown item linked'); invSet('pike',mw,'alias','Gizmo'); invCreateEntry('pike',mw);
   if(!dbOf(pk.inv[mw]) || S.homebrew.length!==1 || invLabel(pk.inv[mw])!=='Gizmo') throw new Error('create-entry did not link');
   invSet('pike',mw,'db','datapad'); if(pk.inv[mw].ref!=='Datapad' || pk.inv[mw].wt!==1) throw new Error('re-pointing an item did not import stats');
+  // carry / equip: stowed items leave the card, the weight and the stock; equipping needs carrying; Gear (worn) became the Eq tick
+  const dp = pk.inv[mw], wBefore = invWeight(pk); invSet('pike',mw,'eq',1); if(!isEquipped(dp)) throw new Error('equip failed');
+  invSet('pike',mw,'carry',false); if(isCarried(dp) || dp.eq || Math.abs(invWeight(pk)-(wBefore-1))>1e-9) throw new Error('stowing did not unequip / unweigh');
+  invSet('pike',mw,'eq',1); if(dp.eq) throw new Error('equipped a stowed item');
+  const rr = stockRows(pk,'Ration')[0], rN = stockOf(pk,'Ration'); invSet('pike',pk.inv.indexOf(rr),'carry',false); if(stockOf(pk,'Ration')!==0) throw new Error('stowed rations still edible'); invSet('pike',pk.inv.indexOf(rr),'carry',true); if(stockOf(pk,'Ration')!==rN) throw new Error('carry toggle lost rations');
+  render(); if(/Datapad/.test(invSection(pk)) || !/stowed item/.test(invSection(pk)) || !/Multitool/.test(invSection(pk))) throw new Error('card inventory should list carried items only');
+  const wornOld = migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Goggles',type:'Gear (worn)',qty:1,wt:0.2,wear:30}]}], ship:S.ship, log:[], homebrew:[]}).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Goggles');
+  if(wornOld.type!=='Gear' || !isEquipped(wornOld) || wornOld.wear!==30) throw new Error('Gear (worn) not converted to an equipped item');
+  const wi = st('cal').inv.findIndex(isWeapon), wv = st('cal').inv[wi]; invSet('cal',wi,'carry',true); invSet('cal',wi,'eq',1); wv.wear = 42; invSet('cal',wi,'eq',0); tick(st('cal'),24); invSet('cal',wi,'carry',false); invSet('cal',wi,'carry',true); invSet('cal',wi,'eq',1);
+  if(wv.wear!==42) throw new Error('wear changed across unequip / stow / re-equip: '+wv.wear);
+  if(INV_TYPES.includes('Gear (worn)')) throw new Error('Gear (worn) type still offered');
   render(); const invHtml = document.getElementById('sheetBody').innerHTML + document.getElementById('cards').innerHTML;
   if(/undefined|NaN|\[object/.test(invHtml)) throw new Error('broken interpolation in the inventory views');
   // an old save (counters + auto rows) converts once; an un-refreshed browser re-sending the counters is ignored
