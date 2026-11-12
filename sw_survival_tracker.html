@@ -176,9 +176,14 @@
   .sktable select.chsel{border:none;background:none;color:var(--dim);padding:0 2px;font-size:11px}
   .sktable input[type=number]{width:42px;text-align:center}
   .sktable input[type=text]{width:120px}
-  .geartables{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start;margin-bottom:14px}
+  .sktable tr.idesc td{border-bottom:1px solid #2a313b;padding:0 4px 6px;font-size:11.5px;color:var(--dim);line-height:1.45}
+  .sktable tr.idesc .nomatch{color:var(--warn)}
+  .sktable tr.irow td{border-bottom:none;padding-top:5px}
+  .sktable input.ialias{width:110px} .sktable input.addin{width:230px}
+  .b-cu{background:#12323a;color:#8fe3ee}
+  .geartables{display:grid;grid-template-columns:1fr;gap:12px;align-items:start;margin-bottom:14px}
   .geartables .wide{grid-column:1/-1}
-  .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:44px}
+  .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:54px}
   .sktable tr.uneq td{opacity:.6} .sktable tr.uneq td.keep{opacity:1}
   button.eqbtn{font-size:13px;padding:1px 6px;opacity:.45} button.eqbtn.on{opacity:1;border-color:var(--gold);color:var(--gold)}
   .sbox b.derived{font-size:20px;color:var(--text)}
@@ -417,6 +422,7 @@
   <div id="itemsBody"></div>
 </div></div>
 
+<datalist id="dbNames"></datalist>
 <div id="sheet">
   <div class="drow" id="sheetChips"></div>
   <div class="dpanel" id="sheetBody"></div>
@@ -452,6 +458,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <!-- Item catalog, generated from the GM's workbook by tools/import-items.py (the Items tab is empty if this fails) -->
 <script src="items.js"></script>
+<!-- Hand-maintained extra entries (kit items the workbook lacks, food types) -->
+<script src="items-custom.js"></script>
 
 <script>
 'use strict';
@@ -584,14 +592,11 @@ CONDS.crash.decayHrs = STIM.crashHrs;
 /* Standard consumable weights (encumbrance units, ~1 enc ≈ 2 kg carried) */
 const AUTO_ITEMS = {
   canteen:{name:`Canteen (${OZ_PER_CANTEEN} oz)`, type:'Gear',    wt:0.5},
-  rations:{name:'Field rations',                  type:'Food',    wt:0.2},
-  snacks: {name:'Snacks',                         type:'Food',    wt:0.05},
-  stims:  {name:'Stimpacks',                      type:'Medical', wt:0.05},
   packs:  {name:'Power packs (spares)',           type:'Gear',    wt:0.1}
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Gear (pack)','Food','Medical','Other'];
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (worn)','Gear (pack)','Snack','Ration','Meal','Medical','Other'];
 /* Types that carry a wear/degradation track in the Weapons & Gear section */
 const DEGRADABLE = ['Weapon','Gear (worn)'];
 function isDegradable(type){ return DEGRADABLE.some(t=>t.toLowerCase()===(type||'').toLowerCase()); }
@@ -925,15 +930,17 @@ function newCharState(c){
   const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
     conds:[], status:null, prevAct:'light', hourAcc:0, sheet:newSheet(c),
-    inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
+    inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})), invV:2 };
+  if(!c.droid) for(const [kind,qty] of [['Ration',6],['Snack',4],['Stim',5]]) cs.inv.push(stockRow(kind, qty));
   Object.assign(cs, c.droid
     ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
     : { water:0, hunger:0, hygiene:0, sleep:0, rest:0, wt:12, st:12,
         lastTiers:Object.fromEntries(NEED_KEYS.map(k=>[k,0])),
-        starveHrs:0, dehydHrs:0, hygHrs:0, sickHrs:0, lastDrinkAt:-99, canteen:OZ_PER_CANTEEN, rationsStock:6, snacks:4, stims:5,
+        starveHrs:0, dehydHrs:0, hygHrs:0, sickHrs:0, lastDrinkAt:-99, canteen:OZ_PER_CANTEEN,
         sleepHrs:c.mods.sleepNeed||SLEEP.hoursDefault,
         stimsToday:0, stimWindowStart:-99, stimHrs:0, force:0 });
   syncInv(cs);
+  cs.inv.forEach(linkRow);
   return cs;
 }
 function freshState(){
@@ -956,9 +963,11 @@ function migrate(s){ // patch older saves (and room snapshots)
   }
   for(const cs of s.chars){
     for(const k of ['inv','conds']) cs[k] = arrayify(cs[k]);   // RTDB may hand lists back as index-keyed objects
+    const invV0 = cs.invV;   // read before the defaults below stamp the current version on an old save
     const def = newCharState(cfg(cs.id));
     for(const k in def) if(cs[k]===undefined) cs[k]=def[k];
     normSheet(cs, cfg(cs.id));
+    upgradeInv(cs, cfg(cs.id), invV0);
     if(cs.lastTiers) for(const k of NEED_KEYS) cs.lastTiers[k] ??= 0;
     if(cs.conds){  // old 'infected' condition folds into the stacking Sick condition
       let sickLvl = 0;
@@ -1316,6 +1325,44 @@ function advance(hrs){
 /* ================================================================
    TIMED STATUSES
    ================================================================ */
+/* ---- consumable stock: the inventory IS the stock. Snack / Ration / Meal are inventory types;
+   a stimpack is any row linked to the database's Stimpack (or simply named so). The hunger and
+   stim buttons take one whole item from the first matching row that has one. ---- */
+const STOCK = {
+  Snack: { label:'snack',    row:{name:'Snack', ref:'Snack', type:'Snack', wt:0.05} },
+  Ration:{ label:'ration',   row:{name:'Field Ration Pack', ref:'Field Ration Pack', alias:'Field rations', type:'Ration', wt:0.2} },
+  Meal:  { label:'meal',     row:{name:'Meal', ref:'Meal', type:'Meal', wt:0.3} },
+  Stim:  { label:'stimpack', row:{name:'Stimpack', ref:'Stimpack', type:'Medical', wt:0.05} },
+};
+const LEGACY_AUTO = ['rations','snacks','stims'];   // pre-overhaul counter rows (an un-refreshed browser may still send them)
+const isStim = it => it.ref==='Stimpack' || /^stim ?packs?$/i.test(it.name||'');
+const stockRows = (cs, kind) => cs.inv.filter(it=>it && !it.auto && (kind==='Stim' ? isStim(it) : it.type===kind));
+const stockOf   = (cs, kind) => Math.floor(stockRows(cs, kind).reduce((a,it)=>a+(+it.qty||0), 0));
+const stockRow  = (kind, qty) => ({...STOCK[kind].row, qty});
+function takeStock(cs, kind){
+  const row = stockRows(cs, kind).find(it=>(+it.qty||0) >= 1); if(!row) return false;
+  row.qty = +((+row.qty) - 1).toFixed(2); return true;
+}
+function giveStock(cs, kind){
+  const row = stockRows(cs, kind)[0];
+  if(row) row.qty = +((+row.qty||0) + 1).toFixed(2); else cs.inv.push(stockRow(kind, 1));
+}
+// One-time conversion of the old counters (cs.rationsStock / snacks / stims and their italic "auto"
+// inventory rows) into ordinary inventory rows, then link every row to the Items database.
+function upgradeInv(cs, c, invV0){
+  cs.inv = (cs.inv||[]).filter(it=>it && typeof it==='object');
+  if(invV0!==2 && !c.droid){
+    for(const [kind,key] of [['Ration','rationsStock'],['Snack','snacks'],['Stim','stims']])
+      if(cs[key]!==undefined) cs.inv.push(stockRow(kind, Math.max(0, Math.round(+cs[key])||0)));
+  }
+  cs.inv = cs.inv.filter(it=>!LEGACY_AUTO.includes(it.auto));
+  delete cs.rationsStock; delete cs.snacks; delete cs.stims; cs.invV = 2;
+  for(const it of cs.inv){
+    if((it.type||'').toLowerCase()==='food') it.type = /snack/i.test(it.name) ? 'Snack' : /meal/i.test(it.name) ? 'Meal' : 'Ration';
+    linkRow(it);
+  }
+}
+
 function startStatus(id, kind, dur){
   const cs = st(id), c = cfg(id), def = STATUSES[kind];
   if(def.fs && !c.fs) return;   // meditation is for Force sensitives only
@@ -1323,9 +1370,9 @@ function startStatus(id, kind, dur){
   const deltas = {...def.deltas};
   let cost = 0;
   if(kind==='ration' || kind==='meal'){
-    cost = +(c.rations*def.costMult).toFixed(2);
-    if(cs.rationsStock < cost){ logMsg(`${c.name} doesn't have enough rations (needs ${cost}, has ${cs.rationsStock}).`,'lw'); render(); return; }
-    cs.rationsStock = +(cs.rationsStock - cost).toFixed(2);
+    const food = kind==='meal' ? 'Meal' : 'Ration';
+    if(!takeStock(cs, food)){ logMsg(`${c.name} has no ${STOCK[food].label}s to eat — add some to the inventory on the Sheets tab.`,'lw'); render(); return; }
+    cost = 1;
     let pts = -deltas.hunger; const notes = [];
     if(cs.water >= REHYDRATE.thresh){ pts = pts/2; notes.push('dehydrated — the body absorbs only half the nourishment'); }
     if(cs.hunger >= REFEED.thresh && pts > REFEED.capPts){
@@ -1337,7 +1384,8 @@ function startStatus(id, kind, dur){
   }
   const total = dur || def.dur;
   cs.prevAct = cs.activity;
-  cs.status = { kind, remain:total, total, deltas, cost };   // cost: rations paid up front, refunded pro rata on cancel
+  cs.status = { kind, remain:total, total, deltas, cost };   // cost: one food item paid up front; it goes back in the pack if the meal is abandoned before halfway
+  if(cost) cs.status.food = kind==='meal' ? 'Meal' : 'Ration';
   if(kind==='sleep' && cs.sleep >= SLEEP.deepDebtFrom){        // days of debt: one night recovers most of it, not all
     cs.status.sleepCap = SLEEP.deepDebtCap; cs.status.recovered = 0;
     logMsg(`😴 ${c.name} is ${tierOf(cs.sleep, NEEDS.sleep.tiers).name} — this sleep recovers at most ${SLEEP.deepDebtCap} sleep debt; a second night finishes the job.`,'lw');
@@ -1349,9 +1397,10 @@ function cancelStatus(id, silent){
   const cs = st(id);
   if(!cs.status) return;
   const def = STATUSES[cs.status.kind];
-  const refund = cs.status.cost ? +(cs.status.cost*clamp(cs.status.remain/cs.status.total, 0, 1)).toFixed(2) : 0;
+  const food = cs.status.food || 'Ration';
+  const refund = cs.status.cost && cs.status.remain/cs.status.total > 0.5;
   cs.status = null; cs.activity = cs.prevAct;
-  if(refund>0){ cs.rationsStock = +(cs.rationsStock + refund).toFixed(2); logMsg(`🍽 ${cfg(id).name} packs away the uneaten food (+${refund} rations back).`); }
+  if(refund){ giveStock(cs, food); logMsg(`🍽 ${cfg(id).name} packs the barely-touched ${STOCK[food].label} away again.`); }
   if(!silent){ logMsg(`✖ ${cfg(id).name} stops ${plainLabel(def.label).toLowerCase()} — status back to normal.`); render(); }
 }
 function setSleepHrs(id, v){ st(id).sleepHrs = clamp(parseFloat(v)||SLEEP.hoursDefault, 0.5, 16); render(); }
@@ -1386,8 +1435,7 @@ function refill(id){
 }
 function eatSnack(id){
   const cs = st(id), c = cfg(id);
-  if(cs.snacks < 1){ logMsg(`${c.name} is out of snacks.`, 'lw'); render(); return; }
-  cs.snacks--;
+  if(!takeStock(cs, 'Snack')){ logMsg(`${c.name} is out of snacks.`, 'lw'); render(); return; }
   let pts = SNACK_HUNGER, note = '';
   if(cs.water >= REHYDRATE.thresh){ pts /= 2; note = ' — dehydrated, only half absorbed'; }
   cs.hunger = clamp(cs.hunger - pts, 0, 100);
@@ -1412,11 +1460,11 @@ function cleanClothes(id){
 }
 function useStim(id){
   const cs = st(id), c = cfg(id);
-  if(cs.stims < 1){ logMsg(`${c.name} has no stimpacks left.`, 'lw'); render(); return; }
+  if(!takeStock(cs, 'Stim')){ logMsg(`${c.name} has no stimpacks left.`, 'lw'); render(); return; }
   rolloverStimWindow(cs);
   if(cs.stimsToday===0) cs.stimWindowStart = S.hour;   // first dose opens the window
   if(cs.conds.some(x=>x.id==='crash')){ cs.conds = cs.conds.filter(x=>x.id!=='crash'); logMsg(`💉 ${c.name} stims through the crash — it lifts for now, and the next one will be worse.`,'lw'); }
-  cs.stims--; cs.stimsToday++;
+  cs.stimsToday++;
   cs.rest   = clamp(cs.rest - STIM.fatigue, 0, 100);
   cs.stimHrs = STIM.hours;   // strain itself is untouched: the stimulant widens the threshold (strainMods) while it lasts
   if(cs.stimsToday <= STIM.maxHeals){
@@ -1654,35 +1702,20 @@ function syncInv(cs){
   const c = cfg(cs.id);
   const wanted = c.droid
     ? [['packs', cs.packsCharged+cs.packsDepleted]]
-    : [['canteen',1],['rations',cs.rationsStock],['snacks',cs.snacks],['stims',cs.stims]];
+    : [['canteen',1]];
   for(const [key,qty] of wanted){
     let row = cs.inv.find(it=>it.auto===key);
     if(!row){ row = {auto:key, name:AUTO_ITEMS[key].name, type:AUTO_ITEMS[key].type, qty:0, wt:AUTO_ITEMS[key].wt}; cs.inv.push(row); }
     row.qty = qty;
   }
 }
-function addInv(id){ st(id).inv.push({name:'', type:'', qty:1, wt:0}); st(id).invOpen=true; render(); }
 function delInv(id,i){ st(id).inv.splice(i,1); render(); }
-function setInv(id,i,k,v){
-  const cs = st(id), it = cs.inv[i]; if(!it) return;
-  const num = Math.max(0, parseFloat(v)||0);
-  if(it.auto && k==='qty'){       // editing an auto row's qty updates the real stock
-    if(it.auto==='rations') cs.rationsStock = num;
-    else if(it.auto==='snacks') cs.snacks = Math.round(num);
-    else if(it.auto==='stims') cs.stims = Math.round(num);
-    else if(it.auto==='packs') cs.packsCharged = Math.max(0, Math.round(num) - cs.packsDepleted);
-  } else {
-    it[k] = (k==='qty'||k==='wt') ? num : v;
-    if(k==='type' && isDegradable(v)){ if(it.wear==null) it.wear=0; cs.gearOpen=true; }
-  }
-  render();
-}
 
 /* ---- equipment wear (weapons & worn gear) ---- */
 function useItem(id,i){
   const cs=st(id), it=cs.inv[i]; if(!it) return;
   it.wear = clamp((it.wear||0)+WEAR_PER_USE, 0, 100);
-  logMsg(`🔧 ${cfg(id).name} uses ${esc(it.name||'an item')} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
+  logMsg(`🔧 ${cfg(id).name} uses ${esc(it.alias||it.name||'an item')} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
   render();
 }
 function tuneItem(id,i){
@@ -1760,32 +1793,23 @@ function statusBadge(cs){
   return `<span class="badge b-status">${def.label} — ${fmtDur(Math.max(0,cs.status.remain))} left<span class="x" onclick="cancelStatus('${cs.id}')" title="Cancel — return to normal">✖</span></span>`;
 }
 
-function invSection(cs){
+function invSection(cs){   // read-only on the card — the inventory is edited on the character's sheet
   const w = invWeight(cs), over = overload(cs);
-  const rows = cs.inv.map((it,i)=>{
-    const name = it.auto ? `<span class="auto">${esc(it.name)}</span>` : `<input value="${esc(it.name)}" placeholder="item" onchange="setInv('${cs.id}',${i},'name',this.value)">`;
-    const type = it.auto ? `<span class="auto">${esc(it.type)}</span>` : typeSelect(it.type, `setInv('${cs.id}',${i},'type',this.value)`, 72);
-    const del  = it.auto ? '' : `<button class="mini" title="Remove item" onclick="delInv('${cs.id}',${i})">×</button>`;
-    const qty  = it.auto==='canteen' ? `<span class="auto">${it.qty}</span>`
-      : `<input type="number" min="0" step="0.5" value="${it.qty}" onchange="setInv('${cs.id}',${i},'qty',this.value)">`;
-    const pack = isPack(it);
-    const totCell = pack
-      ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${(it.qty*it.wt).toFixed(2)}</td>`
-      : isArmor(it)
-      ? `<td class="tot" style="color:var(--dim)" title="Armor is worn — doesn't count toward encumbrance">—</td>`
-      : `<td class="tot">${(it.qty*it.wt).toFixed(2)}</td>`;
-    return `<tr><td>${name}</td><td>${type}</td>
-      <td>${qty}</td>
-      <td><input type="number" min="0" step="0.05" value="${it.wt}" title="${pack?'Capacity granted per pack':'Encumbrance each'}" onchange="setInv('${cs.id}',${i},'wt',this.value)"></td>
-      ${totCell}<td>${del}</td></tr>`;
+  const rows = cs.inv.map(it=>{
+    const pack = isPack(it), tot = (it.qty||0)*(it.wt||0);
+    const totCell = pack ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${tot.toFixed(2)}</td>`
+      : isArmor(it) ? `<td class="tot" style="color:var(--dim)" title="Armor is worn — doesn't count toward encumbrance">—</td>`
+      : `<td class="tot">${tot.toFixed(2)}</td>`;
+    return `<tr><td>${it.eq?'<span title="Equipped" style="color:var(--gold)">✔</span> ':''}<span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it))}</span></td>
+      <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('');
   const eff = effThresh(cs), pb = packBonus(cs);
   return `<details class="inv" ${cs.invOpen?'open':''} ontoggle="st('${cs.id}').invOpen=this.open">
     <summary>🎒 Inventory — enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'} threshold${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
-      &nbsp;<button class="mini" onclick="event.preventDefault();addInv('${cs.id}')">＋ add item</button></summary>
+      &nbsp;<button class="mini" onclick="event.preventDefault();sheetPick('${cs.id}');showTab('sheet')" title="The inventory is edited on this character's sheet">✎ edit on sheet</button></summary>
     <table class="invtable">
-      <tr><th>Name</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
-      ${rows||'<tr><td colspan="6" style="color:var(--dim)">empty pack</td></tr>'}
+      <tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>
+      ${rows||'<tr><td colspan="4" style="color:var(--dim)">empty pack</td></tr>'}
     </table></details>`;
 }
 
@@ -1796,7 +1820,7 @@ function gearSection(cs){
     const w = clamp(it.wear||0,0,100), t = tierOf(w, WTIERS);
     const worn = /worn/i.test(it.type);
     const icon = worn ? '🧥' : '🗡';
-    const nm = it.name || (worn?'(unnamed gear)':'(unnamed weapon)');
+    const nm = invLabel(it) || (worn?'(unnamed gear)':'(unnamed weapon)');
     return `<div class="gearitem">
       <div class="gearline"><span class="gearname">${icon} ${esc(nm)}</span>
         <span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span></div>
@@ -1903,7 +1927,7 @@ function organicCard(cs, c, div){
     ${needRow(cs,'water','💧 Thirst',
       `<button class="mini" onclick="drink('${cs.id}',5)">5oz</button><button class="mini" onclick="drink('${cs.id}',10)">10oz</button><button class="mini" onclick="drink('${cs.id}',${OZ_PER_CANTEEN})">all</button>`, tier('water'))}
     ${needRow(cs,'hunger','🍞 Hunger',
-      `<button class="mini" onclick="eatSnack('${cs.id}')">snack</button><button class="mini" onclick="startStatus('${cs.id}','ration')" title="Eat a field ration (15 min)">ration</button><button class="mini" onclick="startStatus('${cs.id}','meal')" title="Eat a prepared meal (30 min)">meal</button>`, tier('hunger'))}
+      `<button class="mini" onclick="eatSnack('${cs.id}')" title="Eat one Snack item from the inventory (${stockOf(cs,'Snack')} carried)">snack</button><button class="mini" onclick="startStatus('${cs.id}','ration')" title="Eat one Ration item from the inventory (${stockOf(cs,'Ration')} carried) — 15 min">ration</button><button class="mini" onclick="startStatus('${cs.id}','meal')" title="Eat one Meal item from the inventory (${stockOf(cs,'Meal')} carried) — 30 min">meal</button>`, tier('hunger'))}
     ${needRow(cs,'hygiene','🧼 Hygiene',
       `<button class="mini" onclick="startStatus('${cs.id}','wash')" title="Full wash / bath — 30-min timed status, ample water (GM approves)">wash</button><button class="mini" onclick="wipeDown('${cs.id}')" title="Quick wipe-down / field clean — uses ${HYG.wipeOz} oz canteen water">wipe</button><button class="mini" onclick="cleanClothes('${cs.id}')" title="Change into clean clothing (GM approves)">👕</button>`, tier('hygiene'))}
     ${needRow(cs,'sleep','😴 Sleep',
@@ -1913,10 +1937,7 @@ function organicCard(cs, c, div){
       (c.fs?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
     <div class="gearrow">
       <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
-      <span class="gi">🍞 <input type="number" min="0" step="0.5" value="${cs.rationsStock}" onchange="setStock('${cs.id}','rationsStock',this.value)" title="Rations carried"></span>
-      <span class="gi">🍪 <input type="number" min="0" step="1" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
-      <span class="gi">💉 <b title="Stimpacks carried — this is the Stimpacks row in 🎒 Inventory; change the quantity there">${cs.stims}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
-      <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
+      <span class="gi">💉 <b title="Stimpacks carried — the Stimpack rows in the inventory; change the quantity on the Sheets tab">${stockOf(cs,'Stim')}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
       ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
     ${invSection(cs)}
@@ -1955,7 +1976,6 @@ function droidCard(cs, c, div){
     <div class="gearrow">
       <span class="gi">🔋 charged <input type="number" min="0" value="${cs.packsCharged}" onchange="setStock('${cs.id}','packsCharged',this.value)" title="Charged spare packs"></span>
       <span class="gi">🪫 depleted <input type="number" min="0" value="${cs.packsDepleted}" onchange="setStock('${cs.id}','packsDepleted',this.value)" title="Depleted packs"></span>
-      <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
     </div>
     ${invSection(cs)}
     ${gearSection(cs)}
@@ -2222,7 +2242,7 @@ function partyAddCond(v){
   render();
 }
 function setThresh(id,k,v){ st(id)[k]=parseInt(v)||0; render(); }
-const WHOLE_STOCK = new Set(['snacks','stims','packsCharged','packsDepleted']);   // you can't eat half a snack
+const WHOLE_STOCK = new Set(['packsCharged','packsDepleted']);
 function setStock(id,k,v){ const n=Math.max(0,parseFloat(v)||0); st(id)[k]=WHOLE_STOCK.has(k)?Math.round(n):n; render(); }
 function adj(id,k,d){ const cs=st(id); cs[k]=Math.max(0,cs[k]+d); render(); }
 function editNeed(id,key){
@@ -2388,25 +2408,63 @@ function sheetDelSkill(id, cid){
   const sh = st(id).sheet;
   sh.cust = sh.cust.filter(y=>y.id!==cid); delete sh.sk['x_'+cid]; render();
 }
-/* ---- equipped gear: weapons and armor are inventory rows (cs.inv) typed Weapon / Armor,
-   with optional combat fields:  eq 1 = equipped · weapon: sk dam crit rng q brn(1 = add Brawn)
-   · armor: def soak.  A row with no stats of its own borrows them from the catalog item of the
-   same name, so "Blaster pistol" in an old kit already knows it is Ranged: Light, damage 6. ---- */
+/* ---- inventory ⇄ Items database. Every inventory row (cs.inv) can link to a database record by
+   name (row.ref): the catalog from the workbook, items-custom.js, or a homebrew item. The link gives
+   the row its description and default stats; the row keeps its own editable copies.
+     alias  what the Tracker card calls it ("Dad's blaster")      eq  1 = equipped
+     weapon: sk dam crit rng q brn(1 = add Brawn)                  armor: def soak
+   Rows are linked automatically by name (linkRow); anything that can't be matched is flagged on
+   the sheet, where it can be pointed at a database item or given a new homebrew entry. ---- */
 const WEAPON_RANGES = ['Engaged','Short','Medium','Long','Extreme'];
 const COMBAT_SKILLS = SKILLS.filter(x=>x.g==='Combat');
 const CAT_SKILL = { 'Lightsaber':'lightsaber', 'Gunnery':'gunnery', 'Melee':'melee', 'Brawl':'brawl', 'Mechanics':'melee',
   'Ranged (Heavy)':'ranged_heavy', 'Ranged (Light)':'ranged_light', 'Skulduggery / Ranged (Light or Heavy)':'ranged_light' };
+// kit names that mean a database item under another name (lower-case → database name)
+const DB_ALIASES = { 'lightsaber':'Basic Lightsaber', 'comlink':'Comlink (handheld)', 'armored clothing':'Armoured Clothing',
+  'toolkit':'Tool Kit', 'field rations':'Field Ration Pack', 'rations':'Field Ration Pack', 'ration':'Field Ration Pack',
+  'multi-tool':'Multitool', 'backpack':'Backpack', 'bd-1 battery packs':'BD-1 Battery Pack', 'power packs':'Droid Power Pack' };
 let CAT_BY_NAME = null;
-function catByName(name){
+function dbFind(name){
   if(!CAT_BY_NAME){ CAT_BY_NAME = {}; for(const it of CATALOG){ const k=(it.n||'').toLowerCase(); if(!(k in CAT_BY_NAME)) CAT_BY_NAME[k]=it; } }
-  return CAT_BY_NAME[String(name||'').replace(/\s*\(worn\)\s*$/i,'').trim().toLowerCase()] || {};
+  let k = String(name||'').replace(/\s*\((worn|spares?)\)\s*$/i,'').trim().toLowerCase(); if(!k) return null;
+  if(DB_ALIASES[k]) k = DB_ALIASES[k].toLowerCase();
+  const hb = n => ((typeof S!=='undefined' && S && S.homebrew)||[]).find(h=>h && (h.n||'').toLowerCase()===n);
+  return CAT_BY_NAME[k] || hb(k) || (k.endsWith('s') ? (CAT_BY_NAME[k.slice(0,-1)] || hb(k.slice(0,-1))) : null) || null;
 }
+const dbOf = it => (it && it.ref && dbFind(it.ref)) || null;
+const invLabel = it => it.alias || it.name || '';
 const isWeapon = it => (it.type||'').toLowerCase()==='weapon';
 const numOr = (...vs) => { for(const v of vs){ if(v!==undefined && v!==null && v!=='' && Number.isFinite(+v) && Math.abs(+v)<1000) return +v; } return 0; };
+function dbDesc(rec){   // plain text — callers escape
+  if(!rec) return '';
+  return [rec.f, rec.d, rec.req?`Requires: ${rec.req}`:'', rec.hp?`${rec.hp} hard point${rec.hp===1?'':'s'}`:'',
+    rec.p!=null?`${Number(rec.p).toLocaleString('en-US')} cr`:(rec.pt?`${rec.pt} cr`:''), rec.ra!=null?`rarity ${rec.ra}`:'', rec.r?'restricted':''].filter(Boolean).join(' · ');
+}
+// Copy a database record's stats onto a row. force = the player picked this record just now, so it
+// overwrites; otherwise only blanks are filled (an auto-link must never clobber what was typed).
+function fillFromDb(row, rec, force){
+  const set = (k, v) => { if(v!==undefined && v!==null && v!=='' && (force || row[k]===undefined)) row[k] = v; };
+  if(force || !row.type) row.type = invTypeFor(rec);
+  if(force || row.wt===undefined) row.wt = numOr(rec.e);
+  if(rec.sk){
+    set('sk', CAT_SKILL[rec.sk] || 'ranged_light'); set('brn', (rec.sk==='Melee'||rec.sk==='Brawl') ? 1 : 0);
+    set('dam', numOr(rec.dam)); set('crit', numOr(rec.crit)); if(WEAPON_RANGES.includes(rec.rng)) set('rng', rec.rng); set('q', rec.q ? String(rec.q) : (force ? '' : undefined));
+  }
+  if(rec.g==='Armour'){ set('def', numOr(rec.def)); set('soak', numOr(rec.soak)); }
+  if(isDegradable(row.type) && row.wear==null) row.wear = 0;
+}
+function linkRow(row){
+  if(!row || row.auto || row.ref || !row.name) return;
+  const rec = dbFind(row.name); if(!rec) return;
+  const typed = String(row.name).replace(/\s*\((worn|spares?)\)\s*$/i,'').trim();
+  if(typed.toLowerCase()!==rec.n.toLowerCase() && !row.alias) row.alias = typed;   // keep what the table calls it
+  row.name = rec.n; row.ref = rec.n;
+  fillFromDb(row, rec, false);
+}
 function weaponState(cs, it){
-  const cat = catByName(it.name), catSk = CAT_SKILL[cat.sk];
+  const cat = dbOf(it) || {}, catSk = CAT_SKILL[cat.sk];
   const guess = /saber/i.test(it.name) ? 'lightsaber' : /rifle|carbine|bow|launcher/i.test(it.name) ? 'ranged_heavy'
-    : /knife|blade|sword|staff|vibro|axe|spear|truncheon/i.test(it.name) ? 'melee' : 'ranged_light';
+    : /knife|blade|sword|staff|vibro|axe|spear|truncheon|dagger/i.test(it.name) ? 'melee' : 'ranged_light';
   const sk = COMBAT_SKILLS.some(x=>x.k===it.sk) ? it.sk : (catSk || guess);
   const brn = it.brn!==undefined ? !!it.brn : (cat.sk ? (cat.sk==='Melee'||cat.sk==='Brawl') : (sk==='melee'||sk==='brawl'));
   const dam = numOr(it.dam, cat.dam), crit = numOr(it.crit, cat.crit);
@@ -2415,7 +2473,7 @@ function weaponState(cs, it){
   return { sk, brn, dam, crit, rng, q, total: dam + (brn ? (cs.attr.br||0) : 0), skill: SKILLS.find(x=>x.k===sk) };
 }
 function armorState(it){
-  const cat = catByName(it.name);
+  const cat = dbOf(it) || {};
   return { def: numOr(it.def, cat.def), soak: numOr(it.soak, cat.soak) };
 }
 const qualN = (q, name) => { const m = String(q||'').match(new RegExp('\\b'+name+'\\s*(\\d+)', 'i')); return m ? +m[1] : 0; };
@@ -2431,19 +2489,43 @@ function combatStats(cs){
     soak: Math.max(0, br + aSoak + sh.soakMod),
     defR: Math.max(0, aDef + defl + sh.defRMod), defM: Math.max(0, aDef + dfns + sh.defMMod) };
 }
-function gearSet(id, i, k, v){
-  const it = st(id).inv[i]; if(!it || it.auto) return;
-  if(k==='eq' || k==='brn'){ it[k] = v ? 1 : 0; }
-  else if(k==='name' || k==='q') it[k] = String(v).slice(0, k==='q'?160:80);
+function invSet(id, i, k, v){
+  const it = st(id).inv[i]; if(!it) return;
+  if(it.auto){ if(k==='wt') it.wt = Math.max(0, parseFloat(v)||0); render(); return; }   // canteen / droid packs: only the weight is editable
+  if(k==='eq' || k==='brn') it[k] = v ? 1 : 0;
+  else if(k==='db'){            // the Item box: a database name links the row (and imports its stats); anything else is a free-typed name
+    const name = String(v).trim().slice(0,80), rec = dbFind(name);
+    if(rec){ it.name = rec.n; it.ref = rec.n; fillFromDb(it, rec, true); }
+    else { it.name = name; delete it.ref; }
+  }
+  else if(k==='alias'){ const a = String(v).trim().slice(0,60); if(a) it.alias = a; else delete it.alias; }
+  else if(k==='q') it.q = String(v).slice(0,160);
+  else if(k==='type'){ it.type = String(v).slice(0,30); if(isDegradable(it.type) && it.wear==null) it.wear = 0; }
   else if(k==='sk'){ if(COMBAT_SKILLS.some(x=>x.k===v)) it.sk = v; }
   else if(k==='rng'){ if(WEAPON_RANGES.includes(v)) it.rng = v; }
+  else if(k==='qty' || k==='wt') it[k] = Math.max(0, +(parseFloat(v)||0).toFixed(2));
   else if(['dam','crit','def','soak'].includes(k)) it[k] = clamp(Math.round(parseFloat(v))||0, -5, 99);
   render();
 }
-function gearAdd(id, type){
-  const cs = st(id), row = { name:'', type, qty:1, wt:type==='Armor'?0:1, eq:1 };
-  if(isDegradable(type)) row.wear = 0;
+function rowFromDb(rec){ const row = { name:rec.n, ref:rec.n, qty:1 }; fillFromDb(row, rec, true); return row; }
+// "add" box under each table: a database name brings the item in with its stats; other text makes an unlinked row of that table's type
+function invAdd(id, type, text){
+  const cs = st(id), name = String(text||'').trim().slice(0,80), rec = name && dbFind(name);
+  const row = rec ? rowFromDb(rec) : { name, type, qty:1, wt:type==='Armor'?0:(type==='Weapon'?1:0) };
+  if(isDegradable(row.type) && row.wear==null) row.wear = 0;
+  if(isWeapon(row) || isArmor(row)) row.eq = 1;
   cs.inv.push(row); render();
+}
+// An item with no database match becomes a homebrew entry (Items tab), linked to the row.
+function invCreateEntry(id, i){
+  const it = st(id).inv[i]; if(!it || it.auto || !it.name) return;
+  if(!Array.isArray(S.homebrew)) S.homebrew = [];
+  const g = isWeapon(it) ? (weaponState(st(id), it).sk.startsWith('ranged') ? 'Ranged Weapons' : weaponState(st(id), it).sk==='lightsaber' ? 'Lightsabers' : 'Melee Weapons') : isArmor(it) ? 'Armour' : 'Gear';
+  const h = { id:randomId(), n:it.name, g, c:'', d:'', e:+it.wt||0 };
+  S.homebrew.push(h); it.ref = h.n;
+  logMsg(`✨ <b>${esc(h.n)}</b> added to the Items database as a homebrew entry — give it a description on the Items tab.`, 'lg');
+  ITEMS_UI.edit = h.id; ITEMS_UI.q = ''; ITEMS_UI.g = ''; ITEMS_UI.c = '';
+  showTab('items'); render();
 }
 // Load an attack into the Dice tab: the weapon's skill pool, Average difficulty, and the weapon
 // itself so the roll shows damage (base + net successes) and whether a critical is on.
@@ -2452,52 +2534,82 @@ function rollAttack(id, i){
   const w = weaponState(cs, it), s = skillState(cs, w.skill);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
-    weapon:{ n:(it.name||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng } });
+    weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng } });
   document.getElementById('diceLabel').value = w.skill.n;
   showTab('dice');
 }
+let DB_NAMES_N = -1;
+function refreshDbNames(){   // the shared <datalist> behind every Item box
+  const hb = (S.homebrew||[]).filter(h=>h && h.n), n = CATALOG.length + hb.length;
+  const el = document.getElementById('dbNames'); if(!el || n===DB_NAMES_N) return;
+  DB_NAMES_N = n;
+  el.innerHTML = [...new Set(CATALOG.map(it=>it.n).concat(hb.map(h=>h.n)))].sort().map(nm=>`<option value="${esc(nm)}">`).join('');
+}
 function gearHtml(cs){
-  const id = cs.id, rows = cs.inv.map((it,i)=>({it,i})).filter(x=>!x.it.auto);
-  const eqBtn = (it,i,what) => `<button class="eqbtn ${it.eq?'on':''}" onclick="gearSet('${id}',${i},'eq',${it.eq?0:1})" title="${it.eq?'Equipped — click to stow':'Stowed — click to equip'}. ${what}">${it.eq?'✔':'○'}</button>`;
-  const nameIn = (it,i) => `<input type="text" class="wname" value="${esc(it.name)}" placeholder="name" onchange="gearSet('${id}',${i},'name',this.value)">`;
-  const n2 = (i,k,v,tip) => `<input type="number" class="n2" value="${v}" title="${tip}" onchange="gearSet('${id}',${i},'${k}',this.value)">`;
+  refreshDbNames();
+  const id = cs.id, rows = cs.inv.map((it,i)=>({it,i}));
+  const eqBox = (it,i,what) => `<input type="checkbox" ${it.eq?'checked':''} onchange="invSet('${id}',${i},'eq',this.checked)" title="Equipped — ${what}">`;
+  const itemIn = (it,i) => `<input type="text" class="wname" list="dbNames" value="${esc(it.name)}" placeholder="item — type to search the database" title="The Items database entry. Pick another name to swap the item (its stats are re-imported); free text makes an unlinked item." onchange="invSet('${id}',${i},'db',this.value)">`;
+  const aliasIn = (it,i) => `<input type="text" class="ialias" value="${esc(it.alias||'')}" placeholder="alias" title="What this item is called on the Tracker card. Leave blank to use the database name." onchange="invSet('${id}',${i},'alias',this.value)">`;
+  const n2 = (i,k,v,tip,step) => `<input type="number" class="n2" value="${v}" ${step?`step="${step}" min="0"`:''} title="${tip}" onchange="invSet('${id}',${i},'${k}',this.value)">`;
+  const qtyEnc = (it,i) => `<td class="c">${n2(i,'qty',+it.qty||0,'Quantity carried','1')}</td><td class="c">${n2(i,'wt',+it.wt||0,isPack(it)?'Capacity this pack adds to the encumbrance threshold':'Encumbrance each','0.05')}</td>`;
   const del = i => `<button class="mini" onclick="delInv('${id}',${i})" title="Remove from inventory">✕</button>`;
+  const descRow = (it,i,span,extra) => {
+    const rec = dbOf(it), d = dbDesc(rec);
+    const body = rec ? (esc(d) || '<i>No description in the database yet.</i>') + (rec.hb||rec.id ? ' <span class="badge b-hb">HB</span>' : rec.cu ? ' <span class="badge b-cu" title="From items-custom.js">custom</span>' : '')
+      : it.name ? `<span class="nomatch">⚠ “${esc(it.name)}” is not in the Items database.</span> Pick a database item in the name box, or <button class="mini" onclick="invCreateEntry('${id}',${i})" title="Create a homebrew entry for this item on the Items tab and link it">✨ create an entry</button>`
+      : `<span class="nomatch">Type a name — matching database items are suggested as you type.</span>`;
+    return `<tr class="idesc ${it.eq||span<9?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${body}</td></tr>`;
+  };
+  const addRow = (type, span, ph) => `<tr><td colspan="${span}"><input type="text" class="addin" list="dbNames" placeholder="＋ add ${ph} — type a name" title="Type a database item's name to bring it in with its stats, or any other name for an unlinked item. Press Enter." onchange="invAdd('${id}','${type}',this.value)"></td></tr>`;
   const weps = rows.filter(x=>isWeapon(x.it)).map(({it,i})=>{
     const w = weaponState(cs, it), s = skillState(cs, w.skill);
     const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
-    return `<tr class="${it.eq?'':'uneq'}">
-      <td class="c keep">${eqBtn(it,i,'Only equipped weapons lend their Defensive / Deflection ratings to your defense.')}</td>
-      <td>${nameIn(it,i)}</td>
-      <td><select title="Skill used to attack with this weapon" onchange="gearSet('${id}',${i},'sk',this.value)">${COMBAT_SKILLS.map(x=>`<option value="${x.k}" ${x.k===w.sk?'selected':''}>${x.n}</option>`).join('')}</select></td>
+    return `<tr class="irow ${it.eq?'':'uneq'}">
+      <td class="c keep">${eqBox(it,i,'only equipped weapons lend their Defensive / Deflection ratings to your defense.')}</td>
+      <td class="keep">${itemIn(it,i)}</td><td class="keep">${aliasIn(it,i)}</td>${qtyEnc(it,i)}
+      <td><select title="Skill used to attack with this weapon" onchange="invSet('${id}',${i},'sk',this.value)">${COMBAT_SKILLS.map(x=>`<option value="${x.k}" ${x.k===w.sk?'selected':''}>${x.n}</option>`).join('')}</select></td>
       <td style="white-space:nowrap">${n2(i,'dam',w.dam,'Base damage. Each net success on the attack adds +1.')}
-        <label title="Brawl and Melee weapons add your Brawn to their damage (shown as +N in the books)"><input type="checkbox" ${w.brn?'checked':''} onchange="gearSet('${id}',${i},'brn',this.checked)">+Br</label>${w.brn?` = <b>${w.total}</b>`:''}</td>
+        <label title="Brawl and Melee weapons add your Brawn to their damage (shown as +N in the books)"><input type="checkbox" ${w.brn?'checked':''} onchange="invSet('${id}',${i},'brn',this.checked)">+Br</label>${w.brn?` = <b>${w.total}</b>`:''}</td>
       <td class="c">${n2(i,'crit',w.crit,'Critical rating: the Advantage you must spend to inflict a critical injury (a Triumph also does it).')}</td>
-      <td><select title="Maximum range. Ranged difficulty by distance: Short Easy · Medium Average · Long Hard · Extreme Daunting. Melee attacks are Average." onchange="gearSet('${id}',${i},'rng',this.value)">${WEAPON_RANGES.map(r=>`<option ${r===w.rng?'selected':''}>${r}</option>`).join('')}</select></td>
-      <td><input type="text" class="wq" value="${esc(w.q)}" placeholder="qualities" title="Item qualities, e.g. Pierce 2, Stun Setting. Active ones cost 2 Advantage to trigger unless noted." onchange="gearSet('${id}',${i},'q',this.value)"></td>
+      <td><select title="Maximum range. Ranged difficulty by distance: Short Easy · Medium Average · Long Hard · Extreme Daunting. Melee attacks are Average." onchange="invSet('${id}',${i},'rng',this.value)">${WEAPON_RANGES.map(r=>`<option ${r===w.rng?'selected':''}>${r}</option>`).join('')}</select></td>
       <td class="keep"><button class="skroll" onclick="rollAttack('${id}',${i})" title="${esc(w.skill.n)}: ${s.p} Proficiency, ${s.a} Ability. Click to load this attack into the Dice tab.">⚔ ${pool}</button></td>
-      <td class="keep">${del(i)}</td></tr>`;
+      <td class="keep">${del(i)}</td></tr>` +
+      descRow(it, i, 11, `<input type="text" class="wq" value="${esc(w.q)}" placeholder="qualities" title="Item qualities, e.g. Pierce 2, Stun Setting. Active ones cost 2 Advantage to trigger unless noted." onchange="invSet('${id}',${i},'q',this.value)"> `);
   }).join('');
   const arms = rows.filter(x=>isArmor(x.it)).map(({it,i})=>{
     const a = armorState(it);
-    return `<tr class="${it.eq?'':'uneq'}">
-      <td class="c keep">${eqBtn(it,i,'Equipped armor adds its soak and defense to your totals above.')}</td>
-      <td>${nameIn(it,i)}</td>
+    return `<tr class="irow ${it.eq?'':'uneq'}">
+      <td class="c keep">${eqBox(it,i,'equipped armor adds its soak and defense to your totals above.')}</td>
+      <td class="keep">${itemIn(it,i)}</td><td class="keep">${aliasIn(it,i)}</td>${qtyEnc(it,i)}
       <td class="c">${n2(i,'def',a.def,'Defense: Setback dice added to attacks against you. Only the best equipped armor counts.')}</td>
       <td class="c">${n2(i,'soak',a.soak,'Soak this armor adds to your Brawn.')}</td>
-      <td class="keep">${del(i)}</td></tr>`;
+      <td class="keep">${del(i)}</td></tr>` + descRow(it, i, 8);
   }).join('');
-  const other = rows.filter(x=>!isWeapon(x.it) && !isArmor(x.it) && x.it.name);
-  const w = invWeight(cs), thr = effThresh(cs);
+  const other = rows.filter(x=>!isWeapon(x.it) && !isArmor(x.it)).map(({it,i})=>{
+    if(it.auto) return `<tr class="irow"><td></td><td class="skn" colspan="2"><i>${esc(it.name)}</i></td><td class="c">${+it.qty||0}</td><td class="c">${n2(i,'wt',+it.wt||0,'Encumbrance each','0.05')}</td><td>${esc(it.type)}</td><td></td></tr>
+      <tr class="idesc"><td></td><td colspan="6">${it.auto==='canteen' ? 'Fill level and refills are on the Tracker card.' : 'Charged and depleted counts are on the Tracker card.'}</td></tr>`;
+    return `<tr class="irow">
+      <td class="c">${eqBox(it,i,'worn or in hand. Shown with a ✔ on the Tracker card.')}</td>
+      <td>${itemIn(it,i)}</td><td>${aliasIn(it,i)}</td>${qtyEnc(it,i)}
+      <td>${typeSelect(it.type, `invSet('${id}',${i},'type',this.value)`, 96)}</td>
+      <td>${del(i)}</td></tr>` + descRow(it, i, 7);
+  }).join('');
+  const w = invWeight(cs), thr = effThresh(cs), pb = packBonus(cs);
+  const unlinked = rows.filter(x=>!x.it.auto && x.it.name && !dbOf(x.it)).length;
   return `<div class="geartables">
-    <table class="sktable wide"><tr><th class="c" title="Equipped">Eq</th><th>Weapons</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Qualities</th><th>Attack</th><th></th></tr>
-      ${weps || `<tr><td colspan="9" style="color:var(--dim)">No weapons. Add one here, or use “give to” on the Items tab to bring one in with its stats.</td></tr>`}
-      <tr><td colspan="9"><button class="mini" onclick="gearAdd('${id}','Weapon')">＋ add weapon</button></td></tr></table>
-    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Armor</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
-      ${arms || `<tr><td colspan="5" style="color:var(--dim)">No armor.</td></tr>`}
-      <tr><td colspan="5"><button class="mini" onclick="gearAdd('${id}','Armor')">＋ add armor</button></td></tr></table>
-    <table class="sktable"><tr><th>Carried gear</th><th class="c">Qty</th></tr>
-      ${other.map(({it})=>`<tr><td class="skn">${esc(it.name)}</td><td class="c">${+it.qty||0}</td></tr>`).join('') || `<tr><td colspan="2" style="color:var(--dim)">Nothing else carried.</td></tr>`}
-      <tr><td colspan="2" style="color:var(--dim)" title="Over the threshold you add Setback dice to Brawn and Agility checks, and the tracker speeds up thirst, hunger and fatigue.">Encumbrance <b style="color:${w>thr?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${thr} · edit quantities and weights in 🎒 Inventory on the Tracker card</td></tr></table>
+    <div class="drow" style="margin:0" title="Over the threshold you add Setback dice to Brawn and Agility checks, and the tracker speeds up thirst, hunger and fatigue. Armor never counts; packs raise the threshold.">
+      <span class="label">Encumbrance</span> <b style="color:${w>thr?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> /
+      <input type="number" min="0" style="width:52px" value="${cs.encThresh}" onchange="setThresh('${id}','encThresh',this.value)" title="Body threshold = Brawn + 5 (set automatically when Brawn changes; editable)">${pb?` <span style="color:var(--gold)">+ ${pb} from packs = ${thr}</span>`:''}
+      <span class="label" style="margin-left:14px">Food</span> <span style="font-size:12px;color:var(--dim)" title="The hunger buttons on the Tracker card each eat one item of the matching type">🍪 ${stockOf(cs,'Snack')} snacks · 🍞 ${stockOf(cs,'Ration')} rations · 🍲 ${stockOf(cs,'Meal')} meals</span>
+      ${unlinked ? `<span class="nomatch" style="color:var(--warn);font-size:12px;margin-left:14px">⚠ ${unlinked} item${unlinked===1?'':'s'} not matched to the database</span>` : ''}
+    </div>
+    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
+      ${weps}${addRow('Weapon', 11, 'a weapon')}</table>
+    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
+      ${arms}${addRow('Armor', 8, 'armor')}</table>
+    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
+      ${other}${addRow('Gear', 7, 'gear, food or medical supplies')}</table>
   </div>`;
 }
 
@@ -2559,7 +2671,7 @@ function renderSheet(){
       ${txt('career','Career','career','','Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${txt('specs','Specializations','e.g. Ataru Striker, Niman Disciple','wide','Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
     </div>
-    <div class="sdesc"><b>${esc(c.h)} · ${esc(c.build)} · ${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day · ${c.rations} rations/meal`}</b><br>${c.trait}</div>
+    <div class="sdesc"><b>${esc(c.h)} · ${esc(c.build)} · ${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day`}</b><br>${c.trait}</div>
     <div class="sboxes">
       ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
       ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
@@ -2841,7 +2953,9 @@ function importState(inp){
    Catalog records use short keys — see the header of items.js.
    Homebrew items live in S.homebrew (synced + saved like everything else).
    ================================================================ */
-const CATALOG        = typeof ITEMS!=='undefined' ? ITEMS : [];
+const CUSTOM_ITEMS   = typeof ITEMS_CUSTOM!=='undefined' ? ITEMS_CUSTOM : [];   // items-custom.js — hand-maintained extras
+CUSTOM_ITEMS.forEach(it=>{ it.cu = 1; });
+const CATALOG        = (typeof ITEMS!=='undefined' ? ITEMS : []).concat(CUSTOM_ITEMS);
 const CATALOG_GROUPS = typeof ITEM_GROUPS!=='undefined' ? ITEM_GROUPS : [];
 /* catalog group → inventory type when an item is sent to a character's pack (→ 🎒) */
 const ITEM_INV_TYPE = { 'Armour':'Armor', 'Ranged Weapons':'Weapon', 'Melee Weapons':'Weapon', 'Lightsabers':'Weapon', 'Gear':'Gear', 'Modifications':'Other' };
@@ -2849,7 +2963,11 @@ const ITEM_MEDICAL_SUBS = ['Medical','Drugs','Toxins'];   // Gear sub-categories
 const HB_GROUPS = Object.keys(ITEM_INV_TYPE);            // groups a homebrew item can belong to
 const WEAPON_GROUPS = HB_GROUPS.filter(g=>ITEM_INV_TYPE[g]==='Weapon');
 const ITEMS_MAX_ROWS = 250;                               // rows rendered before "refine your search"
-function invTypeFor(it){ return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other'); }
+function invTypeFor(it){
+  if(it.t) return it.t;                                        // custom entries may say outright
+  if(it.g==='Gear' && /\bration/i.test(it.n||'')) return 'Ration';
+  return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other');
+}
 /* per-device view state for the tab — never synced */
 const ITEMS_UI = { q:'', g:'', c:'', sk:'', sort:'name', hideR:false, edit:null };
 const CATALOG_SKILLS = [...new Set(CATALOG.map(it=>it.sk).filter(Boolean))].sort();
@@ -2929,7 +3047,7 @@ function renderItems(){
   if(u.edit && !editing) u.edit = null;
   const list = itemsFiltered().filter(([it])=>!(editing && it.hb && it.id===editing.id));
   const shown = list.slice(0, ITEMS_MAX_ROWS);
-  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
+  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':it.cu?' <span class="badge b-cu" title="Custom entry from items-custom.js">custom</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
   const editRow = editing ? `<tr class="hbrow"><td colspan="${cols.length+2}">${hbForm(editing)}</td></tr>` : '';
   body.innerHTML = `
     <div class="itemcount">${CATALOG.length ? `showing <b>${shown.length}</b> of ${list.length} matching · ${CATALOG.length} catalog items${hbN?` + ${hbN} homebrew`:''}${list.length>shown.length?` — <span style="color:var(--warn)">refine the search to see the rest</span>`:''}` : `<span style="color:var(--bad)">⚠ Catalog not loaded (items.js missing)</span>${hbN?` · ${hbN} homebrew`:''}`}</div>
@@ -2981,13 +3099,8 @@ function hbDel(id){
 /* ---- → 🎒 send a catalog/homebrew item into a character's inventory rows ---- */
 function giveItem(key, id){
   const it = itemByKey(key), cs = id && st(id); if(!it || !cs) return;
-  const type = invTypeFor(it), row = { name:it.n, type, qty:1, wt:it.e||0 };
-  if(isDegradable(type)){ row.wear = 0; cs.gearOpen = true; }
-  if(type==='Weapon'){   // combat stats ride along so the sheet can roll it straight away
-    row.sk = CAT_SKILL[it.sk] || 'ranged_light'; row.brn = (it.sk==='Melee'||it.sk==='Brawl') ? 1 : 0;
-    row.dam = numOr(it.dam); row.crit = numOr(it.crit); if(WEAPON_RANGES.includes(it.rng)) row.rng = it.rng; if(it.q) row.q = String(it.q);
-  }
-  if(type==='Armor'){ row.def = numOr(it.def); row.soak = numOr(it.soak); }
+  const row = rowFromDb(it), type = row.type;
+  if(isDegradable(type)) cs.gearOpen = true;
   cs.inv.push(row); cs.invOpen = true;
   const d = itemDetails(it);
   logMsg(`🛒 ${cfg(id).name} picks up <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
@@ -3017,7 +3130,7 @@ function buildRules(){
     if(s.act==='resting') fx.push('plus resting recovery');
     if(k.startsWith('rest')) fx.push(`sleep debt ticks at ×${SLEEP.restingMult} while resting`);
     if(s.sleepCredit) fx.push(`also counts as ${Math.round(s.sleepCredit*60)} min of sleep`);
-    const cost = s.costMult ? `rations-per-meal ×${s.costMult}` : k==='wash' ? 'ample water (GM approves)' : '—';
+    const cost = k==='ration' ? 'one Ration item' : k==='meal' ? 'one Meal item' : k==='wash' ? 'ample water (GM approves)' : '—';
     return `<tr><td>${s.label}${s.fs?' (Force sensitives)':''}</td><td>${fmtDur(s.dur)}</td><td>${fx.join('; ')}${s.deltas.hygiene?', delivered over the status':''}</td><td>${cost}</td></tr>`;
   }).join('');
   const cal = cfg('cal'), kata = cfg('kata'), pike = cfg('pike');
@@ -3025,7 +3138,7 @@ function buildRules(){
   const sleepHrs = 100/SLEEP.awakeRate, fatigueHrs = 100/ACTS.light.rest, wearDays = Math.round(100/MAINT_BASE/24);
   const envRows  = Object.values(ENVS).map(e=>`<tr><td>${e.label}</td><td>×${e.water}</td><td>×${e.hunger}</td><td>×${e.hyg}</td><td>×${e.rest}</td><td>×${e.power}</td><td>×${e.maint}</td></tr>`).join('');
   const actRows  = Object.values(ACTS).map(a=>`<tr><td>${a.label}${a.dLabel!==a.label?` / ${a.dLabel}`:''}</td><td>×${a.water}</td><td>×${a.hunger}</td><td>×${a.hyg}</td><td>${a.rest>0?'+':''}${a.rest}/hr</td><td>×${a.power}</td><td>×${a.maint}</td></tr>`).join('');
-  const charRows = CHARS.filter(c=>!c.droid).map(c=>`<tr><td><b>${c.name}</b>${c.fs?' ✨':''}</td><td>${c.species}</td><td>${c.h}</td><td>${c.waterOz} oz (${(c.waterOz/OZ_PER_CANTEEN).toFixed(1)} canteens)</td><td>${c.rations} rations/meal</td><td>${c.trait}</td></tr>`).join('');
+  const charRows = CHARS.filter(c=>!c.droid).map(c=>`<tr><td><b>${c.name}</b>${c.fs?' ✨':''}</td><td>${c.species}</td><td>${c.h}</td><td>${c.waterOz} oz (${(c.waterOz/OZ_PER_CANTEEN).toFixed(1)} canteens)</td><td>${c.trait}</td></tr>`).join('');
   const droidRows = CHARS.filter(c=>c.droid).map(c=>`<tr><td><b>${c.name}</b> 🤖</td><td>${c.species}</td><td>${c.h}</td><td>~${c.packHrs} hrs / pack (light operation)</td><td>${c.trait}</td></tr>`).join('');
   const ladderTable = key => `<table><tr><th>Tier</th><th>Score</th><th>Accrual</th><th>Effects</th></tr>` +
     NEEDS[key].tiers.map((t,i)=>{
@@ -3053,7 +3166,7 @@ function buildRules(){
   <b>Droids: Degradation = 55% × charge past the halfway mark (doubled) + 45% Wear</b> (a single combined meter: a pack runs clean to 50%, then every point of drain counts double) <br>+8 for <i>each</i> meter at 70+ (deprivations compound). Model traits (BD-1's thrift, Alpha's sealed chassis) slow how fast the meters fill, not the formula.</p>
 
   <h2>⏳ Timed statuses (eating, resting, sleeping…)</h2>
-  <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained — an interrupted meal puts the uneaten rations back in the pack; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
+  <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained — a meal abandoned before the halfway point goes back in the pack; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
   <table><tr><th>Status</th><th>Takes</th><th>Total effect</th><th>Cost</th></tr>
   ${statusRows}
   <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>−${SNACK_HUNGER} hunger</td><td>1 snack</td></tr>
@@ -3090,7 +3203,7 @@ function buildRules(){
   <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
-  <p>Consumables (canteen, rations, snacks, stimpacks; droid power packs) are <b>automatically synced</b> between card counters and inventory — eat a ration and the inventory row updates; edit the row's qty and the counter updates. Auto rows (italic) can't be deleted; their weights are editable. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
+  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and shown read-only on the Tracker card. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
   <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
   <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
   <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>0.5</td></tr>
@@ -3125,7 +3238,7 @@ function buildRules(){
   <table><tr><th>Condition</th><th>Effect (at max level shown)</th></tr>${condRows}</table>
 
   <h2>Organic characters (per day, temperate)</h2>
-  <table><tr><th>Character</th><th>Species</th><th>Height</th><th>Water / day</th><th>Rations</th><th>Traits</th></tr>${charRows}</table>
+  <table><tr><th>Character</th><th>Species</th><th>Height</th><th>Water / day</th><th>Traits</th></tr>${charRows}</table>
 
   <h2>🤖 Droids (BD-1 &amp; Alpha)</h2>
   <table><tr><th>Droid</th><th>Model</th><th>Height</th><th>Power draw</th><th>Traits</th></tr>${droidRows}</table>
@@ -3308,6 +3421,10 @@ function syncSubset(state){
   if(Array.isArray(c.chars)) c.chars.forEach(ch=>{
     delete ch.img;
     delete ch.invOpen; delete ch.customOpen; delete ch.gearOpen;   // per-player UI state stays local
+    if(ch.invV===2){   // pre-overhaul counters from a browser that hasn't refreshed: ignore, don't echo, don't fight over them
+      delete ch.rationsStock; delete ch.snacks; delete ch.stims;
+      if(Array.isArray(ch.inv)) ch.inv = ch.inv.filter(it=>!(it && LEGACY_AUTO.includes(it.auto)));
+    }
   });
   return prune(c);
 }

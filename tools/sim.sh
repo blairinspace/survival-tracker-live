@@ -29,6 +29,7 @@ STUB
 # the item catalog (the page loads it from items.js before its own script), then
 # the tracker's script, minus its init() call
 [ -f items.js ] && cat items.js
+[ -f items-custom.js ] && cat items-custom.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -100,7 +101,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   addCond('cal','sick'); condLvl('cal','sick',1); addCond('bd1','ion'); partySetAct('travel'); partyAddCond('chilled'); rmCond('cal','sick');
   setEnv('scorching'); S.travelDest='Koboh'; S.travelEta=3;
   setShipAct('cruising'); energyAdj('shields',-1); energyAdj('engines',1); setSensorRange('Long'); fireTorp(); shipBurn(); repairSys('engines',-1);
-  addInv('cal'); setInv('cal', st('cal').inv.length-1, 'type', 'Weapon'); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
+  invAdd('cal','Weapon','Test club'); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
   showTab('items'); itemsSet('q','blaster pistol'); const hits = itemsFiltered().length; itemsSet('g','Gear'); itemsSet('c','Survival'); itemsSet('g',''); itemsSet('q','');
   hbAdd(); const hb = S.homebrew[0]; hbSet(hb.id,'n','Test Gadget'); hbSet(hb.id,'p','125'); hbSet(hb.id,'r',true); hbSet(hb.id,'e','abc'); hbSet(hb.id,'d','does a thing');
   giveItem('c0','cal'); giveItem('h'+hb.id,'bode'); itemsSet('q','test gadget'); const hbHit = itemsFiltered().length; itemsSet('q',''); hbDel(hb.id);
@@ -137,20 +138,47 @@ print('\n=== SMOKE TEST — UI code paths ===');
   if(migrate(old).chars.find(x=>x.id==='bode').sheet.fr!==4) throw new Error('old save with 4 committed lost its commit');
   // equipped gear: catalog stats ride along, kit rows borrow them by name, soak/defense derive, attacks carry the weapon
   const cal = st('cal'), ci = k => 'c'+CATALOG.findIndex(x=>x.n===k);
-  const saber = cal.inv.findIndex(x=>x.name==='Lightsaber'), kitArmor = cal.inv.find(x=>x.type==='Armor');
+  const saber = cal.inv.findIndex(x=>x.name==='Basic Lightsaber'), kitArmor = cal.inv.find(x=>x.type==='Armor');
   giveItem(ci('Vibroknife'),'cal'); const knife = cal.inv.length-1; if(cal.inv[knife].sk!=='melee' || !cal.inv[knife].brn || weaponState(cal,cal.inv[knife]).total!==1+cal.attr.br) throw new Error('catalog weapon stats wrong');
-  const pistolRow = st('bode').inv.find(x=>x.name==='Blaster pistol'), pw = weaponState(st('bode'), pistolRow);
+  const pistolRow = st('bode').inv.find(x=>x.name==='Blaster Pistol'), pw = weaponState(st('bode'), pistolRow);
   if(pw.sk!=='ranged_light' || pw.dam!==6 || pw.crit!==3 || pw.rng!=='Medium') throw new Error('kit weapon did not borrow catalog stats: '+JSON.stringify(pw));
-  const soak0 = combatStats(cal).soak; gearAdd('cal','Armor'); const ar = cal.inv.length-1; gearSet('cal',ar,'name','Beskar Plating'); gearSet('cal',ar,'soak',3); gearSet('cal',ar,'def',2);
-  gearSet('cal',knife,'q','Pierce 2, Defensive 1'); gearSet('cal',knife,'eq',1);
+  const soak0 = combatStats(cal).soak; invAdd('cal','Armor','beskar plating'); const ar = cal.inv.length-1; if(cal.inv[ar].ref!=='Beskar Plating' || !cal.inv[ar].eq) throw new Error('custom armor not linked');
+  invSet('cal',knife,'q','Pierce 2, Defensive 1'); invSet('cal',knife,'eq',1);
   const cb1 = combatStats(cal); if(cb1.soak!==soak0+3 || cb1.defR!==2 || cb1.defM!==3) throw new Error('derived soak/defense wrong: '+JSON.stringify(cb1));
-  gearSet('cal',ar,'eq',0); if(combatStats(cal).soak!==soak0) throw new Error('stowed armor still counted');
-  gearSet('cal',saber,'dam',7); gearSet('cal',saber,'crit',2); gearSet('cal',saber,'q','Breach 1, <u>Sunder</u>'); rollAttack('cal',saber);
+  invSet('cal',ar,'eq',0); if(combatStats(cal).soak!==soak0) throw new Error('stowed armor still counted');
+  invSet('cal',saber,'dam',7); invSet('cal',saber,'crit',2); invSet('cal',saber,'q','Breach 1, <u>Sunder</u>'); rollAttack('cal',saber);
   if(!DICE_UI.weapon || DICE_UI.weapon.dam!==7 || DICE_UI.pool.p!==5 || DICE_UI.label!=='Lightsaber') throw new Error('rollAttack wrong: '+JSON.stringify(DICE_UI));
   const nBefore = ROLLS.length; rollPool(); const atk = ROLLS[ROLLS.length-1]; if(ROLLS.length!==nBefore+1 || !atk.w || atk.w.n!=='Lightsaber') throw new Error('attack roll lost its weapon');
   const card = weaponCardHtml({n:'<b>X</b>',dam:7,crit:2,q:'q'}, parseRoll('p:sa p:x a:a d:f'));
   if(!/7 \+ 1 = <b>8<\/b>/.test(card) || !/critical available/.test(card) || /<b>X/.test(card.replace('<div class="wcard"><b>','')) ) throw new Error('weapon card wrong: '+card);
   rollSkill('cal','stealth'); if(DICE_UI.weapon) throw new Error('weapon stuck to a skill roll');
+  // inventory overhaul: kits link to the database, aliases survive, food buttons eat whole items of their type
+  const sb = cal.inv[saber]; if(sb.ref!=='Basic Lightsaber' || sb.alias!=='Lightsaber' || invLabel(sb)!=='Lightsaber') throw new Error('kit lightsaber not linked with alias: '+JSON.stringify(sb));
+  const unl = S.chars.flatMap(x=>x.inv.filter(it=>!it.auto && it.name!=='Test club' && it.name!=='Test Gadget' && !dbOf(it)).map(it=>x.id+':'+it.name)); if(unl.length) throw new Error('kit items with no database match: '+unl.join(', '));
+  const keepS = S; fresh(); const pk = st('pike'); let r0 = stockOf(pk,'Ration'), s0 = stockOf(pk,'Snack'), t0 = stockOf(pk,'Stim');
+  if(r0!==6 || s0!==4 || t0!==5 || stockOf(pk,'Meal')!==0) throw new Error('starting stock wrong');
+  pk.hunger = 40; startStatus('pike','ration'); if(stockOf(pk,'Ration')!==5 || !pk.status) throw new Error('ration not eaten from inventory');
+  cancelStatus('pike'); if(stockOf(pk,'Ration')!==6) throw new Error('untouched ration not returned');
+  startStatus('pike','ration'); advance(0.25); if(stockOf(pk,'Ration')!==5) throw new Error('eaten ration came back');
+  startStatus('pike','meal'); if(pk.status) throw new Error('ate a meal with no Meal items');
+  invAdd('pike','Gear','meal'); if(pk.inv[pk.inv.length-1].type!=='Meal') throw new Error('Meal entry did not land as type Meal'); startStatus('pike','meal'); if(!pk.status || stockOf(pk,'Meal')!==0) throw new Error('meal not eaten'); advance(0.5);
+  eatSnack('pike'); useStim('pike'); if(stockOf(pk,'Snack')!==3 || stockOf(pk,'Stim')!==4) throw new Error('snack/stim not taken from inventory');
+  invAdd('pike','Gear','Mystery widget'); const mw = pk.inv.length-1; if(dbOf(pk.inv[mw])) throw new Error('unknown item linked'); invSet('pike',mw,'alias','Gizmo'); invCreateEntry('pike',mw);
+  if(!dbOf(pk.inv[mw]) || S.homebrew.length!==1 || invLabel(pk.inv[mw])!=='Gizmo') throw new Error('create-entry did not link');
+  invSet('pike',mw,'db','datapad'); if(pk.inv[mw].ref!=='Datapad' || pk.inv[mw].wt!==1) throw new Error('re-pointing an item did not import stats');
+  render(); const invHtml = document.getElementById('sheetBody').innerHTML + document.getElementById('cards').innerHTML;
+  if(/undefined|NaN|\[object/.test(invHtml)) throw new Error('broken interpolation in the inventory views');
+  // an old save (counters + auto rows) converts once; an un-refreshed browser re-sending the counters is ignored
+  const legacy = JSON.parse(JSON.stringify(syncSubset(S))); const lg = legacy.chars.find(x=>x.id==='gibbs');
+  delete lg.invV; lg.inv = [{name:'Blaster rifle',type:'Weapon',qty:1,wt:2},{name:'Jerky',type:'Food',qty:2,wt:0.1},{auto:'rations',name:'Field rations',type:'Food',qty:3.5,wt:0.2},{auto:'snacks',name:'Snacks',type:'Food',qty:7,wt:0.05},{auto:'stims',name:'Stimpacks',type:'Medical',qty:2,wt:0.05}];
+  lg.rationsStock = 3.5; lg.snacks = 7; lg.stims = 2;
+  const g2 = migrate(legacy).chars.find(x=>x.id==='gibbs');
+  if(stockOf(g2,'Ration')!==6 /* 4 rounded + 2 jerky */ || stockOf(g2,'Snack')!==7 || stockOf(g2,'Stim')!==2 || g2.inv.some(it=>LEGACY_AUTO.includes(it.auto)) || g2.rationsStock!==undefined || g2.inv[0].ref!=='Blaster Rifle' || g2.inv[0].wt!==2) throw new Error('legacy inventory conversion wrong: '+JSON.stringify(g2.inv));
+  const echo = JSON.parse(JSON.stringify(g2)); echo.rationsStock = 6; echo.inv.push({auto:'rations',name:'Field rations',type:'Food',qty:6,wt:0.2});
+  const sub = syncSubset({chars:[echo]}).chars[0]; if(sub.rationsStock!==undefined || sub.inv.some(it=>it.auto==='rations')) throw new Error('legacy echo not stripped from the wire');
+  const g3 = migrate({chars:[echo], ship:keepS.ship, log:[], homebrew:[]}).chars.find(x=>x.id==='gibbs'); if(stockOf(g3,'Ration')!==6) throw new Error('legacy echo converted twice');
+  print(`  inventory: every kit item links to the database (${CUSTOM_ITEMS.length} custom entries), food and stims come out of inventory rows, old saves convert once`);
+  S = keepS;
   const oldS = JSON.parse(JSON.stringify(syncSubset(S))); const og = oldS.chars.find(x=>x.id==='gibbs'); og.sheet.soak = 5; og.sheet.defR = 1; delete og.sheet.soakMod; delete og.sheet.defRMod;
   const ng = migrate(oldS).chars.find(x=>x.id==='gibbs'); if(combatStats(ng).soak!==5 || combatStats(ng).defR!==1 || ng.sheet.soak!==undefined) throw new Error('old typed soak/defense not carried over');
   document.getElementById('diceFeed').innerHTML.includes('<u>Sunder') && (()=>{ throw new Error('weapon qualities not escaped in the feed'); })();
