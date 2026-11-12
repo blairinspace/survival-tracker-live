@@ -104,6 +104,7 @@
   .tallies{display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap;font-size:12px}
   .tallies b{font-size:14px}
   .strain b{color:var(--warn)} .wounds b{color:var(--bad)}
+  .steff{color:var(--muted);font-size:11px;cursor:help} .steff b{color:var(--warn);font-size:13px}
   .log{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:14px}
   .log .loghead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border)}
   .log .loghead b{color:var(--text)}
@@ -378,6 +379,7 @@ const SNACK_HUNGER=5;                     // snack: instant bite on the move (�
 const TUNEUP = 20;                        // droid tune-up wear relief (~30 min with tools)
 
 /* Conditions. mult: need-accrual multipliers (value or fn(lvl));
+   stMod: strain-threshold modifier (value or fn(lvl)) — conditions never tick strain by the hour;
    hourly(cs,lvl,ev,cap): discrete per-hour extras; fx: penalties text; lvls: max severity */
 const CONDS = {
   /* Sick — the single stacking illness behind dirty water (Thirst), spoiled food
@@ -385,17 +387,16 @@ const CONDS = {
      1 stack (the + on the badge). Each stack is cleared separately: one daily
      Resilience (or a carer's Medicine) check removes 1; a medpac or bacta
      removes 1 outright. */
-  sick:      {label:'🤒 Sick', lvls:5,
+  sick:      {label:'🤒 Sick', lvls:5, stMod:l=>-l,
               mult:{water:l=>1+0.1*l, hunger:l=>1+0.1*l, rest:l=>1+0.15*l, sleep:l=>1+0.1*l},
               hourly:(cs,l,ev,cap)=>{
                 cs.sickHrs=(cs.sickHrs||0)+1;
-                addStrain(cs, l>=2?1:0.5);
                 if(l>=3 && cs.sickHrs%4===0 && cs.wounds<cap){ cs.wounds++; ev.push(['lb',`${cfg(cs.id).name} suffers 1 wound — gravely ill.`]); }
                 if(cs.sickHrs%24===0) ev.push(['lw',`🤒 ${cfg(cs.id).name}: daily recovery check — Resilience (or a carer's Medicine) removes 1 Sick stack; a failure or Despair at 3+ stacks ADDS one. +1 Setback ■ while Squalid+, Dehydrated or Starving.`]);
               },
-              fx:l=> l>=3 ? `🤒 Gravely Ill (${l} stacks): fever & delirium — <b>−1 Brawn, −1 Intellect</b>; <b class="lb">1 wound every 4 hrs</b>; 1 strain/hr${l>3?`; upgrade ${l-3} more check(s)`:''}. Untreated, this is where it can kill. Clear each stack separately (daily Resilience/Medicine, medpac or bacta).`
-                   : l>=2 ? `🤒 Sick (2 stacks): <span class="dice chal">upgrade the difficulty</span> of physical checks once; 1 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.`
-                   :        `🤒 Ill (1 stack): 1 Setback ■ to physical checks; 1 strain per 2 hrs. Per stack: thirst & hunger +10%, fatigue +15%, sleep debt +10%.`},
+              fx:l=> l>=3 ? `🤒 Gravely Ill (${l} stacks): fever & delirium — <b>−1 Brawn, −1 Intellect</b>; <b class="lb">1 wound every 4 hrs</b>; strain threshold −${l}${l>3?`; upgrade ${l-3} more check(s)`:''}. Untreated, this is where it can kill. Clear each stack separately (daily Resilience/Medicine, medpac or bacta).`
+                   : l>=2 ? `🤒 Sick (2 stacks): <span class="dice chal">upgrade the difficulty</span> of physical checks once; strain threshold −2; <b>−1 Brawn</b>; wounds heal at half rate.`
+                   :        `🤒 Ill (1 stack): 1 Setback ■ to physical checks; strain threshold −1. Per stack: thirst & hunger +10%, fatigue +15%, sleep debt +10%.`},
   fear:      {label:'😨 Fear', lvls:3, mult:{sleep:l=>1+0.15*l},
               fx:l=>`😨 Fear (${l}/3): ${l} Setback ■ to all checks; restless — sleep debt grows ${15*l}% faster${l>=3?'; must pass a Fear check (Discipline) to act against the source':''}.`},
   chilled:   {label:'🥶 Chilled', mult:{hunger:1.3, rest:1.2},
@@ -404,8 +405,8 @@ const CONDS = {
               fx:()=> '🥵 Overheated: 1 Setback ■ to all checks; sweats 40% more water, tires 20% faster; heat-adapted species feel proportionally less. Remove with shade/cooling.'},
   soaked:    {label:'💧 Soaked', mult:{rest:1.1},
               fx:()=> '💧 Soaked: 1 Setback ■ to Agility-based checks; in Cold environments also counts as Chilled.'},
-  poisoned:  {label:'☠️ Poisoned', hourly:(cs)=>{ addStrain(cs, 1); }, mult:{water:1.2},
-              fx:()=> '☠️ Poisoned: 1 strain/hr until treated (Medicine or antidote); 1 Setback ■ to all checks; vomiting and sweats: +20% water.'},
+  poisoned:  {label:'☠️ Poisoned', stMod:-2, mult:{water:1.2},
+              fx:()=> '☠️ Poisoned: strain threshold −2 until treated (Medicine or antidote); 1 Setback ■ to all checks; vomiting and sweats: +20% water.'},
   limping:   {label:'🦵 Limping', mult:{rest:1.3},
               fx:()=> '🦵 Limping: speed ×½; traveling tires 30% faster; 1 Setback ■ to Coordination/Athletics.'},
   crash:     {label:'💥 Crash', lvls:3, decayHrs:2, mult:{rest:l=>1+0.25*l, sleep:l=>1+0.25*l},   // decayHrs is overwritten from STIM.crashHrs below
@@ -414,10 +415,9 @@ const CONDS = {
                    :        `💥 Crash (1/3): the stim wears off and the tiredness it hid returns. <span class="dice setb">1 Setback ■</span> to all checks; fatigue & sleep debt accrue ×1.25. Eases in ${STIM.crashHrs} hrs.`},
   inspired:  {label:'🌟 Inspired', mult:{rest:0.9},
               fx:()=> '🌟 Inspired: 1 Boost ▲ to all checks; fatigue accrues 10% slower.'},
-  drunk:     {label:'🍺 Drunk', lvls:3, decayHrs:2, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},   // decayHrs: one level wears off per this many hours
-              hourly:(cs,l,ev)=>{ if(l>=2) addStrain(cs, l-1); },
-              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">2 strain/hr.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Sobers one level every ${CONDS.drunk.decayHrs} hrs.`
-                   : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">1 strain/hr.</b> +30% water use.`
+  drunk:     {label:'🍺 Drunk', lvls:3, decayHrs:2, stMod:l=>l>=2 ? -2*(l-1) : 0, mult:{water:l=>1+0.15*l, rest:l=>1+0.1*l},   // decayHrs: one level wears off per this many hours
+              fx:l=> l>=3 ? `🍺 Hammered (3/3): slurring, unsteady, blurred vision. <span class="dice setb">2 Setback ■■</span> to ALL checks and <span class="dice chal">upgrade the difficulty twice</span> of Coordination, Athletics & Vigilance. <b class="lw">Strain threshold −4.</b> May black out — GM can force a Daunting (◆◆◆◆) Resilience check or an involuntary collapse into sleep. Dehydrates hard (+45% water). Sobers one level every ${CONDS.drunk.decayHrs} hrs.`
+                   : l>=2 ? `🍺 Drunk (2/3): <span class="dice chal">upgrade the difficulty once</span> of physical & mental checks; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception — but <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool (liquid courage). <b class="lw">Strain threshold −2.</b> +30% water use.`
                    :        `🍺 Tipsy (1/3): loosened up. <span class="dice boost">1 Boost ▲</span> to Charm, Coercion & Cool; <span class="dice setb">1 Setback ■</span> to Coordination, Vigilance & Perception. Mild dehydration (+15% water).`},
   caffeinated:{label:'☕ Caffeinated', decayHrs:4, mult:{sleep:0.6, rest:0.85, water:1.1},   // decayHrs: clears after this many hours
               fx:()=> `☕ Caffeinated: <span class="dice boost">1 Boost ▲</span> to Vigilance & Perception and to checks made to resist sleep. Wired and alert — sleep debt accrues 40% slower and fatigue 15% slower. Mild diuretic (+10% water). Wears off after ${CONDS.caffeinated.decayHrs} hrs; a crash may follow (GM's call).`},
@@ -537,7 +537,9 @@ const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunni
      {min, name, color, fx (GM-facing effect text),
       rate?   pts/hr accrual while in this tier (thirst/hunger/hygiene only —
               sleep is flat while awake, fatigue is activity-driven),
-      strain? per hour while awake, wounds? per hour, hourly?(cs,c,events,cap)}.
+      stMod?  strain-threshold modifier while in this tier (the ONE bridge from the
+              slow needs to the encounter-scale strain pool — nothing ticks strain by
+              the hour), wounds? per hour, hourly?(cs,c,events,cap)}.
    Thirst accelerates (each % of body water lost hurts more than the last);
    hunger and grime decelerate (appetite is loud early, then the body rations). */
 const dehydTick = (cs,c,ev,cap) => {    // Desiccated: organ damage on a slower clock than Collapse
@@ -556,8 +558,8 @@ const NEEDS = {
      fx:'Dry mouth, mild nagging awareness. No dice penalty — the "top off your canteen" window before anything bites.'},
     {min:26,  name:'Parched',    color:'#d29922', rate:1.2,
      fx:'Headache, sticky mouth, irritability. Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions (sprint, climb, melee) cost <b class="lw">+1 strain</b> each. Fully reversible with a real drink.'},
-    {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6,
-     fx:'Dizziness, cramps, mental fog. <b>−1 Brawn and −1 Agility</b>. <span class="dice chal">Upgrade the difficulty</span> of all Intellect and Cunning checks once. <b>Disoriented</b>: moving one range band costs an extra maneuver. <b class="lw">2 strain at the start of every encounter.</b> Meals restore only half nourishment until rehydrated.'},
+    {min:51,  name:'Dehydrated', color:'#e8590c', rate:1.6, stMod:-2,
+     fx:'Dizziness, cramps, mental fog. <b>−1 Brawn and −1 Agility</b>. <span class="dice chal">Upgrade the difficulty</span> of all Intellect and Cunning checks once. <b>Disoriented</b>: moving one range band costs an extra maneuver. <b class="lw">Strain threshold −2.</b> Meals restore only half nourishment until rehydrated.'},
     {min:76,  name:'Desiccated', color:'#f85149', rate:2.0, hourly:dehydTick,
      fx:`Delirium, sunken eyes, muscles failing. <b>−2 Brawn, −2 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lb">1 wound every ${DEHYD_WOUND_HRS} hrs</b> untended. <b>Staggered</b> on any <b>Despair</b> as consciousness slips.`},
     {min:100, name:'Collapse',   color:'#a40000', rate:0, wounds:1,
@@ -571,12 +573,12 @@ const NEEDS = {
      fx:'Stomach growling, thoughts drifting to food. No dice penalty — narrative "should eat soon." A daily meal resets you here or below.'},
     {min:16,  name:'Gnawing',   color:'#d29922', rate:0.21,
      fx:'More than a day without food; concentration slips. Add <span class="dice setb">1 Setback ■</span> to Intellect and Cunning checks (poor focus). No physical penalty, no stat loss — eat and it clears.'},
-    {min:26,  name:'Famished',  color:'#e8590c', rate:0.12,
-     fx:'Low energy, irritability, weakness setting in. Setback ■ to Intellect/Cunning <b>continues</b>, plus <span class="dice setb">1 Setback ■</span> to Brawn and Agility. <b>Strain threshold −2.</b> Strenuous actions cost <b class="lw">+1 strain</b>. Still no stat loss.'},
-    {min:51,  name:'Starving',  color:'#f85149', rate:0.12,
-     fx:`Body eating its own muscle; weakness, apathy, always cold. <b>−1 Brawn, −1 Intellect.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade the difficulty</span> of all Brawn and Agility checks once. Begins every encounter with <b class="lw">3 strain</b>; recovers strain from rest at half rate. Refeeding is gradual — only ~${REFEED.capPts} pts of food absorbed per meal.`},
-    {min:76,  name:'Emaciated', color:'#c9184a', rate:0.12, hourly:starveTick,
-     fx:`Skeletal, organs stressed, immune system failing. <b>−2 Brawn, −2 Intellect, −1 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4, Strain threshold −6.</b> <b class="lb">1 wound every ${STARVE_WOUND_HRS} hours</b> untended; <b>cannot heal wounds naturally.</b> <b>Staggered</b> on any Despair.`},
+    {min:26,  name:'Famished',  color:'#e8590c', rate:0.12, stMod:-2,
+     fx:'Low energy, irritability, weakness setting in. Setback ■ to Intellect/Cunning <b>continues</b>, plus <span class="dice setb">1 Setback ■</span> to Brawn and Agility. <b class="lw">Strain threshold −2.</b> Strenuous actions cost <b class="lw">+1 strain</b>. Still no stat loss.'},
+    {min:51,  name:'Starving',  color:'#f85149', rate:0.12, stMod:-4,
+     fx:`Body eating its own muscle; weakness, apathy, always cold. <b>−1 Brawn, −1 Intellect.</b> <b class="lw">Strain threshold −4.</b> <span class="dice chal">Upgrade the difficulty</span> of all Brawn and Agility checks once. Refeeding is gradual — only ~${REFEED.capPts} pts of food absorbed per meal.`},
+    {min:76,  name:'Emaciated', color:'#c9184a', rate:0.12, stMod:-6, hourly:starveTick,
+     fx:`Skeletal, organs stressed, immune system failing. <b>−2 Brawn, −2 Intellect, −1 Agility, −1 Willpower.</b> <span class="dice chal">Upgrade the difficulty of ALL checks once.</span> <b>Wound threshold −4.</b> <b class="lw">Strain threshold −6.</b> <b class="lb">1 wound every ${STARVE_WOUND_HRS} hours</b> untended; <b>cannot heal wounds naturally.</b> <b>Staggered</b> on any Despair.`},
     {min:100, name:'Collapse',  color:'#a40000', rate:0,
      hourly:(cs,c,ev,cap)=>{ starveTick(cs,c,ev,cap); if(cs.starveHrs%6===0) ev.push(['lb',`🍞 ${c.name} has collapsed from starvation — Daunting (◆◆◆◆) Resilience check every 6 hours or death; difficulty upgrades each check.`]); },
      fx:`Unconscious. Every <b>6 hours</b>: <b class="diff">Daunting (◆◆◆◆) Resilience check</b> — failure = death, difficulty upgrades each check. <b class="lb">1 wound every ${STARVE_WOUND_HRS} hours.</b> Careful refeeding (~${REFEED.capPts} pts per meal, spaced hours apart) must begin.`}
@@ -588,9 +590,9 @@ const NEEDS = {
      fx:'Dirt, sweat, odor. <span class="dice setb">1 Setback ■</span> to social checks that rely on appeal (Charm, Negotiation, Leadership). <b>+1 Boost □ to Coercion</b> — you look rough. No health effect.'},
     {min:51,  name:'Filthy',   color:'#d29922', rate:0.13,
      fx:'Caked grime, strong stench, minor skin trouble. <span class="dice setb">1 Setback ■</span> to ALL social checks except Coercion (still Boosted). <span class="dice setb">1 Setback ■</span> to Stealth vs anything that tracks by smell; predators and trackers gain <b>1 Boost □</b> to follow you. When a wound is suffered, the GM may spend <b>✕✕ (Threat)</b> to infect it — a 🤒 Sick stack.'},
-    {min:76,  name:'Squalid',  color:'#f85149', rate:0.065,
+    {min:76,  name:'Squalid',  color:'#f85149', rate:0.065, stMod:-2,
      hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0) ev.push(['lw',`🧼 ${c.name} is Squalid — daily Resilience check or gain a Sick stack (a Triumph wards it off AND buys a day's grace).`]); },
-     fx:'Infested and sore — lice, festering scrapes. <b>−1 Presence.</b> <span class="dice chal">Upgrade the difficulty</span> of all social checks once (except Coercion). <b>Wounds heal at half rate.</b> Once per day: <b>Resilience check or gain a Sick stack.</b> Begins every encounter with <b class="lw">2 strain</b>.'},
+     fx:'Infested and sore — lice, festering scrapes. <b>−1 Presence.</b> <span class="dice chal">Upgrade the difficulty</span> of all social checks once (except Coercion). <b>Wounds heal at half rate.</b> Once per day: <b>Resilience check or gain a Sick stack.</b> <b class="lw">Strain threshold −2.</b>'},
     {min:100, name:'Diseased', color:'#a40000', rate:0,
      hourly:(cs,c,ev)=>{ cs.hygHrs++; if(cs.hygHrs%24===0){ const sk=cs.conds.find(x=>x.id==='sick'); if(sk) sk.lvl=Math.min(5,(sk.lvl||1)+1); else cs.conds.push({id:'sick', lvl:1}); ev.push(['lb',`🦠 ${c.name} is Diseased — gains a Sick stack (compounds daily until washed and treated).`]); } },
      fx:'Full infection/infestation. <b class="lb">Gains a Sick stack each day</b> (it compounds). <b>−1 Presence, −1 Brawn.</b> Maximum social penalty; Coercion still Boosted. The meter itself never kills — but the stacked illness can turn lethal.'}
@@ -599,40 +601,41 @@ const NEEDS = {
     {min:0,   name:'Rested',         color:'#3fb950', fx:'Well-rested. No effects.'},
     {min:19,  name:'Drowsy',         color:'#9acd32',
      fx:'Attention slipping. Add <span class="dice setb">1 Setback ■</span> to Intellect, Cunning, Perception and Vigilance checks.'},
-    {min:51,  name:'Sleep-Deprived', color:'#d29922', strain:0.5,
-     fx:'<b>−1 Intellect, −1 Cunning.</b> <span class="dice chal">Upgrade</span> Perception/Vigilance difficulty once. <b class="lw">1 strain per 2 hours.</b> Prone to microsleeps — the GM may spend <b>✕✕ (Threat)</b> on any check to nod them off (lose next maneuver). Fatigue accrues ×1.5 and rest recovers 25% less.'},
-    {min:76,  name:'Delirious',      color:'#f85149', strain:1,
-     fx:'<b>−2 Intellect, −1 Cunning, −1 Willpower.</b> <span class="dice chal">Upgrade all mental and social checks once.</span> <b>Strain threshold −4.</b> Hallucinations possible. <b class="lw">1 strain / hour.</b>'},
-    {min:100, name:'Wrecked',        color:'#a40000', strain:1,
-     fx:'<b>−2 to all mental characteristics</b>; <span class="dice chal">upgrade ALL checks once.</span> No death — but the GM may force an involuntary collapse into sleep at any dramatic moment (or spend a <b>Despair</b> to trigger it immediately). Only real sleep clears it.'}
+    {min:51,  name:'Sleep-Deprived', color:'#d29922', stMod:-2,
+     fx:'<b>−1 Intellect, −1 Cunning.</b> <span class="dice chal">Upgrade</span> Perception/Vigilance difficulty once. <b class="lw">Strain threshold −2.</b> Prone to microsleeps — the GM may spend <b>✕✕ (Threat)</b> on any check to nod them off (lose next maneuver). Fatigue accrues ×1.5 and rest recovers 25% less.'},
+    {min:76,  name:'Delirious',      color:'#f85149', stMod:-4,
+     fx:'<b>−2 Intellect, −1 Cunning, −1 Willpower.</b> <span class="dice chal">Upgrade all mental and social checks once.</span> <b class="lw">Strain threshold −4.</b> Hallucinations possible.'},
+    {min:100, name:'Wrecked',        color:'#a40000', stMod:-6,
+     hourly:(cs,c,ev)=>{ if(cs.status?.kind!=='sleep') ev.push(['lw',`😴 ${c.name} is Wrecked — Daunting (◆◆◆◆) Resilience check this hour or they fall asleep where they are.`]); },
+     fx:'<b>−2 to all mental characteristics</b>; <span class="dice chal">upgrade ALL checks once.</span> <b class="lw">Strain threshold −6.</b> The body gives out, not the mind: <b>each hour awake, a Daunting (◆◆◆◆) Resilience check or they fall asleep where they are</b> (the GM may spend a <b>Despair</b> to trigger it immediately). No death. Only real sleep clears it.'}
   ]},
   rest: { label:'⚡ Fatigue', tiers:[
     {min:0,   name:'Fresh',     color:'#3fb950', fx:'No effects.'},
     {min:26,  name:'Winded',    color:'#9acd32',
      fx:'Add <span class="dice setb">1 Setback ■</span> to all Brawn and Agility checks. Strenuous actions cost <b class="lw">+1 strain</b>.'},
-    {min:51,  name:'Weary',     color:'#d29922',
-     fx:'<b>−1 Brawn, −1 Agility.</b> <b>Strain threshold −2.</b> <span class="dice chal">Upgrade the difficulty</span> of Athletics, Coordination and combat checks once. Moving one range band costs an extra maneuver.'},
-    {min:76,  name:'Exhausted', color:'#f85149',
-     fx:'<b>−2 Brawn, −2 Agility.</b> <b>Strain threshold −4.</b> <span class="dice chal">Upgrade all physical checks once.</span> Limited to <b>1 maneuver per turn</b> (can\'t buy a second with strain). Begins every encounter with <b class="lw">3 strain</b>. Sleep debt accrues +50%.'},
-    {min:100, name:'Spent',     color:'#a40000',
-     fx:'Cannot take strenuous actions at all — any attempt auto-fails and inflicts <b>Staggered</b> next turn. Movement halved, massive strain. No death — but useless for exertion until they rest. Spend a <b>Triumph</b> on Athletics/Resilience to drop one fatigue tier for the scene.'}
+    {min:51,  name:'Weary',     color:'#d29922', stMod:-2,
+     fx:'<b>−1 Brawn, −1 Agility.</b> <b class="lw">Strain threshold −2.</b> <span class="dice chal">Upgrade the difficulty</span> of Athletics, Coordination and combat checks once. Moving one range band costs an extra maneuver.'},
+    {min:76,  name:'Exhausted', color:'#f85149', stMod:-4,
+     fx:'<b>−2 Brawn, −2 Agility.</b> <b class="lw">Strain threshold −4.</b> <span class="dice chal">Upgrade all physical checks once.</span> Limited to <b>1 maneuver per turn</b> (can\'t buy a second with strain). Sleep debt accrues +50%.'},
+    {min:100, name:'Spent',     color:'#a40000', stMod:-6,
+     fx:'Cannot take strenuous actions at all — any attempt auto-fails and inflicts <b>Staggered</b> next turn. Movement halved. <b class="lw">Strain threshold −6.</b> No death — but useless for exertion until they rest. Spend a <b>Triumph</b> on Athletics/Resilience to drop one fatigue tier for the scene.'}
   ]}
 };
 const NEED_KEYS = Object.keys(NEEDS);
 
-const DTIERS = [  // droids — combined degradation meter; strain = per hour of operation
+const DTIERS = [  // droids — combined degradation meter; stMod = strain-threshold modifier (system stress)
  {min:0,  name:'Optimal',    color:'#3fb950', fx:'All systems nominal.'},
  {min:15, name:'Degraded',   color:'#9acd32',
   fx:'Add <span class="dice setb">1 Setback ■</span> to all skill checks.'},
  {min:30, name:'Strained',   color:'#d29922',
   fx:'Add <span class="dice setb">2 Setback ■■</span> to all checks. Speed ×¾.'},
- {min:45, name:'Impaired',   color:'#e8590c', strain:1,
-  fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Agility &amp; Intellect count as 1 lower (min 1). Speed ×½. <b class="lw">1 system-stress strain / hour.</b>'},
- {min:60, name:'Malfunctioning', color:'#f85149', strain:2,
-  fx:'<span class="dice setb">3 Setback ■■■</span> + <span class="dice chal">upgrade difficulty twice</span>. ALL characteristics 1 lower (min 1). GM may spend <b>⚙⚙</b> on any of the droid\'s checks for a random malfunction. Speed ×¼. <b class="lw">2 strain / hour.</b>'},
- {min:75, name:'Failing',    color:'#ff2e2e', strain:3,
-  fx:'As Malfunctioning, and each hour of operation a <b class="diff">Hard (◆◆◆) Mechanics check</b> (self or ally) or the droid shuts down. <b class="lw">3 strain / hour.</b>'},
- {min:90, name:'SHUTDOWN IMMINENT', color:'#a40000', strain:3,
+ {min:45, name:'Impaired',   color:'#e8590c', stMod:-2,
+  fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Agility &amp; Intellect count as 1 lower (min 1). Speed ×½. <b class="lw">Strain threshold −2</b> (system stress).'},
+ {min:60, name:'Malfunctioning', color:'#f85149', stMod:-4,
+  fx:'<span class="dice setb">3 Setback ■■■</span> + <span class="dice chal">upgrade difficulty twice</span>. ALL characteristics 1 lower (min 1). GM may spend <b>⚙⚙</b> on any of the droid\'s checks for a random malfunction. Speed ×¼. <b class="lw">Strain threshold −4.</b>'},
+ {min:75, name:'Failing',    color:'#ff2e2e', stMod:-6,
+  fx:'As Malfunctioning, and each hour of operation a <b class="diff">Hard (◆◆◆) Mechanics check</b> (self or ally) or the droid shuts down. <b class="lw">Strain threshold −6.</b>'},
+ {min:90, name:'SHUTDOWN IMMINENT', color:'#a40000', stMod:-6,
   fx:'🔋 at 100 ⇒ <b class="lb">full shutdown</b> until a fresh pack or recharge. 🔧 at 100 ⇒ mechanisms grind themselves apart: <b class="lb">1 wound / hour while operating.</b>'}
 ];
 
@@ -770,7 +773,7 @@ const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
 let S = null;
 
 function newCharState(c){
-  const cs = { id:c.id, activity:'light', strain:0, strainFrac:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
+  const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
     conds:[], status:null, prevAct:'light', hourAcc:0,
     inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
@@ -814,7 +817,7 @@ function migrate(s){ // patch older saves (and room snapshots)
       for(const cd of cs.conds) if(cd.custom && cd.fx===undefined) cd.fx='';
       if(sickLvl) cs.conds.push({id:'sick', lvl:Math.min(5,sickLvl)});
     }
-    delete cs.encCur; delete cs.infHrs; delete cs.stimDay;
+    delete cs.encCur; delete cs.infHrs; delete cs.stimDay; delete cs.strainFrac;
     syncInv(cs);
   }
   for(const k of ['ambImg','location','travelDest']) if(s[k]===undefined) s[k]='';
@@ -868,17 +871,27 @@ const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
 const climateAdapt = (c, heat) => heat ? (c.mods.heatAdapt??1) : (c.mods.coldAdapt??1);   // 1 = feels all of it
 function tierOf(x, tiers){ let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
-// Hourly strain from needs and conditions never runs past twice the threshold (the card is unreadable beyond it).
-const strainCapOf = cs => cs.st>0 ? cs.st*2 : 999;
-const addStrain = (cs, n) => {           // fractional rates accumulate and land as whole points
-  cs.strainFrac = +((cs.strainFrac||0) + n).toFixed(3);
-  const whole = Math.floor(cs.strainFrac);
-  if(whole>0){ cs.strainFrac = +(cs.strainFrac - whole).toFixed(3); cs.strain = Math.min(strainCapOf(cs), cs.strain + whole); }
-};
 const recoverStrain = (cs, n) => { cs.strain = Math.max(0, cs.strain - n); };
 const sleepStrainPerHr = cs => Math.max(1, Math.ceil((cs.st||8)/8));   // a night's sleep (8 h) pays off a full threshold
+/* Strain is the encounter-scale pool of the core rules (mental AND physical, spent by the player,
+   recovered by Cool/Discipline and sleep). The slow needs and conditions never add to it by the
+   hour; they shrink the THRESHOLD instead, so a run-down character fights on less headroom but
+   still chooses when to spend it. strainMods lists every active modifier; effStrainThresh sums them. */
+function strainMods(cs, c){
+  const mods = [];
+  if(c.droid){ const t = tierOf(exhaustion(cs), DTIERS); if(t.stMod) mods.push([t.name, t.stMod]); }
+  else for(const key of NEED_KEYS){ const t = tierOf(cs[key], NEEDS[key].tiers); if(t.stMod) mods.push([t.name, t.stMod]); }
+  for(const cd of cs.conds){
+    const def = CONDS[cd.id]; if(!def?.stMod) continue;
+    const m = typeof def.stMod==='function' ? def.stMod(cd.lvl||1) : def.stMod;
+    if(m) mods.push([plainLabel(def.label), m]);
+  }
+  return mods;
+}
+const effStrainThresh = (cs, c) => cs.st>0 ? Math.max(1, cs.st + strainMods(cs, c).reduce((a,[,m])=>a+m, 0)) : 0;
+const strainOut = (cs, c) => cs.st>0 && cs.strain >= effStrainThresh(cs, c);   // unconscious / disabled
 // Down = unconscious (strain), dying (wounds) or collapsed from thirst/starvation: the body lies where it fell.
-const isDown = (cs, c) => (cs.strain>=cs.st && cs.st>0) || (cs.wounds>cs.wt && cs.wt>0) || (!c.droid && (cs.water>=100 || cs.hunger>=100));
+const isDown = (cs, c) => strainOut(cs, c) || (cs.wounds>cs.wt && cs.wt>0) || (!c.droid && (cs.water>=100 || cs.hunger>=100));
 function condMult(cs, key){
   const c = cfg(cs.id), env = ENVS[S.env];
   // Chilled/Overheated: a Cold environment already charges the extra calories, so Chilled
@@ -1040,8 +1053,8 @@ function tick(cs, dt){
     }
   }
   // threshold notices fire once, on the crossing (the card keeps showing the state)
-  const uncon = cs.strain>=cs.st && cs.st>0, dead = cs.wounds>cs.wt && cs.wt>0;
-  if(uncon && !cs.wasUncon) events.push(['lw',`${c.name} has exceeded strain threshold (${cs.strain}/${cs.st}) — ${c.droid?'DISABLED':'UNCONSCIOUS'}; needs now accrue as resting.`]);
+  const uncon = strainOut(cs, c), dead = cs.wounds>cs.wt && cs.wt>0;
+  if(uncon && !cs.wasUncon) events.push(['lw',`${c.name} has exceeded strain threshold (${cs.strain}/${effStrainThresh(cs,c)}${effStrainThresh(cs,c)!==cs.st?`, base ${cs.st}`:''}) — ${c.droid?'DISABLED':'UNCONSCIOUS'}; needs now accrue as resting.`]);
   if(dead && !cs.wasDead)   events.push(['lb',`☠ ${c.name} has exceeded wound threshold (${cs.wounds}/${cs.wt}) — ${c.droid?'CRITICAL DAMAGE, needs major repairs':'CRITICAL INJURY / DYING'}.`]);
   cs.wasUncon = uncon; cs.wasDead = dead;
   return events;
@@ -1050,7 +1063,7 @@ function endStatus(cs, c, events){
   const def = STATUSES[cs.status.kind];
   events.push(['lg',`${c.name} finishes ${plainLabel(def.label).toLowerCase()} — status back to normal.`]);
   if(cs.status.kind==='sleep' && cs.status.total>=SLEEP.fullNightHrs && cs.strain>0){   // a full night's rest clears all strain (RAW)
-    cs.strain = 0; cs.strainFrac = 0;
+    cs.strain = 0;
     events.push(['lg',`${c.name} wakes with strain cleared — a full night's rest.`]);
   }
   cs.status = null; cs.activity = cs.prevAct;
@@ -1074,19 +1087,17 @@ function applyHourly(cs, c, events, woundCap, isStandby, actKey){
   if(isStandby) recoverStrain(cs, sleepStrainPerHr(cs));
   else if(actKey==='resting') recoverStrain(cs, 1);
 
-  if(c.droid){  // droids: combined degradation meter drives strain; wear ⇒ wounds at 100
-    const t = tierOf(exhaustion(cs), DTIERS);
-    if(t.strain>0 && !isStandby && !(cs.charge>=100)) addStrain(cs, t.strain);
+  if(c.droid){  // droids: wear ⇒ wounds at 100 (degradation shrinks the strain threshold, see strainMods)
     if(cs.maint>=100 && !isStandby && cs.charge<100 && cs.wounds<woundCap){
       cs.wounds++; events.push(['lb',`🔧 ${c.name} suffers 1 wound — mechanisms grinding themselves apart.`]);
     }
     return;
   }
 
-  // organics: each need's current tier applies its own strain / wounds / special effect
+  // organics: each need's current tier applies its own wounds / special effect (strain-threshold
+  // modifiers are read live by strainMods, never ticked)
   for(const key of NEED_KEYS){
     const t = tierOf(cs[key], NEEDS[key].tiers);
-    if(t.strain>0 && !isStandby) addStrain(cs, t.strain);
     if(t.wounds>0 && cs.wounds<woundCap){
       cs.wounds += t.wounds;
       events.push(['lb',`${c.name} suffers ${t.wounds} wound — ${plainLabel(NEEDS[key].label).toLowerCase()} (${t.name}).`]);
@@ -1661,8 +1672,12 @@ function portraitSection(cs, c){
 }
 
 function talliesRow(cs){
+  const c = cfg(cs.id), mods = strainMods(cs, c), eff = effStrainThresh(cs, c);
+  const sum = mods.reduce((a,[,m])=>a+m, 0);
+  const effTag = mods.length && cs.st>0
+    ? ` <span class="steff" title="${esc(mods.map(([n,m])=>`${n} ${m>0?'+':''}${m}`).join(' · '))}">${sum>0?'+':''}${sum} → <b>${eff}</b></span>` : '';
   return `<div class="tallies">
-      <span class="strain">Strain <b>${cs.strain}</b>/<input type="number" value="${cs.st}" style="width:46px" onchange="setThresh('${cs.id}','st',this.value)" title="Strain threshold"></span>
+      <span class="strain">Strain <b>${cs.strain}</b>/<input type="number" value="${cs.st}" style="width:46px" onchange="setThresh('${cs.id}','st',this.value)" title="Strain threshold (base)">${effTag}</span>
       <button class="mini" onclick="adj('${cs.id}','strain',-1)">−</button><button class="mini" onclick="adj('${cs.id}','strain',1)">+</button>
       <span class="wounds">Wounds <b>${cs.wounds}</b>/<input type="number" value="${cs.wt}" style="width:46px" onchange="setThresh('${cs.id}','wt',this.value)" title="Wound threshold"></span>
       <button class="mini" onclick="adj('${cs.id}','wounds',-1)">−</button><button class="mini" onclick="adj('${cs.id}','wounds',1)">+</button>
@@ -1706,7 +1721,7 @@ function organicEffects(cs, c, o){
 }
 
 function organicCard(cs, c, div){
-  const uncon = cs.strain>=cs.st && cs.st>0;
+  const uncon = strainOut(cs, c);
   const dead  = cs.wounds>cs.wt && cs.wt>0;
   const over  = overload(cs);
   const tier  = key => tierOf(cs[key], NEEDS[key].tiers);
@@ -1759,7 +1774,7 @@ function organicCard(cs, c, div){
 
 function droidCard(cs, c, div){
   const ex = exhaustion(cs), t = tierOf(ex, DTIERS);
-  const disabled = cs.strain>=cs.st && cs.st>0;
+  const disabled = strainOut(cs, c);
   const wrecked  = cs.wounds>cs.wt && cs.wt>0;
   const over = overload(cs);
   const badges =
@@ -2156,6 +2171,13 @@ function buildRules(){
       const rate = (t.rate!=null && t.rate>0) ? `+${+t.rate.toFixed(2)}/hr (~${Math.round(t.rate*24*10)/10}/day)` : '—';
       return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${rate}</td><td>${t.fx}</td></tr>`;
     }).join('') + `</table>`;
+  const stModRows = [
+    ...NEED_KEYS.flatMap(key => NEEDS[key].tiers.filter(t=>t.stMod).map(t=>`<tr><td>${NEEDS[key].label}</td><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.stMod}</td></tr>`)),
+    ...Object.entries(CONDS).filter(([,d])=>d.stMod).map(([id,d])=>{
+      const txt = typeof d.stMod==='function' ? Array.from({length:d.lvls||1},(_,i)=>d.stMod(i+1)).map((m,i)=>`${i+1}: ${m}`).join(' · ') : String(d.stMod);
+      return `<tr><td>Condition</td><td><b>${d.label}</b></td><td>${txt}</td></tr>`; }),
+    ...DTIERS.filter(t=>t.stMod).map(t=>`<tr><td>🤖 Degradation</td><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.stMod}</td></tr>`)
+  ].join('');
   const dtierRows = DTIERS.map((t,i)=>`<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.min}–${DTIERS[i+1] ? DTIERS[i+1].min-1 : 100}</td><td>${t.fx}</td></tr>`).join('');
   const condRows = Object.values(CONDS).map(d=>`<tr><td>${d.label}${d.droid?' (droid)':''}${d.lvls?` — up to ${d.lvls} levels`:''}</td><td>${fxText(d, d.lvls)}</td></tr>`).join('');
   const wtRows = Object.values(AUTO_ITEMS).map(a=>`<tr><td>${a.name}</td><td>${a.type}</td><td>${a.wt}</td></tr>`).join('');
@@ -2227,8 +2249,8 @@ function buildRules(){
   <h2>🤒 Sick / Illness — the shared stacking condition</h2>
   <p>One condition sits behind <b>dirty water</b> (Thirst), <b>spoiled food &amp; refeeding shock</b> (Hunger), and <b>infection</b> (Hygiene). Each bad exposure adds <b>1 stack</b> (the + on the badge). Washing or eating clean stops <i>new</i> stacks but never cures existing ones — each must be treated on its own.</p>
   <table><tr><th>Stacks</th><th>State</th><th>Effect</th></tr>
-  <tr><td>1</td><td><b>Ill</b></td><td>1 Setback ■ to physical checks; 1 strain per 2 hrs. Per stack: thirst &amp; hunger +10%, fatigue +15%, sleep debt +10%.</td></tr>
-  <tr><td>2</td><td><b>Sick</b></td><td>Upgrade the difficulty of physical checks once; 1 strain/hr; <b>−1 Brawn</b>; wounds heal at half rate.</td></tr>
+  <tr><td>1</td><td><b>Ill</b></td><td>1 Setback ■ to physical checks; strain threshold −1 per stack. Per stack: thirst &amp; hunger +10%, fatigue +15%, sleep debt +10%.</td></tr>
+  <tr><td>2</td><td><b>Sick</b></td><td>Upgrade the difficulty of physical checks once; strain threshold −2; <b>−1 Brawn</b>; wounds heal at half rate.</td></tr>
   <tr><td>3+</td><td><b>Gravely Ill</b></td><td>Fever/delirium: <b>−1 Brawn, −1 Intellect</b>; <b>1 wound every 4 hrs</b>; each stack past 3 upgrades another check. <b>Untreated, this is where it can kill</b> — the illness, not the meter.</td></tr></table>
   <p><b>Recovery — each stack cleared separately:</b> once per day, a <b>Resilience check</b> (or a carer's <b>Medicine check</b>) removes 1 stack — but a failure or Despair at 3+ stacks <b>adds</b> a stack (a spiral if ignored). A <b>medpac</b> (successful Medicine) or <b>bacta</b> removes 1 stack outright. Recovery checks take <b>+1 Setback ■</b> while Squalid+, Dehydrated, or Starving — you can't shake illness in filthy or malnourished shape. Adjust stacks with −/+ on the badge; × removes the condition entirely.</p>
   <p><b>Sources:</b> drinking <b>dirty/unfiltered water</b> or eating <b>spoiled food</b> forces a Resilience check — failure adds a stack. <b>Gorging</b> while Starving+ risks refeeding shock. Suffering a <b>wound while Filthy+</b> lets the GM spend ✕✕ (Threat) to infect it. <b>Squalid</b> demands a daily Resilience check; at <b>Diseased (100)</b> a stack is added automatically each day.</p>
@@ -2288,6 +2310,12 @@ function buildRules(){
   ${ladderTable('rest')}
   <p><b>Coupling:</b> while <b>Sleep-Deprived (51+)</b>, fatigue accrues <b>×1.5</b> and rest recovers <b>25% less</b> — tired minds wear out bodies faster. At <b>Exhausted (76+) fatigue</b>, sleep debt accrues <b>+50%</b> — a worn-out body craves rest. Sleep clears both; rest chips both; meditation is how a Jedi buys alertness without a bunk.</p>
 
+  <h2>💫 Strain vs ⚡ Fatigue — two meters, two clocks</h2>
+  <p><b>Strain</b> is the core-rules pool: mental <i>and</i> physical stress at the scale of a scene — spent by the player (a second maneuver, talents, Force powers), dealt by stun weapons, fear and Threat, recovered by Cool/Discipline at the end of an encounter and by rest. At the threshold the character is <b>incapacitated</b> — narrate it as collapse, freezing or a breakdown depending on what filled it. <b>Fatigue</b> is this tracker's slow physical meter at the scale of a day: it climbs with hours of activity and falls with rest, sleep and food, and it never knocks anyone out by itself.</p>
+  <p><b>The one bridge between them is the strain threshold.</b> Nothing in the tracker adds strain by the hour. Instead every need tier and condition that wears a character down <b>lowers their strain threshold</b> while it lasts, so a run-down character fights on less headroom but still chooses when to spend it. The card shows the base threshold (editable) and, when modifiers apply, the effective one — hover it for the breakdown. Modifiers stack; the effective threshold never drops below 1. Sleep debt is the exception that proves the rule: at <b>Wrecked</b> the body itself gives out, so the character must pass a Daunting Resilience check each hour awake or fall asleep — sleep, not unconsciousness.</p>
+  <table><tr><th>Source</th><th>State</th><th>Strain threshold</th></tr>${stModRows}</table>
+  <p>Still at the table, by choice: Parched, Famished and Winded make <b>strenuous actions cost +1 strain</b>; the GM's Threat spends below can inflict a point. A stimpack still relieves ${STIM.strain} strain on injection.</p>
+
   <h2>🎲 Homebrew dice hooks</h2>
   <table><tr><th>Trigger</th><th>Hook</th></tr>
   <tr><td>💧 Parched+ · any physical check</td><td>GM may spend <b>✕✕ (Threat)</b> for a cramp or dry heave — 1 strain, no roll needed.</td></tr>
@@ -2309,7 +2337,7 @@ function buildRules(){
   <tr><td>🧼 Hygiene at 100 (Diseased)</td><td>Gains a 🤒 <b>Sick stack each day</b> — the meter never kills, but Gravely Ill (3+ stacks) can.</td></tr>
   <tr><td>🤒 Sick at 3+ stacks</td><td><b>1 wound every 4 hours</b> — untreated illness is lethal on its own clock.</td></tr>
   <tr><td>😴 Sleep / ⚡ fatigue extremes</td><td>Never lethal — at their worst they cripple checks and force collapse into sleep / stagger rather than wounds</td></tr>
-  <tr><td>Strain ≥ threshold</td><td>Unconscious (droids: disabled) until strain recovers below threshold</td></tr>
+  <tr><td>Strain ≥ effective threshold</td><td>Unconscious (droids: disabled) until strain recovers below it — the threshold shrinks with need tiers and conditions, strain itself never ticks (see 💫 Strain vs ⚡ Fatigue)</td></tr>
   <tr><td>Wounds &gt; threshold</td><td>Critical Injury; dying without aid per core rules (droids: critical damage, major repairs)</td></tr></table>
 
   <h2>🖼 Portraits, scene, location &amp; travel</h2>
@@ -2327,7 +2355,7 @@ function buildRules(){
   <p><b>Portraits, the scene banner &amp; the ship image are GM-set</b> — they load from the site's <code>img/</code> folder (which only the GM can change), so players always see the same art and can't alter it. The <b>Show</b> chips are a personal view filter and stay on your own screen. The <b>💾 Save</b> / <b>📂 Load</b> file buttons still export/import a private JSON snapshot for backups or solo/offline play, independent of any room.</p>
 
   <h2>Recovery</h2>
-  <p><b>Sleep</b>: a full night (8 hrs; 10 for Kata) zeroes sleep debt and heavily restores fatigue — one 8 h sleep clears ~100 sleep debt and ~80 fatigue. <b>Strain</b> recovers with rest, as the core rules intend: quiet Resting restores <b>1 per hour</b>, sleep (or droid standby) restores <b>⌈threshold ÷ 8⌉ per hour</b> (${sleepStrainPerHr(st('cal'))}/hr for Cal), and a sleep of <b>${SLEEP.fullNightHrs} h or more clears it entirely</b> on waking. A character knocked out by strain is treated as Resting, so they come round on their own. Encounter recovery (Cool/Discipline) is still the − button. <b>Wounds</b> from dehydration/starvation heal only via medicine, stimpacks, or bacta <i>after</i> the underlying need is back below 50 — and remember: Emaciated blocks natural healing entirely, and Squalid or 2+ Sick stacks halve healing. Droid wounds need Mechanics repairs. Organic effects come straight from each need's current tier — satisfy the need and its penalties lift as you cross back down each threshold; the droid degradation meter has no separate track and falls automatically as charge/wear are tended.</p>
+  <p><b>Sleep</b>: a full night (8 hrs; 10 for Kata) zeroes sleep debt and heavily restores fatigue — one 8 h sleep clears ~100 sleep debt and ~80 fatigue. <b>Strain</b> recovers with rest, as the core rules intend: quiet Resting restores <b>1 per hour</b>, sleep (or droid standby) restores <b>⌈threshold ÷ 8⌉ per hour</b> (${sleepStrainPerHr(st('cal'))}/hr for Cal), and a sleep of <b>${SLEEP.fullNightHrs} h or more clears it entirely</b> on waking. A character knocked out by strain is treated as Resting, so they come round on their own — and because needs only shrink the threshold rather than add strain, satisfying the need (a drink, a meal, a nap) can bring them round instantly. Encounter recovery (Cool/Discipline) is still the − button. <b>Wounds</b> from dehydration/starvation heal only via medicine, stimpacks, or bacta <i>after</i> the underlying need is back below 50 — and remember: Emaciated blocks natural healing entirely, and Squalid or 2+ Sick stacks halve healing. Droid wounds need Mechanics repairs. Organic effects come straight from each need's current tier — satisfy the need and its penalties lift as you cross back down each threshold; the droid degradation meter has no separate track and falls automatically as charge/wear are tended.</p>
   <h2>🚀 Mantis (Longshot) — ship card</h2>
   <p>The <b>🚀 Mantis</b> tab tracks the ship on the same party clock. Set its <b>flight status</b> and every advance of the clock burns fuel at that rate; systems also wear with sustained operation. Fuel, hull, strain, system conditions, torpedo ammo and crew assignments are all saved and loaded with everything else.</p>
   <p>The <b>${SHIP.name}</b> is an <b>${SHIP.class}</b>. Standard FFG stat block: <b>Silhouette ${SHIP.silhouette}, Speed ${SHIP.speed}, Handling ${SHIP.handling}, Armor ${SHIP.armor}</b>; Hull Trauma ${SHIP.hullThreshold}, System Strain ${SHIP.strainThreshold}; Defense ${SHIP.defense.fore}/${SHIP.defense.port}/${SHIP.defense.stbd}/${SHIP.defense.aft} (F/P/S/A); Hyperdrive ${SHIP.hyperdrive}; Sensors ${sensorRangeFor(SHIP_ENERGY_DEFAULT)} (at default energy); ${SHIP.hardpoints} hard points; ${SHIP.passengers} passengers; consumables ${SHIP.consumables}.</p>
