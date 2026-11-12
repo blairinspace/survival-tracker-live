@@ -329,7 +329,7 @@ const ENC_SLEEP_PER_PT = 0.05;   // +5% sleep-debt accrual
 const FORCE_PER_PT = 0.08;       // −8% accrual per point (8 pts = −64%)
 
 // Stimpacks (organics only, instant injection)
-const STIM = { hours:4, fatigue:25, strain:3, odWounds:2, maxHeals:5, fatigueMult:0.5, windowHrs:24,
+const STIM = { hours:4, fatigue:25, stMod:2, odWounds:2, maxHeals:5, fatigueMult:0.5, windowHrs:24,
                crashFatigue:15, crashHrs:2, crashMaxLvl:3 };
 // fatigueMult: fatigue accrual while the stimulant lasts; windowHrs: the dose counter's rolling window.
 // Crash: when the stimulant ends, a 💥 Crash condition starts at level = doses in the window (max
@@ -886,6 +886,7 @@ function strainMods(cs, c){
     const m = typeof def.stMod==='function' ? def.stMod(cd.lvl||1) : def.stMod;
     if(m) mods.push([plainLabel(def.label), m]);
   }
+  if(!c.droid && cs.stimHrs>0) mods.push(['Stimulant', STIM.stMod]);   // the stim masks the body's limits until it wears off
   return mods;
 }
 const effStrainThresh = (cs, c) => cs.st>0 ? Math.max(1, cs.st + strainMods(cs, c).reduce((a,[,m])=>a+m, 0)) : 0;
@@ -1031,7 +1032,7 @@ function tick(cs, dt){
       cs.rest = clamp(cs.rest + back, 0, 100);
       cs.conds = cs.conds.filter(x=>x.id!=='crash');
       cs.conds.push({id:'crash', lvl, hrs:0});
-      events.push(['lw',`💥 ${c.name}'s stimulant wears off — Crash ${lvl}/${STIM.crashMaxLvl}: +${back} fatigue back, ${lvl>=3?'2 Setback + upgrade':lvl===2?'2 Setback':'1 Setback'} to all checks for ${lvl*STIM.crashHrs} hrs.`]);
+      events.push(['lw',`💥 ${c.name}'s stimulant wears off — Crash ${lvl}/${STIM.crashMaxLvl}: +${back} fatigue back, strain threshold loses its +${STIM.stMod}, ${lvl>=3?'2 Setback + upgrade':lvl===2?'2 Setback':'1 Setback'} to all checks for ${lvl*STIM.crashHrs} hrs.`]);
     }
   }
 
@@ -1258,12 +1259,11 @@ function useStim(id){
   if(cs.conds.some(x=>x.id==='crash')){ cs.conds = cs.conds.filter(x=>x.id!=='crash'); logMsg(`💉 ${c.name} stims through the crash — it lifts for now, and the next one will be worse.`,'lw'); }
   cs.stims--; cs.stimsToday++;
   cs.rest   = clamp(cs.rest - STIM.fatigue, 0, 100);
-  cs.strain = Math.max(0, cs.strain - STIM.strain);
-  cs.stimHrs = STIM.hours;
+  cs.stimHrs = STIM.hours;   // strain itself is untouched: the stimulant widens the threshold (strainMods) while it lasts
   if(cs.stimsToday <= STIM.maxHeals){
     const heal = STIM.maxHeals + 1 - cs.stimsToday;
     cs.wounds = Math.max(0, cs.wounds - heal);
-    logMsg(`💉 ${c.name} uses stimpack #${cs.stimsToday} of ${STIM.maxHeals} (window resets in ${fmtDur(stimResetIn(cs))}): heals ${heal} wounds, −${STIM.fatigue} fatigue, −${STIM.strain} strain, stimulant ${STIM.hours} hrs.`, 'lg');
+    logMsg(`💉 ${c.name} uses stimpack #${cs.stimsToday} of ${STIM.maxHeals} (window resets in ${fmtDur(stimResetIn(cs))}): heals ${heal} wounds, −${STIM.fatigue} fatigue, strain threshold +${STIM.stMod} for ${STIM.hours} hrs.`, 'lg');
   } else {
     cs.wounds += STIM.odWounds;
     logMsg(`💉⚠ ${c.name} uses stimpack #${cs.stimsToday} in ${STIM.windowHrs} h — beyond safe limits! No healing; +${STIM.odWounds} wounds from overexertion. Stimulant still applies (${STIM.hours} hrs). Window resets in ${fmtDur(stimResetIn(cs))}.`, 'lb');
@@ -1706,7 +1706,7 @@ function organicEffects(cs, c, o){
     return `<div class="fxneed"><span class="fxtier" style="color:${t.color}">${NEEDS[key].label.split(' ')[0]} ${t.name}</span> — ${t.fx}</div>`;
   }).filter(Boolean).join('');
   const stimLine = cs.stimHrs>0
-    ? `<span class="condline">💉 <b>Stim</b> (${fmtDur(cs.stimHrs)} left): fatigue accrues at <b>×${STIM.fatigueMult}</b> while the stimulant lasts; −${STIM.fatigue} fatigue and −${STIM.strain} strain were applied on injection. When it ends: 💥 Crash ${clamp(cs.stimsToday,1,STIM.crashMaxLvl)}/${STIM.crashMaxLvl} (+${STIM.crashFatigue*clamp(cs.stimsToday,1,STIM.crashMaxLvl)} fatigue back).</span>` : '';
+    ? `<span class="condline">💉 <b>Stim</b> (${fmtDur(cs.stimHrs)} left): fatigue accrues at <b>×${STIM.fatigueMult}</b> and strain threshold is <b>+${STIM.stMod}</b> while the stimulant lasts; −${STIM.fatigue} fatigue was applied on injection. When it ends the headroom goes too: 💥 Crash ${clamp(cs.stimsToday,1,STIM.crashMaxLvl)}/${STIM.crashMaxLvl} (+${STIM.crashFatigue*clamp(cs.stimsToday,1,STIM.crashMaxLvl)} fatigue back).</span>` : '';
   const condLines = [stimLine, condFxLines(cs)].filter(Boolean).join('<br>');
   const alerts =
     (o.dead?`<b class="lb">☠ Wound threshold exceeded — dying/dead without immediate medical aid.</b><br>`:'') +
@@ -2176,6 +2176,7 @@ function buildRules(){
     ...Object.entries(CONDS).filter(([,d])=>d.stMod).map(([id,d])=>{
       const txt = typeof d.stMod==='function' ? Array.from({length:d.lvls||1},(_,i)=>d.stMod(i+1)).map((m,i)=>`${i+1}: ${m}`).join(' · ') : String(d.stMod);
       return `<tr><td>Condition</td><td><b>${d.label}</b></td><td>${txt}</td></tr>`; }),
+    `<tr><td>💉 Stimpack</td><td><b>Stimulant active</b> (${STIM.hours} h)</td><td>+${STIM.stMod}</td></tr>`,
     ...DTIERS.filter(t=>t.stMod).map(t=>`<tr><td>🤖 Degradation</td><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.stMod}</td></tr>`)
   ].join('');
   const dtierRows = DTIERS.map((t,i)=>`<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${t.min}–${DTIERS[i+1] ? DTIERS[i+1].min-1 : 100}</td><td>${t.fx}</td></tr>`).join('');
@@ -2278,7 +2279,7 @@ function buildRules(){
   <h2>💉 Stimpacks (organics only, instant)</h2>
   <table><tr><th>Effect</th><th>Detail</th></tr>
   <tr><td>Wound healing</td><td>Diminishing returns per day (FFG standard): 1st heals <b>5</b> wounds, 2nd <b>4</b>, 3rd <b>3</b>, 4th <b>2</b>, 5th <b>1</b>. <b>Max ${STIM.maxHeals} healing uses per day.</b></td></tr>
-  <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue and −${STIM.strain} strain; fatigue accrues at <b>×${STIM.fatigueMult} for ${STIM.hours} hours</b>.</td></tr>
+  <tr><td>Stimulant</td><td>Immediately −${STIM.fatigue} fatigue; for <b>${STIM.hours} hours</b> fatigue accrues at <b>×${STIM.fatigueMult}</b> and the <b>strain threshold is +${STIM.stMod}</b> (the stim masks the body's limits — when it wears off, that headroom goes with it, at the same moment the fatigue comes back).</td></tr>
   <tr><td>💥 Crash</td><td>When the stimulant ends, a <b>Crash</b> condition starts at <b>level = doses in the window</b> (max ${STIM.crashMaxLvl}) and hands back <b>${STIM.crashFatigue} × level fatigue</b> at once: level 1 is 1 Setback and ×1.25 fatigue/sleep accrual for ${STIM.crashHrs} h; level 2 is 2 Setback and ×1.5, easing a level every ${STIM.crashHrs} h (${2*STIM.crashHrs} h total); level 3 adds a difficulty upgrade and ×1.75 (${3*STIM.crashHrs} h total). One stim is a fair loan for ${STIM.hours} fresh hours; two or three in a day leave you worse than rest would. A new stim clears a crash, but the next crash is a level worse. Sleep does not shorten it.</td></tr>
   <tr><td>Overdose (${STIM.maxHeals+1}th+ in a day)</td><td>No healing. Stimulant still works, but the body is pushed past its limits: <b>+${STIM.odWounds} wounds per extra stim</b>.</td></tr></table>
   <p>The dose counter runs on a rolling <b>${STIM.windowHrs} h window</b> that opens with the first stim and clears ${STIM.windowHrs} h later — the card shows the time left in parentheses, and the log notes when tolerance clears.</p>
@@ -2314,7 +2315,7 @@ function buildRules(){
   <p><b>Strain</b> is the core-rules pool: mental <i>and</i> physical stress at the scale of a scene — spent by the player (a second maneuver, talents, Force powers), dealt by stun weapons, fear and Threat, recovered by Cool/Discipline at the end of an encounter and by rest. At the threshold the character is <b>incapacitated</b> — narrate it as collapse, freezing or a breakdown depending on what filled it. <b>Fatigue</b> is this tracker's slow physical meter at the scale of a day: it climbs with hours of activity and falls with rest, sleep and food, and it never knocks anyone out by itself.</p>
   <p><b>The one bridge between them is the strain threshold.</b> Nothing in the tracker adds strain by the hour. Instead every need tier and condition that wears a character down <b>lowers their strain threshold</b> while it lasts, so a run-down character fights on less headroom but still chooses when to spend it. The card shows the base threshold (editable) and, when modifiers apply, the effective one — hover it for the breakdown. Modifiers stack; the effective threshold never drops below 1. Sleep debt is the exception that proves the rule: at <b>Wrecked</b> the body itself gives out, so the character must pass a Daunting Resilience check each hour awake or fall asleep — sleep, not unconsciousness.</p>
   <table><tr><th>Source</th><th>State</th><th>Strain threshold</th></tr>${stModRows}</table>
-  <p>Still at the table, by choice: Parched, Famished and Winded make <b>strenuous actions cost +1 strain</b>; the GM's Threat spends below can inflict a point. A stimpack still relieves ${STIM.strain} strain on injection.</p>
+  <p>Still at the table, by choice: Parched, Famished and Winded make <b>strenuous actions cost +1 strain</b>; the GM's Threat spends below can inflict a point. Nothing else — not even a stimpack — moves the strain number itself; a stimpack widens the threshold by ${STIM.stMod} while it lasts.</p>
 
   <h2>🎲 Homebrew dice hooks</h2>
   <table><tr><th>Trigger</th><th>Hook</th></tr>
