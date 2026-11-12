@@ -169,7 +169,7 @@
   .sboxes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
   .sbox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;align-items:center;text-align:center}
   .sbox .vals{display:flex;gap:5px;align-items:center;color:var(--dim);font-size:12px;text-transform:none;letter-spacing:0}
-  .sbox input[type=number]{width:54px;font-size:15px;font-weight:700;text-align:center}
+  .sbox input[type=number]{width:46px;font-size:15px;font-weight:700;text-align:center}
   .sbox input.big{width:92px}
   .sbox small{font-size:9.5px;text-transform:none;letter-spacing:0}
   .sbox.chr{min-width:86px} .sbox.chr input{font-size:20px;width:58px;border-radius:50%;height:58px;border-width:2px;border-color:var(--gold)}
@@ -182,6 +182,16 @@
   .sktable select.chsel{border:none;background:none;color:var(--dim);padding:0 2px;font-size:11px}
   .sktable input[type=number]{width:42px;text-align:center}
   .sktable input[type=text]{width:120px}
+  .geartables{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start;margin-bottom:14px}
+  .geartables .wide{grid-column:1/-1}
+  .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:44px}
+  .sktable tr.uneq td{opacity:.6} .sktable tr.uneq td.keep{opacity:1}
+  button.eqbtn{font-size:13px;padding:1px 6px;opacity:.45} button.eqbtn.on{opacity:1;border-color:var(--gold);color:var(--gold)}
+  .sbox b.derived{font-size:20px;color:var(--text)}
+  .wcard{border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:12.5px}
+  .wcard b{color:var(--text)} .wcard .q{color:var(--dim);font-size:11.5px;display:block;margin-top:2px}
+  .wcard .crit{color:var(--gold);font-weight:700}
+  .wchip{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:5px 8px;margin-bottom:8px;font-size:12px}
   button.skroll{display:inline-flex;gap:2px;align-items:center;min-height:26px;min-width:60px;padding:3px 6px;flex-wrap:wrap}
   #rules{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;line-height:1.6}
   #rules h2{color:var(--gold);font-size:16px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:1px}
@@ -2330,16 +2340,22 @@ const ATTR_TIPS = {
   pr:'Presence — charisma and confidence. Rolled for Charm, Cool, Leadership and Negotiation.',
 };
 const SHEET_TEXT = ['species','career','specs'];
-const SHEET_NUM  = { soak:[0,30], defR:[0,10], defM:[0,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
+const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
 const SHEET_UI = { id:'' };
 
 function newSheet(c){
-  return { species:c.species||'', career:'', specs:'', soak:(c.attr&&c.attr.br)||0, defR:0, defM:0,
+  return { species:c.species||'', career:'', specs:'', soakMod:0, defRMod:0, defMMod:0,
            fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[] };
 }
 function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
   const def = newSheet(c), sh = (cs.sheet && typeof cs.sheet==='object') ? cs.sheet : (cs.sheet = {});
   for(const k of SHEET_TEXT) if(typeof sh[k]!=='string') sh[k] = def[k];
+  // soak and defense used to be typed-in totals; they are now derived (Brawn + equipped armor + bonus).
+  // Carry an old total over as the bonus so nobody's number changes until they equip armor.
+  if(sh.soak!==undefined && sh.soakMod===undefined) sh.soakMod = (+sh.soak||0) - ((cs.attr&&cs.attr.br)||0);
+  if(sh.defR!==undefined && sh.defRMod===undefined) sh.defRMod = +sh.defR||0;
+  if(sh.defM!==undefined && sh.defMMod===undefined) sh.defMMod = +sh.defM||0;
+  delete sh.soak; delete sh.defR; delete sh.defM;
   for(const k in SHEET_NUM){ const n = Math.round(+sh[k]); sh[k] = Number.isFinite(n) && sh[k]!==undefined ? clamp(n, ...SHEET_NUM[k]) : def[k]; }
   if(!sh.sk || typeof sh.sk!=='object' || Array.isArray(sh.sk)) sh.sk = {};
   sh.cust = arrayify(sh.cust); if(!Array.isArray(sh.cust)) sh.cust = [];
@@ -2389,20 +2405,133 @@ function sheetDelSkill(id, cid){
   const sh = st(id).sheet;
   sh.cust = sh.cust.filter(y=>y.id!==cid); delete sh.sk['x_'+cid]; render();
 }
+/* ---- equipped gear: weapons and armor are inventory rows (cs.inv) typed Weapon / Armor,
+   with optional combat fields:  eq 1 = equipped · weapon: sk dam crit rng q brn(1 = add Brawn)
+   · armor: def soak.  A row with no stats of its own borrows them from the catalog item of the
+   same name, so "Blaster pistol" in an old kit already knows it is Ranged: Light, damage 6. ---- */
+const WEAPON_RANGES = ['Engaged','Short','Medium','Long','Extreme'];
+const COMBAT_SKILLS = SKILLS.filter(x=>x.g==='Combat');
+const CAT_SKILL = { 'Lightsaber':'lightsaber', 'Gunnery':'gunnery', 'Melee':'melee', 'Brawl':'brawl', 'Mechanics':'melee',
+  'Ranged (Heavy)':'ranged_heavy', 'Ranged (Light)':'ranged_light', 'Skulduggery / Ranged (Light or Heavy)':'ranged_light' };
+let CAT_BY_NAME = null;
+function catByName(name){
+  if(!CAT_BY_NAME){ CAT_BY_NAME = {}; for(const it of CATALOG){ const k=(it.n||'').toLowerCase(); if(!(k in CAT_BY_NAME)) CAT_BY_NAME[k]=it; } }
+  return CAT_BY_NAME[String(name||'').replace(/\s*\(worn\)\s*$/i,'').trim().toLowerCase()] || {};
+}
+const isWeapon = it => (it.type||'').toLowerCase()==='weapon';
+const numOr = (...vs) => { for(const v of vs){ if(v!==undefined && v!==null && v!=='' && Number.isFinite(+v) && Math.abs(+v)<1000) return +v; } return 0; };
+function weaponState(cs, it){
+  const cat = catByName(it.name), catSk = CAT_SKILL[cat.sk];
+  const guess = /saber/i.test(it.name) ? 'lightsaber' : /rifle|carbine|bow|launcher/i.test(it.name) ? 'ranged_heavy'
+    : /knife|blade|sword|staff|vibro|axe|spear|truncheon/i.test(it.name) ? 'melee' : 'ranged_light';
+  const sk = COMBAT_SKILLS.some(x=>x.k===it.sk) ? it.sk : (catSk || guess);
+  const brn = it.brn!==undefined ? !!it.brn : (cat.sk ? (cat.sk==='Melee'||cat.sk==='Brawl') : (sk==='melee'||sk==='brawl'));
+  const dam = numOr(it.dam, cat.dam), crit = numOr(it.crit, cat.crit);
+  const rng = WEAPON_RANGES.includes(it.rng) ? it.rng : WEAPON_RANGES.includes(cat.rng) ? cat.rng : (sk.startsWith('ranged')||sk==='gunnery' ? 'Medium' : 'Engaged');
+  const q = typeof it.q==='string' ? it.q : (cat.q||'');
+  return { sk, brn, dam, crit, rng, q, total: dam + (brn ? (cs.attr.br||0) : 0), skill: SKILLS.find(x=>x.k===sk) };
+}
+function armorState(it){
+  const cat = catByName(it.name);
+  return { def: numOr(it.def, cat.def), soak: numOr(it.soak, cat.soak) };
+}
+const qualN = (q, name) => { const m = String(q||'').match(new RegExp('\\b'+name+'\\s*(\\d+)', 'i')); return m ? +m[1] : 0; };
+// Soak = Brawn + every equipped armor's soak + bonus. Defense = the best equipped armor's defense,
+// + Deflection (ranged) / Defensive (melee) from equipped weapons, + bonus.
+function combatStats(cs){
+  const sh = cs.sheet, eq = cs.inv.filter(it=>it.eq && !it.auto);
+  const armors = eq.filter(isArmor).map(armorState), weps = eq.filter(isWeapon).map(it=>weaponState(cs, it));
+  const aSoak = armors.reduce((a,x)=>a+x.soak, 0), aDef = armors.reduce((a,x)=>Math.max(a,x.def), 0);
+  const defl = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Deflection')), 0), dfns = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Defensive')), 0);
+  const br = cs.attr.br||0;
+  return { br, aSoak, aDef, defl, dfns,
+    soak: Math.max(0, br + aSoak + sh.soakMod),
+    defR: Math.max(0, aDef + defl + sh.defRMod), defM: Math.max(0, aDef + dfns + sh.defMMod) };
+}
+function gearSet(id, i, k, v){
+  const it = st(id).inv[i]; if(!it || it.auto) return;
+  if(k==='eq' || k==='brn'){ it[k] = v ? 1 : 0; }
+  else if(k==='name' || k==='q') it[k] = String(v).slice(0, k==='q'?160:80);
+  else if(k==='sk'){ if(COMBAT_SKILLS.some(x=>x.k===v)) it.sk = v; }
+  else if(k==='rng'){ if(WEAPON_RANGES.includes(v)) it.rng = v; }
+  else if(['dam','crit','def','soak'].includes(k)) it[k] = clamp(Math.round(parseFloat(v))||0, -5, 99);
+  render();
+}
+function gearAdd(id, type){
+  const cs = st(id), row = { name:'', type, qty:1, wt:type==='Armor'?0:1, eq:1 };
+  if(isDegradable(type)) row.wear = 0;
+  cs.inv.push(row); render();
+}
+// Load an attack into the Dice tab: the weapon's skill pool, Average difficulty, and the weapon
+// itself so the roll shows damage (base + net successes) and whether a critical is on.
+function rollAttack(id, i){
+  const cs = st(id), it = cs.inv[i]; if(!it) return;
+  const w = weaponState(cs, it), s = skillState(cs, w.skill);
+  Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
+    weapon:{ n:(it.name||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng } });
+  document.getElementById('diceLabel').value = w.skill.n;
+  showTab('dice');
+}
+function gearHtml(cs){
+  const id = cs.id, rows = cs.inv.map((it,i)=>({it,i})).filter(x=>!x.it.auto);
+  const eqBtn = (it,i,what) => `<button class="eqbtn ${it.eq?'on':''}" onclick="gearSet('${id}',${i},'eq',${it.eq?0:1})" title="${it.eq?'Equipped — click to stow':'Stowed — click to equip'}. ${what}">${it.eq?'✔':'○'}</button>`;
+  const nameIn = (it,i) => `<input type="text" class="wname" value="${esc(it.name)}" placeholder="name" onchange="gearSet('${id}',${i},'name',this.value)">`;
+  const n2 = (i,k,v,tip) => `<input type="number" class="n2" value="${v}" title="${tip}" onchange="gearSet('${id}',${i},'${k}',this.value)">`;
+  const del = i => `<button class="mini" onclick="delInv('${id}',${i})" title="Remove from inventory">✕</button>`;
+  const weps = rows.filter(x=>isWeapon(x.it)).map(({it,i})=>{
+    const w = weaponState(cs, it), s = skillState(cs, w.skill);
+    const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
+    return `<tr class="${it.eq?'':'uneq'}">
+      <td class="c keep">${eqBtn(it,i,'Only equipped weapons lend their Defensive / Deflection ratings to your defense.')}</td>
+      <td>${nameIn(it,i)}</td>
+      <td><select title="Skill used to attack with this weapon" onchange="gearSet('${id}',${i},'sk',this.value)">${COMBAT_SKILLS.map(x=>`<option value="${x.k}" ${x.k===w.sk?'selected':''}>${x.n}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap">${n2(i,'dam',w.dam,'Base damage. Each net success on the attack adds +1.')}
+        <label title="Brawl and Melee weapons add your Brawn to their damage (shown as +N in the books)"><input type="checkbox" ${w.brn?'checked':''} onchange="gearSet('${id}',${i},'brn',this.checked)">+Br</label>${w.brn?` = <b>${w.total}</b>`:''}</td>
+      <td class="c">${n2(i,'crit',w.crit,'Critical rating: the Advantage you must spend to inflict a critical injury (a Triumph also does it).')}</td>
+      <td><select title="Maximum range. Ranged difficulty by distance: Short Easy · Medium Average · Long Hard · Extreme Daunting. Melee attacks are Average." onchange="gearSet('${id}',${i},'rng',this.value)">${WEAPON_RANGES.map(r=>`<option ${r===w.rng?'selected':''}>${r}</option>`).join('')}</select></td>
+      <td><input type="text" class="wq" value="${esc(w.q)}" placeholder="qualities" title="Item qualities, e.g. Pierce 2, Stun Setting. Active ones cost 2 Advantage to trigger unless noted." onchange="gearSet('${id}',${i},'q',this.value)"></td>
+      <td class="keep"><button class="skroll" onclick="rollAttack('${id}',${i})" title="${esc(w.skill.n)}: ${s.p} Proficiency, ${s.a} Ability. Click to load this attack into the Dice tab.">⚔ ${pool}</button></td>
+      <td class="keep">${del(i)}</td></tr>`;
+  }).join('');
+  const arms = rows.filter(x=>isArmor(x.it)).map(({it,i})=>{
+    const a = armorState(it);
+    return `<tr class="${it.eq?'':'uneq'}">
+      <td class="c keep">${eqBtn(it,i,'Equipped armor adds its soak and defense to your totals above.')}</td>
+      <td>${nameIn(it,i)}</td>
+      <td class="c">${n2(i,'def',a.def,'Defense: Setback dice added to attacks against you. Only the best equipped armor counts.')}</td>
+      <td class="c">${n2(i,'soak',a.soak,'Soak this armor adds to your Brawn.')}</td>
+      <td class="keep">${del(i)}</td></tr>`;
+  }).join('');
+  const other = rows.filter(x=>!isWeapon(x.it) && !isArmor(x.it) && x.it.name);
+  const w = invWeight(cs), thr = effThresh(cs);
+  return `<div class="geartables">
+    <table class="sktable wide"><tr><th class="c" title="Equipped">Eq</th><th>Weapons</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Qualities</th><th>Attack</th><th></th></tr>
+      ${weps || `<tr><td colspan="9" style="color:var(--dim)">No weapons. Add one here, or use “give to” on the Items tab to bring one in with its stats.</td></tr>`}
+      <tr><td colspan="9"><button class="mini" onclick="gearAdd('${id}','Weapon')">＋ add weapon</button></td></tr></table>
+    <table class="sktable"><tr><th class="c" title="Equipped">Eq</th><th>Armor</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
+      ${arms || `<tr><td colspan="5" style="color:var(--dim)">No armor.</td></tr>`}
+      <tr><td colspan="5"><button class="mini" onclick="gearAdd('${id}','Armor')">＋ add armor</button></td></tr></table>
+    <table class="sktable"><tr><th>Carried gear</th><th class="c">Qty</th></tr>
+      ${other.map(({it})=>`<tr><td class="skn">${esc(it.name)}</td><td class="c">${+it.qty||0}</td></tr>`).join('') || `<tr><td colspan="2" style="color:var(--dim)">Nothing else carried.</td></tr>`}
+      <tr><td colspan="2" style="color:var(--dim)" title="Over the threshold you add Setback dice to Brawn and Agility checks, and the tracker speeds up thirst, hunger and fatigue.">Encumbrance <b style="color:${w>thr?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${thr} · edit quantities and weights in 🎒 Inventory on the Tracker card</td></tr></table>
+  </div>`;
+}
+
 function sheetPick(id){ SHEET_UI.id = id; render(); }
 // Load a skill into the Dice tab: Ability/Proficiency from the sheet, Average difficulty to start from.
 function rollSkill(id, key){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
   const s = skillState(cs, sk);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null });
   document.getElementById('diceLabel').value = sk.n;
   showTab('dice');
 }
 function rollForce(id){
   const cs = st(id), n = Math.max(0, cs.sheet.fr - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, {p:0, a:0, b:0, k:0, d:0, c:0, F:n});
-  Object.assign(DICE_UI, { who:id, label:'Force power' });
+  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null });
   document.getElementById('diceLabel').value = 'Force power';
   showTab('dice');
 }
@@ -2431,7 +2560,7 @@ function renderSheet(){
     `<button class="chip ${x.id===id?'on':''}" onclick="sheetPick('${x.id}')">${esc(cfg(x.id).name)}</button>`).join('');
   const txt = (k, lab, ph, cls, tip) => `<label title="${esc(tip)}">${lab}<input type="text" class="${cls}" value="${esc(sh[k])}" placeholder="${ph}" onchange="sheetSet('${id}','${k}',this.value)"></label>`;
   const num = (k, cls) => `<input type="number" class="${cls||''}" min="${SHEET_NUM[k][0]}" max="${SHEET_NUM[k][1]}" value="${sh[k]}" onchange="sheetSet('${id}','${k}',this.value)">`;
-  const eff = effStrainThresh(cs, c);
+  const eff = effStrainThresh(cs, c), cb = combatStats(cs);
   const box = (lab, tip, inner, note) => `<div class="sbox" title="${esc(tip)}">${lab}<div class="vals">${inner}</div>${note?`<small>${note}</small>`:''}</div>`;
   const stat = (k, kt) => `<input type="number" min="0" value="${cs[k]}" onchange="sheetStat('${id}','${k}',this.value)"> / <input type="number" min="0" value="${cs[kt]}" onchange="setThresh('${id}','${kt}',this.value)">`;
   const groups = SKILL_GROUPS.map(g=>{
@@ -2450,8 +2579,11 @@ function renderSheet(){
     <div class="sboxes">
       ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
       ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
-      ${box('Soak','Soak is subtracted from the damage of every hit. Soak = Brawn + armor soak + talents such as Enduring.', num('soak'), `Brawn ${cs.attr.br} + armor`)}
-      ${box('Defense','Defense adds that many Setback dice to attacks against you. Ranged and melee are tracked separately; multiple sources do not stack — use the best.', num('defR')+' / '+num('defM'), 'ranged / melee')}
+      ${box('Soak','Soak is subtracted from the damage of every hit. Soak = Brawn + the soak of equipped armor + a bonus for talents such as Enduring (type the bonus here).',
+        `<b class="derived">${cb.soak}</b> <span title="Bonus from talents and anything else">+ ${num('soakMod')}</span>`, `Brawn ${cb.br} + armor ${cb.aSoak} + bonus`)}
+      ${box('Defense','Defense adds that many Setback dice to attacks against you: ranged / melee. Taken from the best equipped armor, plus Deflection (ranged) and Defensive (melee) on equipped weapons, plus a bonus you type for talents.',
+        `<b class="derived">${cb.defR}</b> / <b class="derived">${cb.defM}</b> <span title="Bonus to ranged / melee defense from talents and anything else">+ ${num('defRMod')} / ${num('defMMod')}</span>`,
+        `ranged / melee · armor ${cb.aDef}${cb.defl?` · deflection ${cb.defl}`:''}${cb.dfns?` · defensive ${cb.dfns}`:''}`)}
       ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Force on the Tracker card.',
         (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
         ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
@@ -2460,6 +2592,7 @@ function renderSheet(){
     </div>
     <div class="sboxes">` + ATTRS.map(([k,n])=>
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
+    ${gearHtml(cs)}
     <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
 }
 
@@ -2509,7 +2642,7 @@ const SYM_TIPS = {
 };
 const DIFFS = [['Simple',0],['Easy',1],['Average',2],['Hard',3],['Daunting',4],['Formidable',5]];
 const FEED_MAX = 50, POOL_MAX = 12;
-const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0 };
+const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null };
 let ROLLS = [];   // feed entries, oldest first
 
 const rollInt = n => (typeof crypto!=='undefined' && crypto.getRandomValues)
@@ -2535,7 +2668,8 @@ const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${face
 
 /* ---- pool builder ---- */
 function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
-function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; renderDice(); }
+function poolNoWeapon(){ DICE_UI.weapon=null; renderDice(); }
 function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
   const p = DICE_UI.pool;
   if(p[from]>0){ p[from]--; p[to] = Math.min(POOL_MAX, p[to]+1); } else p[from] = 1;
@@ -2555,7 +2689,9 @@ function diceWhoName(){
 function rollPool(){
   const p = DICE_UI.pool;
   if(!DICE_ORDER.some(t=>p[t]>0)) return;
-  postFeed({ k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(p) });
+  const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(p) };
+  if(DICE_UI.weapon) e.w = {...DICE_UI.weapon};
+  postFeed(e);
 }
 
 /* ---- feed (append-only) ---- */
@@ -2591,6 +2727,15 @@ function resultHtml(dice){
   }
   return head + parts.join('');
 }
+function weaponCardHtml(w, dice){   // w comes off the wire: coerce and escape everything
+  if(!w || typeof w!=='object') return '';
+  const r = tally(dice), dam = numOr(w.dam), crit = numOr(w.crit), hit = r.netS>0;
+  const critOn = hit && crit>0 && (r.netA>=crit || r.x>0);
+  return `<div class="wcard"><b>${esc(String(w.n||'Weapon').slice(0,60))}</b> · ` +
+    (hit ? `Damage ${dam} + ${r.netS} = <b>${dam+r.netS}</b> <span style="color:var(--dim)">before soak</span>` : `Damage ${dam} — <span style="color:var(--dim)">missed</span>`) +
+    ` · Crit ${crit||'—'}` + (critOn ? ` <span class="crit" title="Enough Advantage (or a Triumph) to inflict a critical injury">critical available</span>` : '') +
+    (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') + `</div>`;
+}
 function feedEntryHtml(e){
   const by = esc(String(e.by||'Player').slice(0,40)), t = esc(String(e.t||'').slice(0,40));
   if(e.k==='d'){
@@ -2605,7 +2750,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    <div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice)}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice)}</div></div>`;
 }
 function renderFeed(){
@@ -2681,6 +2826,7 @@ function renderDice(){
       <button class="mini" onclick="poolUpgrade('d','c')" title="Upgrade the difficulty: one Difficulty die becomes Challenge (if none are left, add a Difficulty die). Used for adversaries, Dodge, or a Destiny point spent against the roller.">⬆ upgrade difficulty</button>
       <button class="mini" onclick="poolClear()">clear</button>
     </div>
+    ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     <div class="poolprev">${total ? DICE_ORDER.map(t=>`<span class="die ${DICE[t].cls} t-${t}" title="${DICE[t].name}"></span>`.repeat(p[t])).join('') : 'Empty pool — click the dice above to add them.'}</div>
     <button class="primary rollbtn" onclick="rollPool()" ${total?'':'disabled'}>🎲 Roll${total?` ${total} ${total===1?'die':'dice'}`:''}</button>`;
   const lg = document.getElementById('diceLegend');
@@ -2853,6 +2999,11 @@ function giveItem(key, id){
   const it = itemByKey(key), cs = id && st(id); if(!it || !cs) return;
   const type = invTypeFor(it), row = { name:it.n, type, qty:1, wt:it.e||0 };
   if(isDegradable(type)){ row.wear = 0; cs.gearOpen = true; }
+  if(type==='Weapon'){   // combat stats ride along so the sheet can roll it straight away
+    row.sk = CAT_SKILL[it.sk] || 'ranged_light'; row.brn = (it.sk==='Melee'||it.sk==='Brawl') ? 1 : 0;
+    row.dam = numOr(it.dam); row.crit = numOr(it.crit); if(WEAPON_RANGES.includes(it.rng)) row.rng = it.rng; if(it.q) row.q = String(it.q);
+  }
+  if(type==='Armor'){ row.def = numOr(it.def); row.soak = numOr(it.soak); }
   cs.inv.push(row); cs.invOpen = true;
   const d = itemDetails(it);
   logMsg(`🛒 ${cfg(id).name} picks up <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
