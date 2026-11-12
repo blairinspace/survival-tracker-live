@@ -39,13 +39,6 @@
   .portrait .hurt{position:absolute;inset:0;background:#e00;pointer-events:none}
   .cardhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
   .cname{font-size:16px;font-weight:700}
-  .cmeta{color:var(--dim);font-size:11px}
-  .trait{color:var(--force);font-size:11px;font-style:italic;margin:2px 0 6px}
-  .droidcard .trait{color:var(--droid)}
-  .attrs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 6px;padding:6px;background:var(--panel2);border-radius:6px}
-  .attrs .a{display:flex;flex-direction:column;align-items:center}
-  .attrs .a span{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
-  .attrs .a input{width:38px;text-align:center;padding:2px}
   .needrow{display:flex;align-items:center;gap:5px;margin:5px 0}
   .needlabel{width:56px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;cursor:pointer;flex-shrink:0}
   .needlabel:hover{color:var(--accent)}
@@ -166,6 +159,7 @@
   .shead h2{font-size:20px;color:var(--gold);margin-right:6px}
   .shead label, .sbox{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
   .shead input[type=text]{width:150px} .shead input.wide{width:260px;max-width:80vw}
+  .sdesc{font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px;max-width:900px} .sdesc b{color:#b6bec8;font-weight:600}
   .sboxes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
   .sbox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;align-items:center;text-align:center}
   .sbox .vals{display:flex;gap:5px;align-items:center;color:var(--dim);font-size:12px;text-transform:none;letter-spacing:0}
@@ -1735,11 +1729,6 @@ function needRow(cs, key, label, extras, tier){
     ${extras||''}${badge}</div>`;
 }
 
-function attrRow(cs){
-  return `<div class="attrs">` + ATTRS.map(([k,lab]) =>
-    `<span class="a"><span>${lab.slice(0,4)}</span><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${cs.id}','${k}',this.value)" title="${lab}"></span>`
-  ).join('') + `</div>`;
-}
 
 function condBadges(cs){
   return cs.conds.map(cd=>{
@@ -1901,7 +1890,6 @@ function organicCard(cs, c, div){
     ${portraitSection(cs,c)}
     <div class="cardhead">
       <div><span class="cname">${c.name.split(' ')[0]}</span> ${dead?'☠':uncon?'💫':''}
-        <div class="cmeta">${c.species} · ${c.h} · ${c.build} · ${c.waterOz} oz water/day · ${c.rations} rations/meal</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
         <select onchange="setAct('${cs.id}',this.value)" title="Current activity${cs.status?' — selecting one cancels the current timed status':''}">
@@ -1910,10 +1898,8 @@ function organicCard(cs, c, div){
         ${condSelect(cs,c)}
       </div>
     </div>
-    <div class="trait">${c.trait}</div>
     ${badges ? `<div style="margin-bottom:6px">${badges}</div>` : ''}
     ${customCondForm(cs)}
-    ${attrRow(cs)}
     ${needRow(cs,'water','💧 Thirst',
       `<button class="mini" onclick="drink('${cs.id}',5)">5oz</button><button class="mini" onclick="drink('${cs.id}',10)">10oz</button><button class="mini" onclick="drink('${cs.id}',${OZ_PER_CANTEEN})">all</button>`, tier('water'))}
     ${needRow(cs,'hunger','🍞 Hunger',
@@ -1929,7 +1915,7 @@ function organicCard(cs, c, div){
       <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
       <span class="gi">🍞 <input type="number" min="0" step="0.5" value="${cs.rationsStock}" onchange="setStock('${cs.id}','rationsStock',this.value)" title="Rations carried"></span>
       <span class="gi">🍪 <input type="number" min="0" step="1" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
-      <span class="gi">💉 <input type="number" min="0" step="1" value="${cs.stims}" onchange="setStock('${cs.id}','stims',this.value)" title="Stimpacks carried"> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
+      <span class="gi">💉 <b title="Stimpacks carried — this is the Stimpacks row in 🎒 Inventory; change the quantity there">${cs.stims}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
       <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
       ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
@@ -1952,7 +1938,6 @@ function droidCard(cs, c, div){
     ${portraitSection(cs,c)}
     <div class="cardhead">
       <div><span class="cname">${c.name.split(' ')[0]}</span> 🤖 ${wrecked?'☠':disabled?'💫':''}
-        <div class="cmeta">${c.species} · ${c.h} · ${c.build} · 1 pack ≈ ${c.packHrs} hrs light operation</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
         <select onchange="setAct('${cs.id}',this.value)" title="Current activity">
@@ -1961,10 +1946,8 @@ function droidCard(cs, c, div){
         ${condSelect(cs,c)}
       </div>
     </div>
-    <div class="trait">${c.trait}</div>
     ${badges ? `<div style="margin-bottom:6px">${badges}</div>` : ''}
     ${customCondForm(cs)}
-    ${attrRow(cs)}
     ${needRow(cs,'charge','🔋 Charge',
       `<button class="mini droid" onclick="swapPack('${cs.id}')">swap pack</button><button class="mini droid" onclick="rechargeAll('${cs.id}')">⚡ recharge</button>`)}
     ${needRow(cs,'maint','🔧 Wear',
@@ -2576,6 +2559,7 @@ function renderSheet(){
       ${txt('career','Career','career','','Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${txt('specs','Specializations','e.g. Ataru Striker, Niman Disciple','wide','Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
     </div>
+    <div class="sdesc"><b>${esc(c.h)} · ${esc(c.build)} · ${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day · ${c.rations} rations/meal`}</b><br>${c.trait}</div>
     <div class="sboxes">
       ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
       ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
