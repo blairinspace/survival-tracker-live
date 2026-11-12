@@ -158,6 +158,31 @@
   .roll.dflip.dark{background:#05070a;border-color:#555} .roll.dflip.light{background:#e9eef5;color:#10151c;border-color:#fff}
   .roll.dflip small{display:block;font-weight:400;opacity:.75;font-size:11px}
   .dlegend{font-size:11px;color:var(--dim);line-height:1.7}
+  /* Sheets tab */
+  #sheet{display:none}
+  .die.sm{width:15px;height:15px;border-radius:3px}
+  .die.sm.d8{width:18px;height:18px} .die.sm.d12{width:18px;height:16px}
+  .shead{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+  .shead h2{font-size:20px;color:var(--gold);margin-right:6px}
+  .shead label, .sbox{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+  .shead input[type=text]{width:150px} .shead input.wide{width:260px;max-width:80vw}
+  .sboxes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .sbox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;align-items:center;text-align:center}
+  .sbox .vals{display:flex;gap:5px;align-items:center;color:var(--dim);font-size:12px;text-transform:none;letter-spacing:0}
+  .sbox input[type=number]{width:54px;font-size:15px;font-weight:700;text-align:center}
+  .sbox input.big{width:92px}
+  .sbox small{font-size:9.5px;text-transform:none;letter-spacing:0}
+  .sbox.chr{min-width:86px} .sbox.chr input{font-size:20px;width:58px;border-radius:50%;height:58px;border-width:2px;border-color:var(--gold)}
+  .skillcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start}
+  .sktable{width:100%;border-collapse:collapse;font-size:12.5px}
+  .sktable th{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;text-align:left;padding:4px 4px;border-bottom:1px solid var(--border)}
+  .sktable th.c, .sktable td.c{text-align:center}
+  .sktable td{padding:2px 4px;border-bottom:1px dotted #21262d;vertical-align:middle}
+  .sktable tr.career td.skn{color:var(--text);font-weight:600} .sktable td.skn{color:#b6bec8}
+  .sktable select.chsel{border:none;background:none;color:var(--dim);padding:0 2px;font-size:11px}
+  .sktable input[type=number]{width:42px;text-align:center}
+  .sktable input[type=text]{width:120px}
+  button.skroll{display:inline-flex;gap:2px;align-items:center;min-height:26px;min-width:60px;padding:3px 6px;flex-wrap:wrap}
   #rules{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;line-height:1.6}
   #rules h2{color:var(--gold);font-size:16px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:1px}
   #rules h2:first-child{margin-top:0}
@@ -271,7 +296,7 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#dice,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -351,6 +376,7 @@
 
 <div class="tabs">
   <button id="tabT" class="on" onclick="showTab('tracker')">Tracker</button>
+  <button id="tabC" onclick="showTab('sheet')">Sheets</button>
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
@@ -386,6 +412,11 @@
   </div>
   <div id="itemsBody"></div>
 </div></div>
+
+<div id="sheet">
+  <div class="drow" id="sheetChips"></div>
+  <div class="dpanel" id="sheetBody"></div>
+</div>
 
 <div id="dice"><div class="dicewrap">
   <div class="dpanel">
@@ -889,7 +920,7 @@ let S = null;
 function newCharState(c){
   const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
-    conds:[], status:null, prevAct:'light', hourAcc:0,
+    conds:[], status:null, prevAct:'light', hourAcc:0, sheet:newSheet(c),
     inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})) };
   Object.assign(cs, c.droid
     ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
@@ -923,6 +954,7 @@ function migrate(s){ // patch older saves (and room snapshots)
     for(const k of ['inv','conds']) cs[k] = arrayify(cs[k]);   // RTDB may hand lists back as index-keyed objects
     const def = newCharState(cfg(cs.id));
     for(const k in def) if(cs[k]===undefined) cs[k]=def[k];
+    normSheet(cs, cfg(cs.id));
     if(cs.lastTiers) for(const k of NEED_KEYS) cs.lastTiers[k] ??= 0;
     if(cs.conds){  // old 'infected' condition folds into the stacking Sick condition
       let sickLvl = 0;
@@ -988,6 +1020,8 @@ const invWeight = cs => cs.inv.reduce((a,it)=>a + ((isPack(it)||isArmor(it))?0:(
 const packBonus = cs => cs.inv.reduce((a,it)=>a + (isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
 const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
+const FORCE_COMMIT_MAX = 8;
+const forceCap  = cs => clamp((cs.sheet && cs.sheet.fr)||0, 0, FORCE_COMMIT_MAX);   // can't commit more dice than your Force rating (Sheets tab)
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
 const climateAdapt = (c, heat) => heat ? (c.mods.heatAdapt??1) : (c.mods.coldAdapt??1);   // 1 = feels all of it
@@ -1393,7 +1427,8 @@ function useStim(id){
 }
 function setForce(id, v){
   const cs = st(id);
-  cs.force = clamp(parseInt(v)||0, 0, 8);
+  if(cs.force===undefined) return;   // droids have no Force points
+  cs.force = clamp(parseInt(v)||0, 0, forceCap(cs));
   logMsg(`✨ ${cfg(id).name} commits ${cs.force} Force point(s) — bodily needs slowed ${Math.round((1-forceMult(cs))*100)}%. (Committed points are unavailable for other powers.)`,'lf');
   render();
 }
@@ -1886,7 +1921,7 @@ function organicCard(cs, c, div){
       <span class="gi">🍪 <input type="number" min="0" step="1" value="${cs.snacks}" onchange="setStock('${cs.id}','snacks',this.value)" title="Snacks carried"></span>
       <span class="gi">💉 <input type="number" min="0" step="1" value="${cs.stims}" onchange="setStock('${cs.id}','stims',this.value)" title="Stimpacks carried"> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
       <span class="gi" title="Encumbrance threshold = Brawn + 5 (auto; editable)">⚖ thresh <input type="number" min="0" value="${cs.encThresh}" onchange="setThresh('${cs.id}','encThresh',this.value)"></span>
-      ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="8" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force points (0–8)"></span>`:''}
+      ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
     ${invSection(cs)}
     ${gearSection(cs)}
@@ -1964,6 +1999,7 @@ function render(){
   renderShip();
   renderItems();
   renderDestiny();
+  renderSheet();
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2230,11 +2266,201 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
 function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
 function showTab(t){
-  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['items','tabI'],['dice','tabD'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['dice','tabD'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
   if(t==='dice'){ renderDice(); renderFeed(); }
+}
+
+/* ================================================================
+   CHARACTER SHEET — the FFG sheet for each roster character: species /
+   career / specializations, soak, defense, Force rating, XP, credits and
+   the skill list. Lives in cs.sheet, so it syncs and saves with the
+   character. Characteristics, wounds and strain are the SAME fields the
+   Tracker cards edit (cs.attr, cs.wounds, cs.wt, cs.strain, cs.st).
+   Skill state is sparse: cs.sheet.sk[key] = { r:rank, c:1 if career,
+   ch:characteristic override } — only non-default fields are stored.
+   ================================================================ */
+const SKILLS = [   // k key · n name · ch default characteristic · g group · tip (hover)
+  {k:'astrogation', n:'Astrogation', ch:'int', g:'General', tip:'Plotting hyperspace jumps, reading star charts, working out where you are.'},
+  {k:'athletics', n:'Athletics', ch:'br', g:'General', tip:'Climbing, swimming, jumping, running, lifting — sustained physical effort.'},
+  {k:'charm', n:'Charm', ch:'pr', g:'General', tip:'Winning someone over honestly: flattery, appeals, seduction. Opposed by Cool.'},
+  {k:'coercion', n:'Coercion', ch:'wil', g:'General', tip:'Threats, intimidation, interrogation. Opposed by Discipline. For Force users it often earns Conflict.'},
+  {k:'computers', n:'Computers', ch:'int', g:'General', tip:'Slicing, searching databases, defeating or repairing electronic security and software.'},
+  {k:'cool', n:'Cool', ch:'pr', g:'General', tip:'Staying calm under pressure. Initiative when you are ready for the fight; resists Charm and Negotiation.'},
+  {k:'coordination', n:'Coordination', ch:'ag', g:'General', tip:'Balance, tumbling, flexibility, squeezing through gaps, reducing falling damage.'},
+  {k:'deception', n:'Deception', ch:'cun', g:'General', tip:'Lying, disguises, misleading trails. Opposed by Discipline. May earn Conflict.'},
+  {k:'discipline', n:'Discipline', ch:'wil', g:'General', tip:'Mental fortitude: resisting fear, Coercion and Deception. The roll behind many Force powers.'},
+  {k:'leadership', n:'Leadership', ch:'pr', g:'General', tip:'Rallying allies, giving orders, swaying a crowd. Opposed by Discipline.'},
+  {k:'mechanics', n:'Mechanics', ch:'int', g:'General', tip:'Repairing and modifying vehicles, droids, weapons and gear, including lightsaber hilts.'},
+  {k:'medicine', n:'Medicine', ch:'int', g:'General', tip:'Healing wounds and critical injuries. Difficulty rises with how hurt the patient is; no medpac adds difficulty.'},
+  {k:'negotiation', n:'Negotiation', ch:'pr', g:'General', tip:'Bargaining, trading, striking deals. Opposed by Negotiation or Cool.'},
+  {k:'perception', n:'Perception', ch:'cun', g:'General', tip:'Actively noticing things: searching, spotting ambushes, seeing through disguises. Opposes Stealth and Skulduggery.'},
+  {k:'pilot_planet', n:'Piloting: Planetary', ch:'ag', g:'General', tip:'Speeders, walkers, wheeled and repulsor vehicles in atmosphere or on the ground.'},
+  {k:'pilot_space', n:'Piloting: Space', ch:'ag', g:'General', tip:'Starfighters, freighters and anything else flown in space.'},
+  {k:'resilience', n:'Resilience', ch:'br', g:'General', tip:'Enduring hunger, thirst, toxins, exhaustion and hostile climates. The survival roll of this tracker.'},
+  {k:'skulduggery', n:'Skulduggery', ch:'cun', g:'General', tip:'Picking locks and pockets, breaking restraints, sleight of hand. Opposed by Perception.'},
+  {k:'stealth', n:'Stealth', ch:'ag', g:'General', tip:'Hiding, sneaking, tailing someone unseen. Opposed by Perception.'},
+  {k:'streetwise', n:'Streetwise', ch:'cun', g:'General', tip:'Knowing how the underworld works: finding contacts, black markets and rumours.'},
+  {k:'survival', n:'Survival', ch:'cun', g:'General', tip:'Foraging, tracking, handling animals, finding shelter and water in the wild.'},
+  {k:'vigilance', n:'Vigilance', ch:'wil', g:'General', tip:'Passive readiness. Initiative when the fight catches you by surprise; how prepared you were.'},
+  {k:'brawl', n:'Brawl', ch:'br', g:'Combat', tip:'Unarmed fighting and fist weapons. Engaged range; Average difficulty.'},
+  {k:'gunnery', n:'Gunnery', ch:'ag', g:'Combat', tip:'Vehicle-mounted weapons and heavy crewed weapons such as turrets and missile tubes.'},
+  {k:'lightsaber', n:'Lightsaber', ch:'br', g:'Combat', tip:'Lightsabers. Brawn by default — each lightsaber form talent (e.g. Ataru Technique) lets you use another characteristic; change it with the small selector.'},
+  {k:'melee', n:'Melee', ch:'br', g:'Combat', tip:'Hand-held close-combat weapons: vibroblades, staves, truncheons.'},
+  {k:'ranged_light', n:'Ranged: Light', ch:'ag', g:'Combat', tip:'One-handed ranged weapons: blaster pistols, thrown weapons, grenades.'},
+  {k:'ranged_heavy', n:'Ranged: Heavy', ch:'ag', g:'Combat', tip:'Two-handed ranged weapons: rifles, carbines, bowcasters.'},
+  {k:'core_worlds', n:'Core Worlds', ch:'int', g:'Knowledge', tip:'The wealthy central systems: their cultures, politics and etiquette.'},
+  {k:'education', n:'Education', ch:'int', g:'Knowledge', tip:'General schooling: science, history, philosophy, law.'},
+  {k:'lore', n:'Lore', ch:'int', g:'Knowledge', tip:'Legends, ancient history, the Jedi and Sith, and the mysteries of the Force.'},
+  {k:'outer_rim', n:'Outer Rim', ch:'int', g:'Knowledge', tip:'The frontier systems: their worlds, powers and dangers.'},
+  {k:'underworld', n:'Underworld', ch:'int', g:'Knowledge', tip:'Criminal organisations, who runs what, and how illicit business is done.'},
+  {k:'warfare', n:'Warfare', ch:'int', g:'Knowledge', tip:'Military tactics, strategy, logistics and the history of war.'},
+  {k:'xenology', n:'Xenology', ch:'int', g:'Knowledge', tip:'Alien species: their biology, customs and psychology. Helps when treating non-humans.'},
+];
+const SKILL_GROUPS = ['General','Combat','Knowledge','Custom'];
+const SKILL_RANK_MAX = 5;
+const ATTR_TIPS = {
+  br:'Brawn — strength and toughness. Sets soak, wound threshold and encumbrance; rolled for Athletics, Resilience, Brawl, Melee and Lightsaber.',
+  ag:'Agility — dexterity and hand-eye coordination. Rolled for ranged attacks, Piloting, Stealth and Coordination.',
+  int:'Intellect — education and reasoning. Rolled for Mechanics, Medicine, Computers, Astrogation and every Knowledge skill.',
+  cun:'Cunning — craftiness and instinct. Rolled for Perception, Deception, Skulduggery, Streetwise and Survival.',
+  wil:'Willpower — discipline and mental endurance. Sets strain threshold; rolled for Discipline, Vigilance and Coercion.',
+  pr:'Presence — charisma and confidence. Rolled for Charm, Cool, Leadership and Negotiation.',
+};
+const SHEET_TEXT = ['species','career','specs'];
+const SHEET_NUM  = { soak:[0,30], defR:[0,10], defM:[0,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
+const SHEET_UI = { id:'' };
+
+function newSheet(c){
+  return { species:c.species||'', career:'', specs:'', soak:(c.attr&&c.attr.br)||0, defR:0, defM:0,
+           fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[] };
+}
+function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
+  const def = newSheet(c), sh = (cs.sheet && typeof cs.sheet==='object') ? cs.sheet : (cs.sheet = {});
+  for(const k of SHEET_TEXT) if(typeof sh[k]!=='string') sh[k] = def[k];
+  for(const k in SHEET_NUM){ const n = Math.round(+sh[k]); sh[k] = Number.isFinite(n) && sh[k]!==undefined ? clamp(n, ...SHEET_NUM[k]) : def[k]; }
+  if(!sh.sk || typeof sh.sk!=='object' || Array.isArray(sh.sk)) sh.sk = {};
+  sh.cust = arrayify(sh.cust); if(!Array.isArray(sh.cust)) sh.cust = [];
+  sh.cust = sh.cust.filter(x=>x && typeof x==='object' && x.id);
+  for(const x of sh.cust){ if(typeof x.n!=='string') x.n=''; if(!ATTR_TIPS[x.ch]) x.ch='int'; }
+  // committed Force dice are cs.force (the Tracker card's field) — one value for both tabs. A save from
+  // before the Force rating existed may have more committed than the default rating: keep the commit.
+  delete sh.frCommit;
+  if(cs.force > sh.fr) sh.fr = Math.min(SHEET_NUM.fr[1], cs.force);
+}
+function skillList(cs){
+  return SKILLS.concat(cs.sheet.cust.map(x=>({k:'x_'+x.id, n:x.n, ch:x.ch, g:'Custom', cust:x.id,
+    tip:'Custom skill — for homebrew or skills from other books.'})));
+}
+function skillState(cs, sk){
+  const o = cs.sheet.sk[sk.k] || {}, ch = (!sk.cust && ATTR_TIPS[o.ch]) ? o.ch : sk.ch;
+  const rank = clamp(Math.round(+o.r)||0, 0, SKILL_RANK_MAX), cv = +(cs.attr||{})[ch]||0;
+  return { rank, career:!!o.c, ch, cv, p:Math.min(cv, rank), a:Math.max(cv, rank)-Math.min(cv, rank) };
+}
+function sheetSkill(id, key, field, v){
+  const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
+  const o = cs.sheet.sk[key] || (cs.sheet.sk[key] = {});
+  if(field==='r'){ const r = clamp(parseInt(v)||0, 0, SKILL_RANK_MAX); if(r) o.r = r; else delete o.r; }
+  if(field==='c'){ if(v) o.c = 1; else delete o.c; }
+  if(field==='ch'){ if(ATTR_TIPS[v] && v!==sk.ch) o.ch = v; else delete o.ch; }
+  if(!Object.keys(o).length) delete cs.sheet.sk[key];
+  render();
+}
+function sheetSet(id, k, v){
+  const sh = st(id).sheet;
+  if(SHEET_TEXT.includes(k)) sh[k] = String(v).slice(0,120);
+  else if(SHEET_NUM[k]) sh[k] = clamp(Math.round(parseFloat(v))||0, ...SHEET_NUM[k]);
+  if(k==='fr' && st(id).force > forceCap(st(id))) setForce(id, sh.fr);   // lowering the rating releases the excess
+  render();
+}
+function sheetStat(id, k, v){   // wounds / strain current values (thresholds go through setThresh)
+  st(id)[k] = clamp(parseInt(v)||0, 0, 99); render();
+}
+function sheetAddSkill(id){ st(id).sheet.cust.push({id:randomId().slice(0,6), n:'', ch:'int'}); render(); }
+function sheetCust(id, cid, k, v){
+  const x = st(id).sheet.cust.find(y=>y.id===cid); if(!x) return;
+  if(k==='n') x.n = String(v).slice(0,40);
+  if(k==='ch' && ATTR_TIPS[v]) x.ch = v;
+  render();
+}
+function sheetDelSkill(id, cid){
+  const sh = st(id).sheet;
+  sh.cust = sh.cust.filter(y=>y.id!==cid); delete sh.sk['x_'+cid]; render();
+}
+function sheetPick(id){ SHEET_UI.id = id; render(); }
+// Load a skill into the Dice tab: Ability/Proficiency from the sheet, Average difficulty to start from.
+function rollSkill(id, key){
+  const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
+  const s = skillState(cs, sk);
+  Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n });
+  document.getElementById('diceLabel').value = sk.n;
+  showTab('dice');
+}
+function rollForce(id){
+  const cs = st(id), n = Math.max(0, cs.sheet.fr - (cs.force||0)); if(!n) return;
+  Object.assign(DICE_UI.pool, {p:0, a:0, b:0, k:0, d:0, c:0, F:n});
+  Object.assign(DICE_UI, { who:id, label:'Force power' });
+  document.getElementById('diceLabel').value = 'Force power';
+  showTab('dice');
+}
+const rankCostTip = (s) => s.rank>=SKILL_RANK_MAX ? 'Rank 5 is the maximum.'
+  : `Next rank (${s.rank+1}) costs ${5*(s.rank+1) + (s.career?0:5)} XP — 5 × the new rank${s.career?'':', +5 because this is not a career skill'}. Ranks are bought one at a time; no skill above rank 2 at character creation.`;
+function skillRowHtml(cs, sk){
+  const s = skillState(cs, sk), id = cs.id;
+  const chSel = `<select class="chsel" title="Characteristic this skill rolls with" onchange="${sk.cust ? `sheetCust('${id}','${sk.cust}','ch',this.value)` : `sheetSkill('${id}','${sk.k}','ch',this.value)`}">` +
+    ATTRS.map(([k,n])=>`<option value="${k}" ${k===s.ch?'selected':''}>${n.slice(0,3)}</option>`).join('') + `</select>`;
+  const name = sk.cust
+    ? `<input type="text" value="${esc(sk.n)}" placeholder="skill name" onchange="sheetCust('${id}','${sk.cust}','n',this.value)"><button class="mini" onclick="sheetDelSkill('${id}','${sk.cust}')" title="Remove this custom skill">✕</button>`
+    : esc(sk.n);
+  const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
+  return `<tr class="${s.career?'career':''}">
+    <td class="skn" title="${esc(sk.tip)}">${name} ${chSel}</td>
+    <td class="c"><input type="checkbox" ${s.career?'checked':''} onchange="sheetSkill('${id}','${sk.k}','c',this.checked)" title="Career skill — granted by your career and specializations. Career skills are 5 XP cheaper per rank."></td>
+    <td class="c"><input type="number" min="0" max="${SKILL_RANK_MAX}" value="${s.rank}" onchange="sheetSkill('${id}','${sk.k}','r',this.value)" title="${rankCostTip(s)}"></td>
+    <td><button class="skroll" onclick="rollSkill('${id}','${sk.k}')" title="${ATTRS.find(a=>a[0]===s.ch)[1]} ${s.cv} + rank ${s.rank} → ${s.p} Proficiency, ${s.a} Ability. Click to load this pool into the Dice tab.">${pool || '—'}</button></td>
+  </tr>`;
+}
+function renderSheet(){
+  const chips = document.getElementById('sheetChips'); if(!chips) return;
+  if(!st(SHEET_UI.id)) SHEET_UI.id = (S.chars.find(x=>S.visible[x.id]) || S.chars[0]).id;
+  const cs = st(SHEET_UI.id), c = cfg(cs.id), sh = cs.sheet, id = cs.id;
+  chips.innerHTML = `<span class="label">Sheet</span>` + S.chars.map(x=>
+    `<button class="chip ${x.id===id?'on':''}" onclick="sheetPick('${x.id}')">${esc(cfg(x.id).name)}</button>`).join('');
+  const txt = (k, lab, ph, cls, tip) => `<label title="${esc(tip)}">${lab}<input type="text" class="${cls}" value="${esc(sh[k])}" placeholder="${ph}" onchange="sheetSet('${id}','${k}',this.value)"></label>`;
+  const num = (k, cls) => `<input type="number" class="${cls||''}" min="${SHEET_NUM[k][0]}" max="${SHEET_NUM[k][1]}" value="${sh[k]}" onchange="sheetSet('${id}','${k}',this.value)">`;
+  const eff = effStrainThresh(cs, c);
+  const box = (lab, tip, inner, note) => `<div class="sbox" title="${esc(tip)}">${lab}<div class="vals">${inner}</div>${note?`<small>${note}</small>`:''}</div>`;
+  const stat = (k, kt) => `<input type="number" min="0" value="${cs[k]}" onchange="sheetStat('${id}','${k}',this.value)"> / <input type="number" min="0" value="${cs[kt]}" onchange="setThresh('${id}','${kt}',this.value)">`;
+  const groups = SKILL_GROUPS.map(g=>{
+    const rows = skillList(cs).filter(sk=>sk.g===g);
+    if(!rows.length && g!=='Custom') return '';
+    return `<table class="sktable"><tr><th>${g} skills</th><th class="c" title="Career skill">Career</th><th class="c">Rank</th><th>Dice pool</th></tr>
+      ${rows.map(sk=>skillRowHtml(cs, sk)).join('')}
+      ${g==='Custom' ? `<tr><td colspan="4"><button class="mini" onclick="sheetAddSkill('${id}')" title="Add a skill that is not on the standard list (homebrew, or from another book)">＋ add custom skill</button></td></tr>` : ''}</table>`;
+  });
+  document.getElementById('sheetBody').innerHTML = `
+    <div class="shead"><h2>${esc(c.name)}</h2>
+      ${txt('species','Species','species','','Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
+      ${txt('career','Career','career','','Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
+      ${txt('specs','Specializations','e.g. Ataru Striker, Niman Disciple','wide','Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
+    </div>
+    <div class="sboxes">
+      ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
+      ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
+      ${box('Soak','Soak is subtracted from the damage of every hit. Soak = Brawn + armor soak + talents such as Enduring.', num('soak'), `Brawn ${cs.attr.br} + armor`)}
+      ${box('Defense','Defense adds that many Setback dice to attacks against you. Ranged and melee are tracked separately; multiple sources do not stack — use the best.', num('defR')+' / '+num('defM'), 'ranged / melee')}
+      ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Force on the Tracker card.',
+        (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
+        ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
+      ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp')+' / '+num('xpTotal'), 'available / total')}
+      ${box('Credits','Credits on hand.', num('credits','big'))}
+    </div>
+    <div class="sboxes">` + ATTRS.map(([k,n])=>
+      `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
+    <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
 }
 
 /* ================================================================
@@ -2787,7 +3013,7 @@ function buildRules(){
   <p>The dose counter runs on a rolling <b>${STIM.windowHrs} h window</b> that opens with the first stim and clears ${STIM.windowHrs} h later — the card shows the time left in parentheses, and the log notes when tolerance clears.</p>
 
   <h2>✨ Force commitment (Cal, Bode, Merrin, Pike)</h2>
-  <p>Force sensitives may commit <b>0–8 Force points</b> to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
+  <p>Force sensitives may commit Force dice — <b>up to their Force rating</b> (set on the Sheets tab; ${FORCE_COMMIT_MAX} at most) — to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
 
   <h2>💧 Thirst ladder</h2>
   <p>Reaches Collapse in <b>~${thirstDays} days</b> (~${Math.round(ladderHours('water'))} h) walking in a temperate climate; about twice that resting in shade, well under two days in desert heat. Each tier carries its own accrual rate: thirst quickens as it deepens, because every percent of body water lost hurts more than the last.</p>
