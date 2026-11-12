@@ -108,6 +108,21 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const items = document.getElementById('itemsBody').innerHTML, itemsBad = (items.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  items: ${CATALOG.length} in catalog, ${hits} match "blaster pistol", homebrew round-trip ${hbHit===1?'ok':'FAILED'}, ${itemsBad} broken interpolations in the tab`);
   if(itemsBad || hbHit!==1 || !CATALOG.length) throw new Error('items tab smoke test failed');
+  // dice: face counts, a known tally, the pool builder, a feed round-trip and the destiny pool
+  const sizes = {b:6,k:6,a:8,d:8,p:12,c:12,F:12};
+  for(const t in sizes) if(DICE[t].faces.length!==sizes[t]) throw new Error('die '+t+' has the wrong number of faces');
+  const tl = tally(parseRoll('p:x p:sa a:aa d:ft d:tt c:y F:ll F:n zz:top a:bogus'));
+  if(tl.netS!==0 || tl.netA!==0 || tl.x!==1 || tl.y!==1 || tl.l!==2 || tl.n!==1) throw new Error('dice tally wrong: '+JSON.stringify(tl));
+  showTab('dice'); DICE_UI.who='cal'; DICE_UI.ch=6; DICE_UI.rk=5; poolSkill(); poolDiff(3); poolUpgrade('d','c'); poolAdj('b',1); poolAdj('F',2);
+  const pl = DICE_UI.pool; if(pl.p!==5 || pl.a!==1 || pl.d!==2 || pl.c!==1) throw new Error('pool builder wrong: '+JSON.stringify(pl));
+  DICE_UI.label='<b>Lightsaber</b>'; rollPool(); poolClear(); rollPool();
+  destinyRoll(); destinyAdj('light',2); destinyAdj('dark',1); const dl=S.destiny.light, dd=S.destiny.dark; destinyUse('light'); destinyUse('dark'); destinyUse('dark');
+  if(S.destiny.light!==dl+1 || S.destiny.dark!==dd-1 || dl+dd<4) throw new Error('destiny flips wrong');
+  let big = 0; for(let i=0;i<20000;i++) big += tally(parseRoll(rollDice({p:1}))).s;   // proficiency die: 9 success symbols on 12 faces
+  const feed = document.getElementById('diceFeed').innerHTML + document.getElementById('dicePool').innerHTML + document.getElementById('destinyChip').innerHTML;
+  const diceBad = (feed.match(/undefined|NaN|\[object|<b>Lightsaber/g)||[]).length;
+  print(`  dice: ${ROLLS.length} feed entries (1 roll, 1 pool roll, 3 flips), proficiency die averages ${(big/20000).toFixed(3)} successes (expect 0.750), destiny ${S.destiny.light} Light / ${S.destiny.dark} Dark, ${diceBad} broken interpolations`);
+  if(diceBad || ROLLS.length!==5 || Math.abs(big/20000-9/12)>0.03) throw new Error('dice smoke test failed');
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);

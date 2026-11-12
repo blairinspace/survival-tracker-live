@@ -115,8 +115,49 @@
   .log p b{color:var(--text)}
   .log .lw{color:var(--warn)} .log .lb{color:var(--bad)} .log .lg{color:#7ee2a0} .log .lf{color:var(--force)} .log .ld{color:var(--droid)}
   .log .ln{color:var(--accent);font-style:italic}
-  .tabs{display:flex;gap:8px;margin:12px 0}
+  .tabs{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap;align-items:center}
   .tabs button.on{background:#1f3a5f;border-color:var(--accent)}
+  /* Destiny pool chip (always visible) + Dice tab */
+  #destinyChip{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .dpt{font-weight:700;border-radius:14px;padding:4px 11px}
+  .dpt.light{background:#e9eef5;color:#10151c;border-color:#fff}
+  .dpt.dark{background:#05070a;color:#e6edf3;border-color:#555}
+  .dpt:disabled{opacity:.4;cursor:default}
+  #dice{display:none}
+  .dicewrap{display:grid;grid-template-columns:minmax(300px,440px) 1fr;gap:12px;align-items:start}
+  @media (max-width:820px){ .dicewrap{grid-template-columns:1fr} }
+  .dpanel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .dpanel h3{font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin:0 0 8px}
+  .dpanel h3:not(:first-child){margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+  .drow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+  .drow input[type=number]{width:48px}
+  .diecells{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:10px}
+  .diecell{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--dim);text-align:center}
+  .diecell .cnt{font-size:16px;font-weight:700;color:var(--text)}
+  .diecell .cnt.zero{color:#3a424d}
+  .die{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;font-size:11px;font-weight:700;line-height:1;letter-spacing:-1px;color:#111;user-select:none;vertical-align:middle;flex:none}
+  button.die{border:none;padding:0;border-radius:0;cursor:pointer;font-size:15px}
+  button.die:hover{filter:brightness(1.25)}
+  .die.d6{border-radius:6px;width:30px;height:30px}
+  .die.d8{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);width:38px;height:38px;font-size:10px}
+  .die.d12{clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%);width:38px}
+  .die.t-b{background:#7fd3ee} .die.t-k{background:#000;color:#fff;box-shadow:inset 0 0 0 1px #777}
+  .die.t-a{background:#41ad4f} .die.t-d{background:#6f42b0;color:#fff}
+  .die.t-p{background:#f4d93b} .die.t-c{background:#cf2a2a;color:#fff} .die.t-F{background:#f3f4f6}
+  .poolprev{min-height:44px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:var(--panel2);border:1px dashed var(--border);border-radius:8px;padding:6px;margin-bottom:8px;color:var(--dim);font-size:12px}
+  button.rollbtn{font-size:14px;padding:8px 18px;font-weight:700}
+  #diceFeed{max-height:70vh;overflow-y:auto}
+  .roll{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:var(--panel2)}
+  .roll .rhead{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--dim);margin-bottom:6px}
+  .roll .rhead b{color:var(--text);font-size:13px}
+  .roll .rdice{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+  .roll .rres{font-size:13px}
+  .roll .rres .ok{color:var(--good);font-weight:700} .roll .rres .no{color:var(--bad);font-weight:700}
+  .roll .rres span.sym{white-space:nowrap;margin-right:10px}
+  .roll.dflip{text-align:center;font-weight:700}
+  .roll.dflip.dark{background:#05070a;border-color:#555} .roll.dflip.light{background:#e9eef5;color:#10151c;border-color:#fff}
+  .roll.dflip small{display:block;font-weight:400;opacity:.75;font-size:11px}
+  .dlegend{font-size:11px;color:var(--dim);line-height:1.7}
   #rules{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;line-height:1.6}
   #rules h2{color:var(--gold);font-size:16px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:1px}
   #rules h2:first-child{margin-top:0}
@@ -230,7 +271,7 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#dice,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -312,7 +353,9 @@
   <button id="tabT" class="on" onclick="showTab('tracker')">Tracker</button>
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
+  <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
   <button id="tabR" onclick="showTab('rules')">Rules Reference</button>
+  <span id="destinyChip"></span>
 </div>
 
 <div id="tracker"><div class="grid" id="cards"></div>
@@ -342,6 +385,29 @@
     <button class="mini" onclick="hbAdd()" title="Add a homebrew item — shared with the room and saved with everything else">✨ add homebrew item</button>
   </div>
   <div id="itemsBody"></div>
+</div></div>
+
+<div id="dice"><div class="dicewrap">
+  <div class="dpanel">
+    <h3>Dice pool</h3>
+    <div class="drow">
+      <span class="label">Rolling as</span>
+      <select id="diceWho" onchange="DICE_UI.who=this.value;renderDice()" title="Whose roll this is — pick a character to get their characteristics as one-click buttons"></select>
+      <input type="text" id="diceLabel" placeholder="what for? e.g. Coordination" oninput="DICE_UI.label=this.value" onkeydown="if(event.key==='Enter')rollPool()">
+    </div>
+    <div id="dicePool"></div>
+    <h3>Destiny pool</h3>
+    <div id="destinyBox"></div>
+    <h3>Reading the dice</h3>
+    <div class="dlegend" id="diceLegend"></div>
+  </div>
+  <div class="dpanel">
+    <div class="drow" style="justify-content:space-between">
+      <h3 style="margin:0">Roll feed <span id="feedMode" style="color:var(--dim);text-transform:none;letter-spacing:0"></span></h3>
+      <button class="mini" onclick="clearFeed()" title="Clear the roll feed for everyone in the room">⟳ clear</button>
+    </div>
+    <div id="diceFeed"></div>
+  </div>
 </div></div>
 
 <div id="rules"></div>
@@ -838,7 +904,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [] };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], destiny: {light:0, dark:0} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -877,6 +943,9 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.homebrew = arrayify(s.homebrew); if(!Array.isArray(s.homebrew)) s.homebrew=[];
   s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
   for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
+  // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
+  if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
+  for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
     for(const k of ['cargo','smuggle','fuelLog']) s.ship[k] = arrayify(s.ship[k]);
@@ -1894,6 +1963,7 @@ function render(){
   }
   renderShip();
   renderItems();
+  renderDestiny();
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2160,10 +2230,235 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
 function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
 function showTab(t){
-  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['items','tabI'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['items','tabI'],['dice','tabD'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
+  if(t==='dice'){ renderDice(); renderFeed(); }
+}
+
+/* ================================================================
+   DICE — FFG narrative dice, the shared roll feed and the Destiny pool.
+   Rolls are NOT part of S: each one is appended to rooms/<id>/rolls with
+   push(), so two players rolling in the same instant can never overwrite
+   each other (the event log's last-write-wins limit doesn't apply here).
+   Solo, the feed lives in this device's localStorage instead.
+   The Destiny pool IS part of S (S.destiny) and syncs like everything else.
+   Face codes: s success · f failure · a advantage · t threat ·
+               x triumph (also a success) · y despair (also a failure) ·
+               l light side point · n dark side point
+   ================================================================ */
+const DICE = {
+  b:{ name:'Boost',       cls:'d6',  faces:['','','s','sa','aa','a'],
+      tip:'Boost (blue d6) — add for a helpful edge: good position, aid from an ally, the right tool, time to aim.' },
+  k:{ name:'Setback',     cls:'d6',  faces:['','','f','f','t','t'],
+      tip:'Setback (black d6) — add for a minor hindrance: poor light, cover, noise, bad footing, a defense rating.' },
+  a:{ name:'Ability',     cls:'d8',  faces:['','s','s','ss','a','a','sa','aa'],
+      tip:'Ability (green d8) — your raw aptitude. You roll as many as the HIGHER of your characteristic and skill rank, then upgrade some to Proficiency.' },
+  d:{ name:'Difficulty',  cls:'d8',  faces:['','f','ff','t','t','t','tt','ft'],
+      tip:'Difficulty (purple d8) — how hard the task is: Easy 1, Average 2, Hard 3, Daunting 4, Formidable 5.' },
+  p:{ name:'Proficiency', cls:'d12', faces:['','s','s','ss','ss','a','sa','sa','sa','aa','aa','x'],
+      tip:'Proficiency (yellow d12) — trained skill. Upgrade as many Ability dice as the LOWER of your characteristic and skill rank. The only die with a Triumph.' },
+  c:{ name:'Challenge',   cls:'d12', faces:['','f','f','ff','ff','t','t','ft','ft','tt','tt','y'],
+      tip:'Challenge (red d12) — an upgraded Difficulty die: a skilled opponent, an adversary talent, or a Destiny point spent against you. The only die with a Despair.' },
+  F:{ name:'Force',       cls:'d12', faces:['n','n','n','n','n','n','nn','l','l','ll','ll','ll'],
+      tip:'Force (white d12) — roll one per Force rating you are not committing. Light points fuel the power; using dark points costs strain and Conflict, and flips a Destiny point.' },
+};
+const DICE_ORDER = ['p','a','b','c','d','k','F'];
+const SYM = {
+  s:['✸','Success'],   f:['✖','Failure'],
+  a:['▲','Advantage'], t:['▼','Threat'],
+  x:['✪','Triumph'],   y:['⊗','Despair'],
+  l:['○','Light side'],n:['●','Dark side'],
+};
+const SYM_TIPS = {
+  s:'Success — cancels one Failure. At least one left over and the check succeeds; extra successes add damage or shave time.',
+  f:'Failure — cancels one Success.',
+  a:'Advantage — cancels one Threat. A side benefit whether or not you succeed: recover strain, pass a Boost to an ally, trigger a weapon quality or a critical hit.',
+  t:'Threat — cancels one Advantage. A side complication whether or not you succeed: suffer strain, hand the enemy a Boost, lose your footing.',
+  x:'Triumph — counts as a Success AND a powerful boon that is never cancelled. Triggers a critical hit or any weapon quality.',
+  y:'Despair — counts as a Failure AND a serious complication that is never cancelled. Weapons jam, ammo runs dry.',
+  l:'Light side point — spend to fuel a Force power.',
+  n:'Dark side point — a light-side user may spend it only by flipping a Destiny point, suffering strain and taking Conflict equal to the points used.',
+};
+const DIFFS = [['Simple',0],['Easy',1],['Average',2],['Hard',3],['Daunting',4],['Formidable',5]];
+const FEED_MAX = 50, POOL_MAX = 12;
+const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0 };
+let ROLLS = [];   // feed entries, oldest first
+
+const rollInt = n => (typeof crypto!=='undefined' && crypto.getRandomValues)
+  ? crypto.getRandomValues(new Uint32Array(1))[0] % n : Math.floor(Math.random()*n);
+function rollDice(pool){          // → "p:sa a: d:ft" — one token per die, in display order
+  const out = [];
+  for(const t of DICE_ORDER) for(let i=0;i<(pool[t]||0);i++) out.push(t+':'+DICE[t].faces[rollInt(DICE[t].faces.length)]);
+  return out.join(' ');
+}
+function parseRoll(str){          // tolerant: anything that isn't a real die face is dropped (remote data)
+  return String(str||'').split(' ').map(tok=>tok.split(':'))
+    .filter(([t,f])=> DICE[t] && DICE[t].faces.includes(f||'')).map(([t,f])=>[t, f||'']);
+}
+function tally(dice){
+  const n = {s:0,f:0,a:0,t:0,x:0,y:0,l:0,n:0};
+  for(const [,face] of dice) for(const ch of face) n[ch]++;
+  return { ...n, netS:(n.s+n.x)-(n.f+n.y), netA:n.a-n.t,
+           check: dice.some(([t])=>t!=='F'), force: dice.some(([t])=>t==='F') };
+}
+const faceText = f => f ? [...f].map(ch=>SYM[ch][0]).join('') : '';
+const faceTip  = (t,f) => DICE[t].name+': '+(f ? [...f].map(ch=>SYM[ch][1]).join(' + ') : 'blank');
+const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${faceTip(t,f)}">${faceText(f)}</span>`;
+
+/* ---- pool builder ---- */
+function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; renderDice(); }
+function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
+  const p = DICE_UI.pool;
+  if(p[from]>0){ p[from]--; p[to] = Math.min(POOL_MAX, p[to]+1); } else p[from] = 1;
+  renderDice();
+}
+function poolDiff(n){ DICE_UI.pool.d = n; DICE_UI.pool.c = 0; renderDice(); }
+function poolSkill(){             // characteristic + skill rank → Ability/Proficiency
+  const ch = clamp(Math.round(DICE_UI.ch)||0, 0, POOL_MAX), rk = clamp(Math.round(DICE_UI.rk)||0, 0, POOL_MAX);
+  DICE_UI.pool.p = Math.min(ch, rk); DICE_UI.pool.a = Math.max(ch, rk) - Math.min(ch, rk);
+  renderDice();
+}
+function poolChar(v){ DICE_UI.ch = v; poolSkill(); }
+function diceWhoName(){
+  const cs = S.chars.find(x=>x.id===DICE_UI.who);
+  return cs ? cfg(cs.id).name : (DICE_UI.who==='gm' ? 'GM' : CLOUD.player);
+}
+function rollPool(){
+  const p = DICE_UI.pool;
+  if(!DICE_ORDER.some(t=>p[t]>0)) return;
+  postFeed({ k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(p) });
+}
+
+/* ---- feed (append-only) ---- */
+function postFeed(e){
+  e.by = CLOUD.player; e.t = clockStr(); e.ts = Date.now();
+  if(CLOUD.db && CLOUD.room)      // the room's listener (attachRoom) renders it — fires locally at once, even offline
+    CLOUD.db.ref('rooms/'+CLOUD.room+'/rolls').push(e).catch(err=>syncNote('Roll not sent: '+err.message, 'bad'));
+  else { ROLLS.push(e); ROLLS = ROLLS.slice(-FEED_MAX); lsSet('st_rolls', JSON.stringify(ROLLS)); renderFeed(); }
+}
+function setRolls(list){ ROLLS = (list||[]).filter(e=>e && typeof e==='object').slice(-FEED_MAX); renderFeed(); }
+function loadLocalRolls(){ try{ setRolls(JSON.parse(lsGet('st_rolls')||'[]')); }catch(e){ setRolls([]); } }
+function clearFeed(){
+  if(CLOUD.db && CLOUD.room){
+    if(!confirm('Clear the roll feed for everyone in the room?')) return;
+    CLOUD.db.ref('rooms/'+CLOUD.room+'/rolls').remove().catch(err=>syncNote('Clear failed: '+err.message, 'bad'));
+  } else { ROLLS = []; lsSet('st_rolls','[]'); renderFeed(); }
+}
+function resultHtml(dice){
+  const r = tally(dice), parts = [];
+  const sym = (k, n, word) => `<span class="sym" title="${esc(SYM_TIPS[k])}">${SYM[k][0]} ${n} ${word}${n===1?'':(word==='Success'?'es':'s')}</span>`;
+  let head = '';
+  if(r.check){
+    head = r.netS>0 ? `<span class="ok">Check succeeded</span> — ` : `<span class="no">Check failed</span> — `;
+    parts.push(r.netS>0 ? sym('s', r.netS, 'Success') : r.netS<0 ? sym('f', -r.netS, 'Failure') : `<span class="sym">no net successes</span>`);
+    if(r.netA>0) parts.push(sym('a', r.netA, 'Advantage'));
+    if(r.netA<0) parts.push(sym('t', -r.netA, 'Threat'));
+    if(r.x) parts.push(sym('x', r.x, 'Triumph'));
+    if(r.y) parts.push(sym('y', r.y, 'Despair'));
+  }
+  if(r.force){
+    parts.push(`<span class="sym" title="${esc(SYM_TIPS.l)}">${SYM.l[0]} ${r.l} Light</span>`);
+    parts.push(`<span class="sym" title="${esc(SYM_TIPS.n)}">${SYM.n[0]} ${r.n} Dark</span>`);
+  }
+  return head + parts.join('');
+}
+function feedEntryHtml(e){
+  const by = esc(String(e.by||'Player').slice(0,40)), t = esc(String(e.t||'').slice(0,40));
+  if(e.k==='d'){
+    const side = e.side==='light' ? 'light' : 'dark', to = side==='light' ? 'Dark' : 'Light';
+    return `<div class="roll dflip ${side==='light'?'dark':'light'}">${side==='light'?'Light':'Dark'} side Destiny point used → flipped to ${to}
+      <small>${SYM.l[0]} ${+e.light||0} Light · ${SYM.n[0]} ${+e.dark||0} Dark remaining · ${by} · ${t}</small></div>`;
+  }
+  if(e.k==='p'){
+    return `<div class="roll"><div class="rhead"><b>Destiny pool</b><span>${by} · ${t}</span></div>
+      <div class="rres">${esc(String(e.m||'').slice(0,160))}</div></div>`;
+  }
+  const dice = parseRoll(e.r); if(!dice.length) return '';
+  const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
+  return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
+    <div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    <div class="rres">${resultHtml(dice)}</div></div>`;
+}
+function renderFeed(){
+  const el = document.getElementById('diceFeed'); if(!el) return;
+  el.innerHTML = ROLLS.length ? ROLLS.slice().reverse().map(feedEntryHtml).join('')
+    : `<p style="color:var(--dim);font-size:12px">No rolls yet. Build a pool on the left and roll.</p>`;
+  const m = document.getElementById('feedMode');
+  if(m) m.textContent = CLOUD.room ? '· shared with the room' : '· this device only (join a live room to share)';
+}
+
+/* ---- destiny pool ---- */
+function destinyUse(side){        // players spend Light (→ Dark); the GM spends Dark (→ Light)
+  const d = S.destiny, other = side==='light' ? 'dark' : 'light';
+  if(d[side] < 1) return;
+  d[side]--; d[other]++;
+  postFeed({ k:'d', side, light:d.light, dark:d.dark });
+  render();
+}
+function destinyAdj(side, n){ S.destiny[side] = clamp(S.destiny[side]+n, 0, 20); render(); }
+function destinyRoll(){           // session start: every player rolls one Force die into the pool
+  const face = DICE.F.faces[rollInt(12)], l = (face.match(/l/g)||[]).length, n = face.length - l;
+  S.destiny.light = clamp(S.destiny.light+l, 0, 20); S.destiny.dark = clamp(S.destiny.dark+n, 0, 20);
+  postFeed({ k:'p', m:`${diceWhoName()} rolled ${faceText(face)} — adds ${l?l+' Light':n+' Dark'}. Pool: ${S.destiny.light} Light, ${S.destiny.dark} Dark.` });
+  render();
+}
+function destinyReset(){ S.destiny = {light:0, dark:0}; postFeed({ k:'p', m:'Destiny pool emptied.' }); render(); }
+function renderDestiny(){
+  const d = S.destiny;
+  const chip = document.getElementById('destinyChip');
+  if(chip) chip.innerHTML = `<span class="label" title="The Destiny pool. Players spend a Light point to upgrade an Ability die (or an enemy's Difficulty), trigger certain talents, or nudge the story — it flips to Dark. The GM spends Dark the same way and it flips to Light. One point per side per check.">Destiny</span>
+    <button class="dpt light" ${d.light?'':'disabled'} onclick="destinyUse('light')" title="Players: spend a Light side point (it flips to Dark)">${SYM.l[0]} ${d.light} Light</button>
+    <button class="dpt dark" ${d.dark?'':'disabled'} onclick="destinyUse('dark')" title="GM: spend a Dark side point (it flips to Light)">${SYM.n[0]} ${d.dark} Dark</button>`;
+  const box = document.getElementById('destinyBox');
+  if(box) box.innerHTML = `<div class="drow">
+      <span class="label">Light</span><button class="mini" onclick="destinyAdj('light',-1)">−</button><b>${d.light}</b><button class="mini" onclick="destinyAdj('light',1)">+</button>
+      <span class="label" style="margin-left:10px">Dark</span><button class="mini" onclick="destinyAdj('dark',-1)">−</button><b>${d.dark}</b><button class="mini" onclick="destinyAdj('dark',1)">+</button>
+    </div>
+    <div class="drow">
+      <button onclick="destinyRoll()" title="At the start of a session each player rolls one Force die; every light or dark point rolled is added to the pool">🎲 Roll a Force die into the pool</button>
+      <button class="mini" onclick="if(confirm('Empty the Destiny pool?'))destinyReset()" title="Empty the pool — do this before the start-of-session rolls">empty</button>
+    </div>
+    <div class="dlegend">Spend points with the Light / Dark buttons at the top right of any tab — they stay visible all session.</div>`;
+}
+
+/* ---- dice tab ---- */
+function renderDice(){
+  const who = document.getElementById('diceWho'); if(!who) return;
+  const me = CLOUD.player==='Player' ? 'Me' : CLOUD.player;
+  who.innerHTML = `<option value="">${esc(me)}</option><option value="gm">GM</option>` +
+    S.chars.map(cs=>`<option value="${cs.id}">${esc(cfg(cs.id).name)}</option>`).join('');
+  who.value = DICE_UI.who;
+  const p = DICE_UI.pool, cs = S.chars.find(x=>x.id===DICE_UI.who);
+  const total = DICE_ORDER.reduce((n,t)=>n+p[t], 0);
+  const cells = DICE_ORDER.map(t=>`<div class="diecell" title="${esc(DICE[t].tip)}">
+      <button class="die ${DICE[t].cls} t-${t}" onclick="poolAdj('${t}',1)" aria-label="Add a ${DICE[t].name} die">+</button>
+      <span class="cnt ${p[t]?'':'zero'}">${p[t]}</span>
+      <button class="mini" onclick="poolAdj('${t}',-1)" aria-label="Remove a ${DICE[t].name} die">−</button>
+      ${DICE[t].name}</div>`).join('');
+  const attrBtns = cs ? `<div class="drow"><span class="label">${esc(cfg(cs.id).name)}</span>` +
+      ATTRS.map(([k,n])=>`<button class="mini" onclick="poolChar(${+(cs.attr||{})[k]||0})" title="Use ${n} ${+(cs.attr||{})[k]||0} as the characteristic">${n.slice(0,3)} ${+(cs.attr||{})[k]||0}</button>`).join('') + `</div>` : '';
+  document.getElementById('dicePool').innerHTML = `
+    ${attrBtns}
+    <div class="drow" title="Skill check: roll Ability dice equal to the HIGHER of characteristic and skill rank, then upgrade as many as the LOWER to Proficiency.">
+      <span class="label">Characteristic</span><input type="number" min="0" max="${POOL_MAX}" value="${DICE_UI.ch}" onchange="DICE_UI.ch=+this.value;poolSkill()">
+      <span class="label">Skill rank</span><input type="number" min="0" max="${POOL_MAX}" value="${DICE_UI.rk}" onchange="DICE_UI.rk=+this.value;poolSkill()">
+      <button class="mini" onclick="poolSkill()">set dice</button>
+    </div>
+    <div class="drow"><span class="label">Difficulty</span>` +
+      DIFFS.map(([n,v])=>`<button class="mini" onclick="poolDiff(${v})" title="${n}: ${v} Difficulty ${v===1?'die':'dice'}">${n}</button>`).join('') + `</div>
+    <div class="diecells">${cells}</div>
+    <div class="drow">
+      <button class="mini" onclick="poolUpgrade('a','p')" title="Upgrade the roll: one Ability die becomes Proficiency (if none are left, add an Ability die). Used when you spend a Destiny point or a talent says 'upgrade'.">⬆ upgrade ability</button>
+      <button class="mini" onclick="poolUpgrade('d','c')" title="Upgrade the difficulty: one Difficulty die becomes Challenge (if none are left, add a Difficulty die). Used for adversaries, Dodge, or a Destiny point spent against the roller.">⬆ upgrade difficulty</button>
+      <button class="mini" onclick="poolClear()">clear</button>
+    </div>
+    <div class="poolprev">${total ? DICE_ORDER.map(t=>`<span class="die ${DICE[t].cls} t-${t}" title="${DICE[t].name}"></span>`.repeat(p[t])).join('') : 'Empty pool — click the dice above to add them.'}</div>
+    <button class="primary rollbtn" onclick="rollPool()" ${total?'':'disabled'}>🎲 Roll${total?` ${total} ${total===1?'die':'dice'}`:''}</button>`;
+  const lg = document.getElementById('diceLegend');
+  if(lg && !lg.innerHTML) lg.innerHTML = Object.keys(SYM).map(k=>`<div><b style="color:var(--text)">${SYM[k][0]} ${SYM[k][1]}</b> — ${esc(SYM_TIPS[k].split(' — ')[1])}</div>`).join('');
 }
 
 /* ================================================================
@@ -2603,6 +2898,7 @@ function buildRules(){
    - 'visible' (the Show chips) stays local to each device — a view pref.
    Known limit: the shared log is last-write-wins, so two log entries created
    within the same moment can collide; character edits still merge cleanly.
+   (Dice rolls avoid this: they live in rooms/<id>/rolls, appended with push().)
    ================================================================ */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyAyrGynBaL0MTqru_DeBktBF036Efa7dAg",
@@ -2618,6 +2914,7 @@ const CLOUD = {
   db: null,          // firebase database handle (null → offline/solo)
   room: null,        // room id
   ref: null,         // rooms/<id>/state ref we're subscribed to
+  rollsRef: null,    // rooms/<id>/rolls query (the append-only dice feed)
   _conn: null,       // .info/connected ref
   player: 'Player',
   online: false,     // firebase connection state
@@ -2828,6 +3125,7 @@ function applyRemote(remote){
 /* ---- room lifecycle ------------------------------------------- */
 function detachRoom(){
   if(CLOUD.ref){ CLOUD.ref.off(); CLOUD.ref=null; }
+  if(CLOUD.rollsRef){ CLOUD.rollsRef.off(); CLOUD.rollsRef=null; }
   if(CLOUD._conn){ CLOUD._conn.off(); CLOUD._conn=null; }
 }
 function attachRoom(id){
@@ -2839,6 +3137,10 @@ function attachRoom(id){
   CLOUD.ref = CLOUD.db.ref('rooms/'+id+'/state');
   CLOUD.ref.on('value', snap=> onRoomSnap(snap.val()),
     err=> syncNote('Live error: '+err.message, 'bad'));
+  // dice feed: its own node, appended with push(), so simultaneous rolls never collide
+  CLOUD.rollsRef = CLOUD.db.ref('rooms/'+id+'/rolls').limitToLast(FEED_MAX);
+  CLOUD.rollsRef.on('value', snap=>{ const list=[]; snap.forEach(ch=>{ list.push(ch.val()); }); setRolls(list); },
+    err=> syncNote('Roll feed error: '+err.message, 'bad'));
 }
 function randomId(){
   const a = new Uint8Array(9);
@@ -2865,6 +3167,7 @@ function roomLeave(){
   detachRoom(); setRoomId(null);
   CLOUD.synced = false; CLOUD.shadow = null; CLOUD.pending = null;
   const rin=document.getElementById('roomIn'); if(rin) rin.value='';
+  loadLocalRolls();   // the room's roll feed stays with the room
   syncNote('Left the room — back to solo. Your local data is untouched.');
 }
 async function roomCopyLink(){
@@ -2920,6 +3223,7 @@ function init(){
   document.getElementById('partyCond').innerHTML = `<option value="">condition…</option>` +
     Object.entries(CONDS).map(([k,d])=>`<option value="${k}" title="${condTitle(d)}">${d.label}${d.droid?' (droids)':''}</option>`).join('');
   buildRules();
+  loadLocalRolls();
   if(restored) logMsg(`💾 Session restored on this device — ${clockStr()}. 🆕 New starts over at Day 1.`);
   else logMsg('Tracker ready — Day 1, 00:00. All needs at 0, canteens full, droid packs charged. May the Force sustain you.');
   render();
