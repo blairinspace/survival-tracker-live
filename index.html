@@ -185,6 +185,12 @@
   .sktable tr.irow td{border-bottom:none;padding-top:5px}
   .sktable input.ialias{width:110px} .sktable input.addin{width:230px}
   .b-cu{background:#12323a;color:#8fe3ee}
+  details.sfold{border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:var(--panel2)}
+  details.sfold > summary{cursor:pointer;user-select:none;font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;padding:2px 0}
+  details.sfold > summary b{color:var(--text)} details.sfold > summary .sub{color:var(--dim);text-transform:none;letter-spacing:0}
+  details.sfold[open] > summary{margin-bottom:6px}
+  details.sfold.crate{margin-bottom:14px;background:var(--panel)} details.sfold.crate > summary{font-size:13px}
+  details.sfold.crate .geartables{margin-bottom:4px}
   .geartables{display:grid;grid-template-columns:1fr;gap:12px;align-items:start;margin-bottom:14px}
   .geartables .wide{grid-column:1/-1}
   .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:54px}
@@ -2372,7 +2378,9 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
-const SHEET_UI = { id:'' };
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, gear:true } };   // which inventory dropdowns are open — per device, remembered
+try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
+function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
 function newSheet(c){
   return { species:c.species||'', career:'', specs:'', soakMod:0, defRMod:0, defMMod:0,
@@ -2626,20 +2634,26 @@ function gearHtml(cs){
   }).join('');
   const w = invWeight(cs), thr = effThresh(cs), pb = packBonus(cs);
   const unlinked = rows.filter(x=>!x.it.auto && x.it.name && !dbOf(x.it)).length;
-  return `<div class="geartables">
+  const cnt = f => { const l = rows.filter(x=>f(x.it)), c = l.filter(x=>isCarried(x.it)).length; return `<b>${l.length}</b>${l.length ? ` <span class="sub">· ${c} carried${l.length-c ? `, ${l.length-c} stowed` : ''}</span>` : ''}`; };
+  const fold = (key, icon, label, count, body) => `<details class="sfold" ${SHEET_UI.open[key]?'open':''} ontoggle="sheetOpen('${key}',this.open)">
+      <summary>${icon} ${label} ${count}</summary>${body}</details>`;
+  const total = rows.filter(x=>!x.it.auto).length;
+  return `<details class="sfold crate" ${SHEET_UI.open.crate?'open':''} ontoggle="sheetOpen('crate',this.open)">
+    <summary>📦 Personal Item Storage Crate <b>${total}</b> <span class="sub">· enc ${w.toFixed(1)} / ${thr}${unlinked ? ` · <span style="color:var(--warn)">⚠ ${unlinked} unmatched</span>` : ''}</span></summary>
+  <div class="geartables">
     <div class="drow" style="margin:0" title="Over the threshold you add Setback dice to Brawn and Agility checks, and the tracker speeds up thirst, hunger and fatigue. Armor never counts; packs raise the threshold.">
       <span class="label">Encumbrance</span> <b style="color:${w>thr?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> /
       <input type="number" min="0" style="width:52px" value="${cs.encThresh}" onchange="setThresh('${id}','encThresh',this.value)" title="Body threshold = Brawn + 5 (set automatically when Brawn changes; editable)">${pb?` <span style="color:var(--gold)">+ ${pb} from packs = ${thr}</span>`:''}
       <span class="label" style="margin-left:14px">Food</span> <span style="font-size:12px;color:var(--dim)" title="The hunger buttons on the Tracker card each eat one item of the matching type">🍪 ${stockOf(cs,'Snack')} snacks · 🍞 ${stockOf(cs,'Ration')} rations · 🍲 ${stockOf(cs,'Meal')} meals</span>
       ${unlinked ? `<span class="nomatch" style="color:var(--warn);font-size:12px;margin-left:14px">⚠ ${unlinked} item${unlinked===1?'':'s'} not matched to the database</span>` : ''}
     </div>
-    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
-      ${weps}${addRow('Weapon', 11, 'a weapon')}</table>
-    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
-      ${arms}${addRow('Armor', 8, 'armor')}</table>
-    <table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
-      ${other}${addRow('Gear', 7, 'gear, food or medical supplies')}</table>
-  </div>`;
+    ${fold('weapons', '🗡', 'Weapons', cnt(isWeapon), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
+      ${weps}${addRow('Weapon', 11, 'a weapon')}</table>`)}
+    ${fold('armor', '🛡', 'Armor', cnt(isArmor), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
+      ${arms}${addRow('Armor', 8, 'armor')}</table>`)}
+    ${fold('gear', '🎒', 'Gear', cnt(it=>!it.auto && !isWeapon(it) && !isArmor(it)), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
+      ${other}${addRow('Gear', 7, 'gear, food or medical supplies')}</table>`)}
+  </div></details>`;
 }
 
 function sheetPick(id){ SHEET_UI.id = id; render(); }

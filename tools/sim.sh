@@ -183,6 +183,8 @@ print('\n=== SMOKE TEST — UI code paths ===');
   lam.def = 2; lam.wear = 45; if(armorState(lam).def!==1 || armorState(lam).soak!==2) throw new Error('Scuffed armor should lose 1 defense only'); useItem('cal',li); delInv('cal',li);
   const hook = st('cal').inv.find(x=>x.name==='Grappling Hook'); hook.eq = 1; hook.wear = 0; tick(st('cal'),240); if(hook.wear!==0) throw new Error('non-weapon gear gathered wear');
   const cardInv = invSection(st('cal')); if((cardInv.match(/<details/g)||[]).length!==3 || !/Weapons/.test(cardInv) || !/Armor/.test(cardInv) || /undefined|NaN/.test(cardInv)) throw new Error('card should have three inventory dropdowns');
+  const crate = gearHtml(st('cal')); if(!/Personal Item Storage Crate/.test(crate) || (crate.match(/<details/g)||[]).length!==4 || /undefined|NaN/.test(crate)) throw new Error('sheet inventory should be a crate with three dropdowns');
+  sheetOpen('armor',false); if(/<details class="sfold" open[^>]*'armor'/.test(gearHtml(st('cal'))) || !/<details class="sfold" open[^>]*'weapons'/.test(gearHtml(st('cal')))) throw new Error('dropdown open state not remembered'); sheetOpen('armor',true);
   if(INV_TYPES.includes('Gear (worn)')) throw new Error('Gear (worn) type still offered');
   render(); const invHtml = document.getElementById('sheetBody').innerHTML + document.getElementById('cards').innerHTML;
   if(/undefined|NaN|\[object/.test(invHtml)) throw new Error('broken interpolation in the inventory views');
