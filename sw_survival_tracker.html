@@ -198,7 +198,39 @@
   .sysline{display:flex;flex-wrap:wrap;gap:5px 16px;font-size:12px}
   .sysline .si{color:var(--dim)}
   .sysline .si b{color:var(--text)}
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  /* ---- Items tab (catalog + homebrew) ---- */
+  #items{display:none}
+  .itemswrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .itembar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:10px}
+  .itembar input[type=text]{width:260px;max-width:100%}
+  .itembar label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
+  .itemcount{font-size:11.5px;color:var(--dim);margin:6px 0}
+  .itemscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .itemtable{width:100%;border-collapse:collapse;font-size:12px}
+  .itemtable th{color:var(--dim);font-size:9.5px;text-transform:uppercase;text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;background:var(--panel)}
+  .itemtable td{padding:4px 6px;border-bottom:1px dotted #21262d;vertical-align:top}
+  .itemtable td.num{text-align:right;white-space:nowrap}
+  .itemtable td.txt{min-width:160px;color:var(--dim);line-height:1.35}
+  .itemtable .iname{font-weight:600;min-width:150px}
+  .itemtable tr.hbrow td{background:rgba(227,179,65,.05)}
+  .itemtable select.give{width:auto;padding:2px 4px;font-size:11px}
+  .b-rest{background:#3a1010;color:#ff9c9c}
+  .b-hb{background:#4a3a10;color:#ffd97a}
+  .hbform{display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;padding:8px;background:var(--panel2);border:1px dashed var(--gold);border-radius:6px}
+  .hbform label{font-size:10.5px;color:var(--dim);display:flex;flex-direction:column;gap:2px}
+  .hbform input[type=text]{width:120px} .hbform input.wide{width:260px;max-width:100%} .hbform input[type=number]{width:62px}
+  @media(max-width:640px){   /* phones: each item becomes a stacked block with inline labelled stats */
+    .itembar input[type=text]{width:100%}
+    .itemtable tr:first-child{display:none}
+    .itemtable, .itemtable tbody, .itemtable tr, .itemtable td{display:block;width:100%}
+    .itemtable tr{padding:6px 0;border-bottom:1px solid var(--border)}
+    .itemtable td{border:none;padding:1px 4px}
+    .itemtable td.iname{font-size:13px;min-width:0}
+    .itemtable td.inl{display:inline-block;width:auto;padding-right:12px;text-align:left}
+    .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
+    .itemtable td.txt{min-width:0}
+  }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -279,6 +311,7 @@
 <div class="tabs">
   <button id="tabT" class="on" onclick="showTab('tracker')">Tracker</button>
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
+  <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabR" onclick="showTab('rules')">Rules Reference</button>
 </div>
 
@@ -298,11 +331,26 @@
 
 <div id="ship"></div>
 
+<div id="items"><div class="itemswrap">
+  <div class="itembar">
+    <input type="text" id="itemQ" placeholder="search name, qualities, features…" oninput="itemsSet('q',this.value)">
+    <span class="group" id="itemGroups"></span>
+    <select id="itemSub" onchange="itemsSet('c',this.value)" title="Sub-category (one per workbook sheet)"></select>
+    <select id="itemSkill" onchange="itemsSet('sk',this.value)" title="Weapon skill"></select>
+    <label title="Sort the results">sort <select id="itemSort" onchange="itemsSet('sort',this.value)"><option value="name">name</option><option value="price">price</option><option value="rare">rarity</option></select></label>
+    <label title="Hide (R) restricted items"><input type="checkbox" id="itemHideR" onchange="itemsSet('hideR',this.checked)"> hide restricted</label>
+    <button class="mini" onclick="hbAdd()" title="Add a homebrew item — shared with the room and saved with everything else">✨ add homebrew item</button>
+  </div>
+  <div id="itemsBody"></div>
+</div></div>
+
 <div id="rules"></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<!-- Item catalog, generated from the GM's workbook by tools/import-items.py (the Items tab is empty if this fails) -->
+<script src="items.js"></script>
 
 <script>
 'use strict';
@@ -790,7 +838,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [] };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [] };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -825,6 +873,10 @@ function migrate(s){ // patch older saves (and room snapshots)
   // RTDB deletes keys set to empty arrays, so a cleared log comes back undefined
   s.log = arrayify(s.log); if(!Array.isArray(s.log)) s.log=[];
   if(unknown.length) s.log.unshift({t:'load', m:`⚠ Dropped unknown character(s) from the save: ${esc(unknown.join(', '))}.`, c:'lw'});
+  // homebrew items (Items tab) — same RTDB caveat as the log; make every record well-formed
+  s.homebrew = arrayify(s.homebrew); if(!Array.isArray(s.homebrew)) s.homebrew=[];
+  s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
+  for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
     for(const k of ['cargo','smuggle','fuelLog']) s.ship[k] = arrayify(s.ship[k]);
@@ -1841,6 +1893,7 @@ function render(){
     wrap.appendChild(div);
   }
   renderShip();
+  renderItems();
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2107,7 +2160,7 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
 function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
 function showTab(t){
-  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['ship','tabS'],['items','tabI'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
@@ -2129,6 +2182,160 @@ function importState(inp){
   r.onload = e => { try{ S = migrate(JSON.parse(e.target.result)); rebuildLog(); render(); }catch(err){ alert('Invalid save file.'); } };
   r.readAsText(f);
   inp.value='';
+}
+
+/* ================================================================
+   ITEMS — the buyable-gear catalog (items.js, generated from the GM's
+   workbook by tools/import-items.py) plus shared homebrew items.
+   Catalog records use short keys — see the header of items.js.
+   Homebrew items live in S.homebrew (synced + saved like everything else).
+   ================================================================ */
+const CATALOG        = typeof ITEMS!=='undefined' ? ITEMS : [];
+const CATALOG_GROUPS = typeof ITEM_GROUPS!=='undefined' ? ITEM_GROUPS : [];
+/* catalog group → inventory type when an item is sent to a character's pack (→ 🎒) */
+const ITEM_INV_TYPE = { 'Armour':'Armor', 'Ranged Weapons':'Weapon', 'Melee Weapons':'Weapon', 'Lightsabers':'Weapon', 'Gear':'Gear', 'Modifications':'Other' };
+const ITEM_MEDICAL_SUBS = ['Medical','Drugs','Toxins'];   // Gear sub-categories that land as Medical
+const HB_GROUPS = Object.keys(ITEM_INV_TYPE);            // groups a homebrew item can belong to
+const WEAPON_GROUPS = HB_GROUPS.filter(g=>ITEM_INV_TYPE[g]==='Weapon');
+const ITEMS_MAX_ROWS = 250;                               // rows rendered before "refine your search"
+function invTypeFor(it){ return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other'); }
+/* per-device view state for the tab — never synced */
+const ITEMS_UI = { q:'', g:'', c:'', sk:'', sort:'name', hideR:false, edit:null };
+const CATALOG_SKILLS = [...new Set(CATALOG.map(it=>it.sk).filter(Boolean))].sort();
+
+const fmtPrice = it => it.pt ? esc(it.pt) : it.p!=null ? it.p.toLocaleString('en-US') : '—';
+const restBadge = it => it.r ? ` <span class="badge b-rest" title="Restricted — black market or a licence">R</span>` : '';
+const cell = v => v==null || v==='' ? '—' : esc(v);
+const numCell = (it,k) => it[k]!=null ? it[k] : it[k+'t'] ? esc(it[k+'t']) : '—';
+const rareCell = it => it.rat ? esc(it.rat) : numCell(it,'ra');
+/* one-line summary used by the All view and the → 🎒 log line */
+function itemDetails(it){   // plain text — callers escape
+  if(it.hb) return it.d||'';
+  if(it.sk) return [it.sk, it.dam!=null?`Dam ${it.dam}`:'', it.crit!=null?`Crit ${it.crit}`:'', it.rng||'', it.hp?`HP ${it.hp}`:'', it.q||''].filter(Boolean).join(' · ');
+  if(it.g==='Armour') return [`Def ${it.def??0}`, `Soak ${it.soak??0}`, it.hp?`HP ${it.hp}`:''].filter(Boolean).join(' · ');
+  return [it.hp?`HP ${it.hp}`:'', it.req?`Req: ${it.req}`:'', it.f||''].filter(Boolean).join(' · ');
+}
+const itemText = it => it.hb ? (it.q||it.f||it.d||'') : (it.q||it.f||'');   // last text column of a typed view
+
+/* column sets: [header, cell fn, css class] */
+const ITEM_COLS = {
+  all:     [['Category', it=>it.c && it.c!==it.g ? `${esc(it.g)} › ${esc(it.c)}` : esc(it.g)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Details', it=>esc(itemDetails(it)),'txt']],
+  armour:  [['Def', it=>numCell(it,'def'),'num'], ['Soak', it=>numCell(it,'soak'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Rare', rareCell,'num'], ['Notes', it=>esc(it.d||''),'txt']],
+  weapon:  [['Skill', it=>cell(it.sk)], ['Dam', it=>numCell(it,'dam'),'num'], ['Crit', it=>numCell(it,'crit'),'num'], ['Range', it=>cell(it.rng)], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Qualities', it=>esc(itemText(it)),'txt']],
+  gear:    [['Type', it=>esc(it.c)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Rare', rareCell,'num'], ['Features', it=>esc(itemText(it)),'txt']],
+  mod:     [['Applies to', it=>esc(it.c)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Requires', it=>cell(it.req),'txt'], ['Features', it=>esc(itemText(it)),'txt']],
+};
+const colsFor = g => !g ? ITEM_COLS.all : g==='Armour' ? ITEM_COLS.armour : WEAPON_GROUPS.includes(g) ? ITEM_COLS.weapon : g==='Modifications' ? ITEM_COLS.mod : ITEM_COLS.gear;
+
+function itemsSet(k, v){
+  ITEMS_UI[k] = v;
+  if(k==='g'){ ITEMS_UI.c=''; if(!WEAPON_GROUPS.includes(v) && v) ITEMS_UI.sk=''; }
+  renderItems();   // view-only change: no state touched, so no full render / sync
+}
+const hbList = () => (S.homebrew||[]).map(h=>Object.assign({hb:true}, h));
+const itemByKey = key => key[0]==='c' ? CATALOG[+key.slice(1)] : hbList().find(h=>h.id===key.slice(1));
+const hayOf = it => (it.n+' '+it.c+' '+(it.sk||'')+' '+(it.q||'')+' '+(it.f||'')+' '+(it.req||'')+' '+(it.d||'')).toLowerCase();
+function itemsFiltered(){
+  const u = ITEMS_UI, words = u.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const all = CATALOG.map((it,i)=>[it,'c'+i]).concat(hbList().map(h=>[h,'h'+h.id]));
+  const list = all.filter(([it])=>{
+    if(u.g && it.g!==u.g) return false;
+    if(u.c && it.c!==u.c) return false;
+    if(u.sk && it.sk!==u.sk) return false;
+    if(u.hideR && it.r) return false;
+    if(!words.length) return true;
+    const h = it.hb ? hayOf(it) : (it._h ??= hayOf(it));   // catalog records cache their haystack
+    return words.every(w=>h.includes(w));
+  });
+  const last = v => v==null ? Infinity : v;
+  if(u.sort==='price') list.sort((a,b)=>last(a[0].p)-last(b[0].p) || a[0].n.localeCompare(b[0].n));
+  else if(u.sort==='rare') list.sort((a,b)=>last(a[0].ra)-last(b[0].ra) || a[0].n.localeCompare(b[0].n));
+  else list.sort((a,b)=>a[0].n.localeCompare(b[0].n));
+  return list;
+}
+function renderItemsBar(){
+  const u = ITEMS_UI, grp = CATALOG_GROUPS.find(g=>g.g===u.g);
+  document.getElementById('itemGroups').innerHTML =
+    `<button class="chip ${u.g?'':'on'}" onclick="itemsSet('g','')">All</button>` +
+    CATALOG_GROUPS.map(g=>`<button class="chip ${u.g===g.g?'on':''}" onclick="itemsSet('g','${g.g}')">${g.g}</button>`).join('');
+  const sub = document.getElementById('itemSub');
+  sub.innerHTML = `<option value="">${grp ? 'all '+grp.g.toLowerCase() : 'any category'}</option>` +
+    (grp ? grp.subs : CATALOG_GROUPS.flatMap(g=>g.subs)).filter((s,i,a)=>a.indexOf(s)===i).map(s=>`<option value="${esc(s)}"${u.c===s?' selected':''}>${esc(s)}</option>`).join('');
+  sub.style.display = (grp && grp.subs.length<2) ? 'none' : '';
+  const sk = document.getElementById('itemSkill');
+  sk.innerHTML = `<option value="">any skill</option>` + CATALOG_SKILLS.map(s=>`<option value="${esc(s)}"${u.sk===s?' selected':''}>${esc(s)}</option>`).join('');
+  sk.style.display = (!u.g || WEAPON_GROUPS.includes(u.g)) ? '' : 'none';
+  document.getElementById('itemSort').value = u.sort;
+  document.getElementById('itemHideR').checked = u.hideR;
+  const q = document.getElementById('itemQ'); if(document.activeElement!==q && q.value!==u.q) q.value = u.q;
+}
+const givePicker = key => `<select class="give" title="Send this item to a character's inventory" onchange="giveItem('${key}',this.value);this.value=''"><option value="">→ 🎒</option>${CHARS.map(c=>`<option value="${c.id}">${c.name.split(' ')[0]}</option>`).join('')}</select>`;
+function renderItems(){
+  const body = document.getElementById('itemsBody'); if(!body) return;
+  renderItemsBar();
+  const u = ITEMS_UI, cols = colsFor(u.g), hbN = (S.homebrew||[]).length;
+  const editing = u.edit && hbList().find(h=>h.id===u.edit);
+  if(u.edit && !editing) u.edit = null;
+  const list = itemsFiltered().filter(([it])=>!(editing && it.hb && it.id===editing.id));
+  const shown = list.slice(0, ITEMS_MAX_ROWS);
+  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
+  const editRow = editing ? `<tr class="hbrow"><td colspan="${cols.length+2}">${hbForm(editing)}</td></tr>` : '';
+  body.innerHTML = `
+    <div class="itemcount">${CATALOG.length ? `showing <b>${shown.length}</b> of ${list.length} matching · ${CATALOG.length} catalog items${hbN?` + ${hbN} homebrew`:''}${list.length>shown.length?` — <span style="color:var(--warn)">refine the search to see the rest</span>`:''}` : `<span style="color:var(--bad)">⚠ Catalog not loaded (items.js missing)</span>${hbN?` · ${hbN} homebrew`:''}`}</div>
+    <div class="itemscroll"><table class="itemtable">
+      <tr><th>Name</th>${cols.map(([h])=>`<th>${h}</th>`).join('')}<th></th></tr>
+      ${editRow}${shown.map(row).join('') || `<tr><td colspan="${cols.length+2}" style="color:var(--dim)">nothing matches — try fewer words, another category, or ✨ add it as homebrew</td></tr>`}
+    </table></div>`;
+}
+/* ---- homebrew items: S.homebrew = [{id, n, g, c, p, pt, r, ra, e, hp, d}] ---- */
+function hbForm(h){
+  const inp = (k, type, extra='') => `<input type="${type}" value="${esc(h[k]??'')}" ${extra} onchange="hbSet('${h.id}','${k}',this.value)">`;
+  const grp = CATALOG_GROUPS.find(g=>g.g===h.g);
+  return `<div class="hbform">
+    <label>name ${inp('n','text','placeholder="item name" class="wide"')}</label>
+    <label>group <select onchange="hbSet('${h.id}','g',this.value)">${HB_GROUPS.map(g=>`<option value="${g}"${h.g===g?' selected':''}>${g}</option>`).join('')}</select></label>
+    <label>category ${inp('c','text',`list="hbSubs_${h.id}" placeholder="e.g. ${grp?grp.subs[0]:'Survival'}"`)}<datalist id="hbSubs_${h.id}">${(grp?grp.subs:[]).map(s=>`<option value="${esc(s)}">`).join('')}</datalist></label>
+    <label>price ${inp('p','number','min="0" step="1"')}</label>
+    <label>restricted <input type="checkbox" ${h.r?'checked':''} onchange="hbSet('${h.id}','r',this.checked)"></label>
+    <label>rarity ${inp('ra','number','min="0" max="10" step="1"')}</label>
+    <label>enc ${inp('e','number','min="0" step="1"')}</label>
+    <label>HP ${inp('hp','number','min="0" step="1"')}</label>
+    <label>details ${inp('d','text','class="wide" placeholder="stats, qualities, what it does…"')}</label>
+    <button class="mini primary" onclick="ITEMS_UI.edit=null;renderItems()">done</button>
+  </div>`;
+}
+function hbAdd(){
+  if(!Array.isArray(S.homebrew)) S.homebrew=[];
+  const h = { id:randomId(), n:'', g:HB_GROUPS.includes(ITEMS_UI.g)?ITEMS_UI.g:'Gear', c:ITEMS_UI.c||'', d:'' };
+  S.homebrew.push(h); ITEMS_UI.edit = h.id;
+  showTab('items'); render();
+  const el = document.getElementById('itemsBody').querySelector('input'); if(el && el.focus) el.focus();
+}
+function hbSet(id, k, v){
+  const h = (S.homebrew||[]).find(x=>x.id===id); if(!h) return;
+  if(k==='r') h.r = v ? 1 : 0;
+  else if(['p','ra','e','hp'].includes(k)){ const n = parseFloat(v); if(isNaN(n)) delete h[k]; else h[k] = Math.max(0, n); }
+  else h[k] = String(v).trim();
+  if(ITEMS_UI.edit===id) scheduleSync();   // mid-edit: save/sync without rebuilding the form under the cursor
+  else render();
+}
+function hbDel(id){
+  const i = (S.homebrew||[]).findIndex(x=>x.id===id); if(i<0) return;
+  const h = S.homebrew[i];
+  if(h.n && !confirm(`Delete homebrew item “${h.n}” for everyone in the room?`)) return;
+  S.homebrew.splice(i,1); if(ITEMS_UI.edit===id) ITEMS_UI.edit=null;
+  if(h.n) logMsg(`✨ Homebrew item removed from the catalog: ${esc(h.n)}.`);
+  render();
+}
+/* ---- → 🎒 send a catalog/homebrew item into a character's inventory rows ---- */
+function giveItem(key, id){
+  const it = itemByKey(key), cs = id && st(id); if(!it || !cs) return;
+  const type = invTypeFor(it), row = { name:it.n, type, qty:1, wt:it.e||0 };
+  if(isDegradable(type)){ row.wear = 0; cs.gearOpen = true; }
+  cs.inv.push(row); cs.invOpen = true;
+  const d = itemDetails(it);
+  logMsg(`🛒 ${cfg(id).name} picks up <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
+  render();
 }
 
 /* ================================================================
@@ -2377,6 +2584,10 @@ function buildRules(){
   <h2>🔫 Ship weapons</h2>
   <table><tr><th>Group</th><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${SHIP_WEAPONS.map(g=>g.items.map((w,i)=>`<tr><td>${i===0?g.group:''}</td><td>${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td>${w.dmg}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('')).join('')}</table>
   <p>Weapon groups reference their system's condition (a degraded Heavy Guns system penalizes the Laser Cannon and Turbolaser together). The <b>Proton Torpedo Launcher</b> tracks limited ammo (starts at ${SHIP.torpedoes}) — <b>fire</b> to decrement, <b>reload</b> at port.</p>
+  <h2>🛒 Items — the shop catalog</h2>
+  <p>The <b>Items</b> tab is the party's shopping list: ${CATALOG.length ? `<b>${CATALOG.length.toLocaleString('en-US')} pieces of FFG gear</b> in ${CATALOG_GROUPS.length} groups — ${CATALOG_GROUPS.map(g=>`<b>${g.g}</b> (${CATALOG.filter(it=>it.g===g.g).length})`).join(', ')}` : '<span style="color:var(--bad)">the catalog file (items.js) did not load</span>'}. Search matches names, qualities, features and requirements (every word must match); the chips and dropdowns narrow by group, category and weapon skill. Prices are credits; an <span class="badge b-rest">R</span> marks a <b>restricted</b> item — black market or a licence, and the GM's call on availability. Rarity sets the difficulty of finding it (${[0,1,2,3,4,5,6,7,8,9,10].filter(r=>r%2===0).map(r=>`${r}–${r+1}: ${['Easy','Average','Hard','Daunting','Formidable','Formidable + Setback'][r/2]}`).join(' · ')}), modified by where you are shopping.</p>
+  <p><b>✨ Homebrew items</b> are added at the table and <b>shared with the room</b> — they save, load and sync like everything else and <i>survive 🆕 New</i>, since they are catalog entries rather than session state. Give one a group so the ${'→ 🎒'} button knows what kind of thing it is.</p>
+  <p><b>→ 🎒 sends an item to a character's pack</b>: it adds an inventory row (quantity 1, the catalog encumbrance) and logs the pickup. The group decides the row's type — ${Object.entries(ITEM_INV_TYPE).map(([g,t])=>`${g} → <b>${t}</b>`).join(', ')}; Gear from the ${ITEM_MEDICAL_SUBS.join(', ')} categories lands as <b>Medical</b>. Weapons get a wear track, Armor is worn and stays out of encumbrance. Credits are not tracked — pay the GM.</p>
 
   <p style="color:var(--dim)">💡 Print this tab (Ctrl/Cmd+P) for a paper reference — only the rules print, not the tracker.</p>`;
 }
@@ -2522,7 +2733,8 @@ function loadLocalState(){
 function resetAll(){
   const shared = CLOUD.db && CLOUD.room;
   if(!confirm(`Start a fresh session? Clock back to Day 1, 00:00, every need at 0.${shared?' This resets the shared room for everyone in it.':''} (💾 Save first to keep this one.)`)) return;
-  S = freshState();
+  const homebrew = S.homebrew || [];   // homebrew items are catalog entries, not session state — they survive a new session
+  S = freshState(); S.homebrew = homebrew;
   logMsg('🆕 New session — Day 1, 00:00. All needs at 0, canteens full, droid packs charged.');
   rebuildLog(); render();
 }

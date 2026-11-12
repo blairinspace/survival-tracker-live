@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 cp sw_survival_tracker.html index.html
 
 # Stage only the tracker files (junk is handled by .gitignore anyway).
-git add sw_survival_tracker.html index.html
+git add sw_survival_tracker.html index.html items.js
 
 if git diff --cached --quiet; then
   echo "Nothing to deploy — index.html already matches the source."

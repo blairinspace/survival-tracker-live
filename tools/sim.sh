@@ -26,7 +26,9 @@ var navigator = {}, localStorage = { getItem:()=>null, setItem(){} };
 var Image = function(){ Object.defineProperty(this,'src',{ set(){ this.onerror && this.onerror(); } }); };
 var setInterval = ()=>0, setTimeout = ()=>0, clearTimeout = ()=>0, alert = ()=>{}, prompt = ()=>null, confirm = ()=>true;
 STUB
+# the item catalog (the page loads it from items.js before its own script), then
 # the tracker's script, minus its init() call
+[ -f items.js ] && cat items.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -99,7 +101,13 @@ print('\n=== SMOKE TEST — UI code paths ===');
   setEnv('scorching'); S.travelDest='Koboh'; S.travelEta=3;
   setShipAct('cruising'); energyAdj('shields',-1); energyAdj('engines',1); setSensorRange('Long'); fireTorp(); shipBurn(); repairSys('engines',-1);
   addInv('cal'); setInv('cal', st('cal').inv.length-1, 'type', 'Weapon'); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
+  showTab('items'); itemsSet('q','blaster pistol'); const hits = itemsFiltered().length; itemsSet('g','Gear'); itemsSet('c','Survival'); itemsSet('g',''); itemsSet('q','');
+  hbAdd(); const hb = S.homebrew[0]; hbSet(hb.id,'n','Test Gadget'); hbSet(hb.id,'p','125'); hbSet(hb.id,'r',true); hbSet(hb.id,'e','abc'); hbSet(hb.id,'d','does a thing');
+  giveItem('c0','cal'); giveItem('h'+hb.id,'bode'); itemsSet('q','test gadget'); const hbHit = itemsFiltered().length; itemsSet('q',''); hbDel(hb.id);
   advance(48); render();
+  const items = document.getElementById('itemsBody').innerHTML, itemsBad = (items.match(/undefined|NaN|\[object/g)||[]).length;
+  print(`  items: ${CATALOG.length} in catalog, ${hits} match "blaster pistol", homebrew round-trip ${hbHit===1?'ok':'FAILED'}, ${itemsBad} broken interpolations in the tab`);
+  if(itemsBad || hbHit!==1 || !CATALOG.length) throw new Error('items tab smoke test failed');
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
