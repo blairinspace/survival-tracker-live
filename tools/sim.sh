@@ -99,7 +99,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   drink('cal',OZ_PER_CANTEEN); eatSnack('pike'); useStim('gibbs'); wipeDown('tann'); cleanClothes('cal'); setForce('cal',3); setAttr('cal','br',3);
   swapPack('bd1'); rechargeAll('bd1'); tuneUp('alpha'); overhaul('alpha');
   addCond('cal','sick'); condLvl('cal','sick',1); addCond('bd1','ion'); partySetAct('travel'); partyAddCond('chilled'); rmCond('cal','sick');
-  setEnv('scorching'); S.travelDest='Koboh'; S.travelEta=3;
+  setEnv('scorching'); document.getElementById('cdLabel').value='Travel to Koboh'; document.getElementById('cdTime').value='3'; counterAdd(); S.counters.push({id:'t2',label:'Ritual',hrs:parseDur('1d 12h'),total:36});
   setShipAct('cruising'); energyAdj('shields',-1); energyAdj('engines',1); setSensorRange('Long'); fireTorp(); shipBurn(); repairSys('engines',-1);
   invAdd('cal','Weapon','Test club'); invSet('cal', st('cal').inv.length-1, 'eq', true); useItem('cal', st('cal').inv.length-1); addCargo('cargo');
   showTab('items'); itemsSet('q','blaster pistol'); const hits = itemsFiltered().length; itemsSet('g','Gear'); itemsSet('c','Survival'); itemsSet('g',''); itemsSet('q','');
@@ -109,6 +109,14 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const items = document.getElementById('itemsBody').innerHTML, itemsBad = (items.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  items: ${CATALOG.length} in catalog, ${hits} match "blaster pistol", homebrew round-trip ${hbHit===1?'ok':'FAILED'}, ${itemsBad} broken interpolations in the tab`);
   if(itemsBad || hbHit!==1 || !CATALOG.length) throw new Error('items tab smoke test failed');
+  // countdowns: parse, tick with the clock, announce once, old travel timer converts
+  if(parseDur('90m')!==1.5 || parseDur('2d')!==48 || parseDur('1d 12h')!==36 || parseDur('6')!==6 || parseDur('soon')!==0) throw new Error('parseDur wrong');
+  const koboh = S.counters.find(c=>c.label==='Travel to Koboh'), rit = S.counters.find(c=>c.id==='t2');
+  if(!koboh || koboh.hrs!==0 || rit.hrs!==0 || S.log.filter(l=>/Travel to Koboh<\/b> — countdown complete/.test(l.m)).length>1) throw new Error('countdowns did not run down: '+JSON.stringify(S.counters));
+  S.counters.push({id:'t3',label:'Storm',hrs:5,total:5}); advance(2); if(S.counters.find(c=>c.id==='t3').hrs!==3) throw new Error('countdown tick wrong'); counterDel('t3'); counterDel('t2');
+  const tOld = migrate({chars:[], ship:S.ship, log:[], travelDest:'Jedha', travelEta:4}); if(tOld.counters.length!==1 || tOld.counters[0].label!=='Travel to Jedha' || tOld.counters[0].hrs!==4 || tOld.travelDest!==undefined) throw new Error('old travel timer not converted');
+  if(migrate(JSON.parse(JSON.stringify(syncSubset({...S, counters:[]})))).counters.length!==0) throw new Error('empty counters not restored');
+  if(/undefined|NaN/.test(document.getElementById('counters').innerHTML)) throw new Error('counter chips broken');
   // dice: face counts, a known tally, the pool builder, a feed round-trip and the destiny pool
   const sizes = {b:6,k:6,a:8,d:8,p:12,c:12,F:12};
   for(const t in sizes) if(DICE[t].faces.length!==sizes[t]) throw new Error('die '+t+' has the wrong number of faces');
@@ -151,6 +159,10 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const nBefore = ROLLS.length; rollPool(); const atk = ROLLS[ROLLS.length-1]; if(ROLLS.length!==nBefore+1 || !atk.w || atk.w.n!=='Lightsaber') throw new Error('attack roll lost its weapon');
   const card = weaponCardHtml({n:'<b>X</b>',dam:7,crit:2,q:'q'}, parseRoll('p:sa p:x a:a d:f'));
   if(!/7 \+ 1 = <b>8<\/b>/.test(card) || !/critical available/.test(card) || /<b>X/.test(card.replace('<div class="wcard"><b>','')) ) throw new Error('weapon card wrong: '+card);
+  const wearB = cal.inv[saber].wear||0; rollAttack('cal',saber); rollPool(); if(Math.abs((cal.inv[saber].wear||0)-(wearB+WEAR_PER_ATTACK))>1e-9) throw new Error('attack did not wear the weapon');
+  if(ROLLS[ROLLS.length-1].w.src || ROLLS[ROLLS.length-1].w.note!==undefined) throw new Error('weapon source leaked into the feed');
+  cal.inv[saber].wear = 85; rollAttack('cal',saber); if(DICE_UI.pool.k!==2 || DICE_UI.pool.c!==1 || DICE_UI.pool.d!==1) throw new Error('failing weapon penalties not applied: '+JSON.stringify(DICE_UI.pool));
+  cal.inv[saber].wear = 100; poolClear(); rollAttack('cal',saber); if(DICE_UI.weapon) throw new Error('broken weapon could attack'); cal.inv[saber].wear = 0;
   rollSkill('cal','stealth'); if(DICE_UI.weapon) throw new Error('weapon stuck to a skill roll');
   // inventory overhaul: kits link to the database, aliases survive, food buttons eat whole items of their type
   const sb = cal.inv[saber]; if(sb.ref!=='Basic Lightsaber' || sb.alias!=='Lightsaber' || invLabel(sb)!=='Lightsaber') throw new Error('kit lightsaber not linked with alias: '+JSON.stringify(sb));

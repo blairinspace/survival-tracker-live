@@ -23,6 +23,9 @@
   .group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:1px}
   .clock{font-size:16px;color:var(--gold);font-weight:600;min-width:150px}
+  .cdchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--border);border-radius:14px;padding:2px 4px 2px 10px;font-size:12px}
+  .cdchip .cdt{color:var(--gold);cursor:pointer;font-variant-numeric:tabular-nums} .cdchip.done{border-color:var(--good)} .cdchip.done .cdt{color:var(--good)}
+  .cdchip button{border:none;background:none;padding:0 5px}
   .chip{font-size:11.5px;padding:3px 9px;border-radius:12px;opacity:.55}
   .chip.on{opacity:1;background:#1f3a5f;border-color:var(--accent)}
   #ambience{position:relative;display:none;margin:0 0 12px;border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:190px}
@@ -349,18 +352,6 @@
   </div>
 </div>
 
-<div class="topbar" id="roomBar" style="justify-content:flex-start">
-  <div class="group">
-    <span class="label">Show</span>
-    <span class="group" id="viewChips"></span>
-  </div>
-  <div class="group" style="margin-left:auto">
-    <span class="label">👥 Party</span>
-    <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
-    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
-  </div>
-</div>
-
 <div class="topbar">
   <div class="group">
     <span class="clock" id="clock"></span>
@@ -378,13 +369,12 @@
     <span class="label">Environment</span>
     <select id="envSel" onchange="setEnv(this.value)"></select>
   </div>
-  <div class="group">
-    <span class="label">🧭 Travel to</span>
-    <input type="text" id="destIn" placeholder="destination" onchange="S.travelDest=this.value;render()">
-    <span class="label">in</span>
-    <input type="number" id="etaIn" min="0" step="0.25" onchange="S.travelEta=Math.max(0,parseFloat(this.value)||0);render()">
-    <span class="label">hrs</span>
-    <span id="etaNote" style="font-size:12px;color:var(--gold)"></span>
+  <div class="group" style="flex-basis:100%">
+    <span class="label" title="Countdowns tick down as the clock advances — travel time, a deadline, a ritual, a pursuit. The log announces each one when it runs out.">⏳ Countdowns</span>
+    <span class="group" id="counters"></span>
+    <input type="text" id="cdLabel" placeholder="what for? e.g. Travel to Koboh" style="width:190px" onkeydown="if(event.key==='Enter')counterAdd()">
+    <input type="text" id="cdTime" placeholder="6, 90m, 2d" style="width:84px" title="How long: a number of hours, or with a unit — 90m, 6h, 2d, 1d 12h" onkeydown="if(event.key==='Enter')counterAdd()">
+    <button class="mini" onclick="counterAdd()" title="Start this countdown">＋ add</button>
   </div>
 </div>
 
@@ -399,11 +389,23 @@
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
-  <button id="tabR" onclick="showTab('rules')">Rules Reference</button>
+  <button id="tabR" onclick="showTab('rules')">Tracker Reference</button>
   <span id="destinyChip"></span>
 </div>
 
-<div id="tracker"><div class="grid" id="cards"></div>
+<div id="tracker">
+<div class="topbar" id="roomBar" style="justify-content:flex-start;margin-top:0">
+  <div class="group">
+    <span class="label">Show</span>
+    <span class="group" id="viewChips"></span>
+  </div>
+  <div class="group" style="margin-left:auto">
+    <span class="label">👥 Party</span>
+    <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
+    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
+  </div>
+</div>
+<div class="grid" id="cards"></div>
 <div class="log" id="log">
   <div class="loghead">
     <b>— Event log —</b>
@@ -814,6 +816,7 @@ const DTIERS = [  // droids — combined degradation meter; stMod = strain-thres
    about a season; a tune-up undoes a couple of weeks of neglect. */
 const WEAR_DAYS      = 90;                 // ambient: pristine → broken, carried in a temperate climate
 const WEAR_PER_HOUR  = 100/(WEAR_DAYS*24);
+const WEAR_PER_ATTACK = 1;                // wear a weapon picks up each time an attack is rolled with it
 const WEAR_PER_USE   = 5;                  // wear added each time an item is used hard
 const GEAR_TUNEUP    = 15;                 // field tune-up wear relief for equipment
 // Armor wears too, but you never roll "with" armor — so its ladder eats protection instead of adding Setback.
@@ -829,13 +832,13 @@ const ATIERS = [
 const WTIERS = [
  {min:0,   name:'Pristine', color:'#3fb950', fx:'Factory-fresh — no penalty.'},
  {min:20,  name:'Worn',     color:'#9acd32', fx:'Cosmetic wear only — fully functional.'},
- {min:40,  name:'Scuffed',  color:'#d29922',
+ {min:40,  name:'Scuffed',  color:'#d29922', setb:1,
   fx:'Add <span class="dice setb">1 Setback ■</span> to checks that use this item.'},
- {min:60,  name:'Faulty',   color:'#e8590c',
+ {min:60,  name:'Faulty',   color:'#e8590c', setb:2,
   fx:'<span class="dice setb">2 Setback ■■</span>. On a <b>Despair</b> (or ⚙⚙) it jams/slips — one action to clear. Repair recommended.'},
- {min:80,  name:'Failing',  color:'#f85149',
+ {min:80,  name:'Failing',  color:'#f85149', setb:2, upg:1,
   fx:'<span class="dice setb">2 Setback ■■</span> + <span class="dice chal">upgrade difficulty once</span>. Unreliable until repaired.'},
- {min:100, name:'Broken',   color:'#a40000',
+ {min:100, name:'Broken',   color:'#a40000', broken:1,
   fx:'<b class="lb">Unusable</b> until repaired — a full overhaul, or a Mechanics/Armormech check (GM approves).'}
 ];
 
@@ -968,7 +971,7 @@ function newCharState(c){
   return cs;
 }
 function freshState(){
-  return { hour:0, env:'temperate', ambImg:'', location:'', travelDest:'', travelEta:0,
+  return { hour:0, env:'temperate', ambImg:'', location:'', counters:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
     chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], destiny: {light:0, dark:0} };
 }
@@ -1003,8 +1006,13 @@ function migrate(s){ // patch older saves (and room snapshots)
     delete cs.encCur; delete cs.infHrs; delete cs.stimDay; delete cs.strainFrac;
     syncInv(cs);
   }
-  for(const k of ['ambImg','location','travelDest']) if(s[k]===undefined) s[k]='';
-  if(s.travelEta===undefined) s.travelEta=0;
+  for(const k of ['ambImg','location']) if(s[k]===undefined) s[k]='';
+  // countdowns (RTDB drops the key when the list is empty). The old single travel timer becomes one of them.
+  s.counters = arrayify(s.counters); if(!Array.isArray(s.counters)) s.counters = [];
+  s.counters = s.counters.filter(c=>c && typeof c==='object' && c.id).map(c=>({ id:String(c.id), label:String(c.label||'Countdown').slice(0,60), hrs:Math.max(0, +c.hrs||0), total:Math.max(0, +c.total||+c.hrs||0) }));
+  if(s.travelDest && s.travelEta>0 && !s.counters.some(c=>c.label==='Travel to '+s.travelDest))
+    s.counters.push({ id:randomId().slice(0,8), label:('Travel to '+s.travelDest).slice(0,60), hrs:+s.travelEta, total:+s.travelEta });
+  delete s.travelDest; delete s.travelEta;
   // RTDB deletes keys set to empty arrays, so a cleared log comes back undefined
   s.log = arrayify(s.log); if(!Array.isArray(s.log)) s.log=[];
   if(unknown.length) s.log.unshift({t:'load', m:`⚠ Dropped unknown character(s) from the save: ${esc(unknown.join(', '))}.`, c:'lw'});
@@ -1334,12 +1342,10 @@ function advance(hrs){
     S.hour = +(S.hour+dt).toFixed(3);
     for(const cs of S.chars) for(const ev of tick(cs, dt)) logMsg(ev[1], ev[0]);
     for(const ev of tickShip(dt)) logMsg(ev[1], ev[0]);
-    if(S.travelDest && S.travelEta>0){
-      S.travelEta = Math.max(0, +(S.travelEta-dt).toFixed(3));
-      if(S.travelEta===0){
-        logMsg(`🧭 The party arrives at ${esc(S.travelDest)}.`, 'lg');
-        S.location = S.travelDest; S.travelDest = '';
-      }
+    for(const c of S.counters){
+      if(!(c.hrs>0)) continue;
+      c.hrs = Math.max(0, +(c.hrs-dt).toFixed(3));
+      if(c.hrs===0) logMsg(`⏳ <b>${esc(c.label)}</b> — countdown complete (${clockStr()}).`, 'lg');
     }
   }
   logMsg(`⏱ Advanced ${fmtDur(hrs)} → ${clockStr()}.`);
@@ -1834,10 +1840,10 @@ function invSection(cs){
       ${list.length ? body : `<div class="gearempty">${empty}</div>`}</details>`;
   };
   const weps = carried.filter(x=>isWeapon(x.it)), arms = carried.filter(x=>isArmor(x.it)), gear = carried.filter(x=>!isWeapon(x.it) && !isArmor(x.it));
-  const wearRow = (it,i,t,wr,useLabel,useTip) => `<div class="needrow">
+  const wearRow = (it,i,t,wr,useLabel,useTip,useCall) => `<div class="needrow">
         <span class="needlabel" title="Click to set wear" onclick="editWear('${id}',${i})">🔧 Wear</span>
         <div class="barwrap"><div class="bar" style="width:${wr}%;background:${t.color}"></div><span class="barval">${Math.round(wr)}</span></div>
-        <button class="mini" onclick="useItem('${id}',${i})" title="${useTip} — adds ${WEAR_PER_USE} wear">${useLabel}</button>
+        <button class="mini" onclick="${useCall}('${id}',${i})" title="${useTip}">${useLabel}</button>
         <button class="mini droid" onclick="tuneItem('${id}',${i})" title="Field tune-up — −${GEAR_TUNEUP} wear">tune-up</button>
         <button class="mini droid" onclick="overhaulItem('${id}',${i})" title="Full overhaul — wear reset to 0">overhaul</button>
       </div>
@@ -1849,7 +1855,7 @@ function invSection(cs){
       <div class="gearline"><span class="gearname">${eqBox(it,i,'in hand or holstered ready. An equipped weapon shows its wear track and lends Defensive / Deflection to your defense.')} ${nameCell(it)}</span>
         ${eq ? `<span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span>` : ''}</div>
       <div class="gearfx">${esc(ws.skill.n)} · damage ${ws.brn?`${ws.total} (Brawn +${ws.dam})`:ws.dam} · crit ${ws.crit||'—'} · ${ws.rng}${ws.q?` · ${esc(ws.q)}`:''}</div>
-      ${eq ? wearRow(it, i, t, wr, 'use', 'Use this weapon hard') : ''}
+      ${eq ? wearRow(it, i, t, wr, '⚔ attack', `Roll an attack with this weapon: opens the Dice tab with its pool loaded (wear penalties included). Each attack rolled adds ${WEAR_PER_ATTACK} wear.`, 'rollAttack') : ''}
     </div>`;
   }).join('');
   const armBody = arms.map(({it,i})=>{
@@ -1859,7 +1865,7 @@ function invSection(cs){
       <div class="gearline"><span class="gearname">${eqBox(it,i,'worn. Equipped armor adds its soak and defense, and shows its wear track.')} ${nameCell(it)}</span>
         ${eq ? `<span class="tierbadge" style="background:${a.tier.color};color:#000">${a.tier.name}</span>` : ''}</div>
       <div class="gearfx">${rating(a.def, a.baseDef, 'defense')} · ${rating(a.soak, a.baseSoak, 'soak')}</div>
-      ${eq ? wearRow(it, i, a.tier, wr, 'hit', 'The armor took a solid hit') : ''}
+      ${eq ? wearRow(it, i, a.tier, wr, 'hit', `The armor took a solid hit — adds ${WEAR_PER_USE} wear`, 'useItem') : ''}
     </div>`;
   }).join('');
   const gearBody = `<table class="invtable"><tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>` + gear.map(({it})=>{
@@ -2021,12 +2027,9 @@ function render(){
   const envSel = document.getElementById('envSel');
   if(envSel.value !== S.env) envSel.value = S.env;   // keep the dropdown honest after reset/load
   renderChips();
-  const loc=document.getElementById('locIn'), dst=document.getElementById('destIn'), eta=document.getElementById('etaIn');
+  const loc=document.getElementById('locIn');
   if(document.activeElement!==loc) loc.value = S.location;
-  if(document.activeElement!==dst) dst.value = S.travelDest;
-  if(document.activeElement!==eta) eta.value = S.travelEta;
-  document.getElementById('etaNote').textContent =
-    S.travelDest && S.travelEta>0 ? `→ arriving ${S.travelDest} in ${fmtDur(S.travelEta)}` : '';
+  renderCounters();
   const amb=document.getElementById('ambience');
   amb.style.display = SCENE_IMG_OK ? 'block' : 'none';
   if(SCENE_IMG_OK){
@@ -2247,6 +2250,40 @@ function setAct(id,v){
   }
   cs.activity = v;
   render();
+}
+/* ---- countdowns: labelled timers that run down as the clock advances ---- */
+function parseDur(text){   // "6" → 6 h · "90m" → 1.5 · "2d" → 48 · "1d 12h" → 36
+  let hrs = 0, any = false;
+  for(const m of String(text||'').toLowerCase().matchAll(/([\d.]+)\s*(d|h|m)?/g)){
+    const n = parseFloat(m[1]); if(!Number.isFinite(n)) continue;
+    hrs += m[2]==='d' ? n*24 : m[2]==='m' ? n/60 : n; any = true;
+  }
+  return any ? +hrs.toFixed(3) : 0;
+}
+function counterAdd(){
+  const l = document.getElementById('cdLabel'), t = document.getElementById('cdTime');
+  const hrs = clamp(parseDur(t.value), 0, 24*3650), label = (l.value||'').trim().slice(0,60) || 'Countdown';
+  if(!(hrs>0)){ t.focus(); return; }
+  S.counters.push({ id:randomId().slice(0,8), label, hrs, total:hrs });
+  l.value = ''; t.value = '';
+  logMsg(`⏳ Countdown started: <b>${esc(label)}</b> — ${fmtDur(hrs)}.`);
+  render();
+}
+function counterDel(id){ S.counters = S.counters.filter(c=>c.id!==id); render(); }
+function counterEdit(id){
+  const c = S.counters.find(x=>x.id===id); if(!c) return;
+  const v = prompt(`Time left for “${c.label}” (hours, or 90m / 6h / 2d):`, c.hrs);
+  if(v===null) return;
+  c.hrs = clamp(parseDur(v), 0, 24*3650); c.total = Math.max(c.total||0, c.hrs); render();
+}
+function renderCounters(){
+  const el = document.getElementById('counters'); if(!el) return;
+  el.innerHTML = (S.counters||[]).map(c=>{
+    const done = !(c.hrs>0), pct = c.total>0 ? Math.round(100*(1-c.hrs/c.total)) : 100;
+    return `<span class="cdchip ${done?'done':''}" style="background:linear-gradient(90deg,#1f3a5f ${pct}%,transparent ${pct}%)"><b>${esc(c.label)}</b>
+      <span class="cdt" onclick="counterEdit('${c.id}')" title="Click to change the time left">${done ? '✔ done' : fmtDur(c.hrs)}</span>
+      <button class="mini" onclick="counterDel('${c.id}')" title="Remove this countdown">✕</button></span>`;
+  }).join('');
 }
 function setEnv(v){ S.env=v; logMsg(`🌍 Environment is now ${ENVS[v].label}.`); render(); }
 /* party-wide controls: act on every visible character */
@@ -2567,10 +2604,13 @@ function invCreateEntry(id, i){
 // itself so the roll shows damage (base + net successes) and whether a critical is on.
 function rollAttack(id, i){
   const cs = st(id), it = cs.inv[i]; if(!it) return;
-  const w = weaponState(cs, it), s = skillState(cs, w.skill);
-  Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
+  const w = weaponState(cs, it), s = skillState(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
+  if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
+  const upg = t.upg||0;   // a failing weapon: upgrade the difficulty once
+  Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:t.setb||0, d:2-Math.min(2,upg), c:Math.min(2,upg), F:0});
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
-    weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng } });
+    weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng,
+             note: t.setb ? `${t.name} weapon: ${t.setb} Setback${upg?' and an upgraded difficulty':''} already added` : '', src:{id, i, name:it.name} } });
   document.getElementById('diceLabel').value = w.skill.n;
   showTab('dice');
 }
@@ -2829,7 +2869,11 @@ function rollPool(){
   const p = DICE_UI.pool;
   if(!DICE_ORDER.some(t=>p[t]>0)) return;
   const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(p) };
-  if(DICE_UI.weapon) e.w = {...DICE_UI.weapon};
+  if(DICE_UI.weapon){
+    const {src, note, ...card} = DICE_UI.weapon; e.w = card;
+    const it = src && st(src.id) && st(src.id).inv[src.i];   // the attack wears the weapon a little
+    if(it && it.name===src.name && isWeapon(it)){ it.wear = clamp((it.wear||0)+WEAR_PER_ATTACK, 0, 100); render(); }
+  }
   postFeed(e);
 }
 
@@ -2965,7 +3009,7 @@ function renderDice(){
       <button class="mini" onclick="poolUpgrade('d','c')" title="Upgrade the difficulty: one Difficulty die becomes Challenge (if none are left, add a Difficulty die). Used for adversaries, Dodge, or a Destiny point spent against the roller.">⬆ upgrade difficulty</button>
       <button class="mini" onclick="poolClear()">clear</button>
     </div>
-    ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
+    ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     <div class="poolprev">${total ? DICE_ORDER.map(t=>`<span class="die ${DICE[t].cls} t-${t}" title="${DICE[t].name}"></span>`.repeat(p[t])).join('') : 'Empty pool — click the dice above to add them.'}</div>
     <button class="primary rollbtn" onclick="rollPool()" ${total?'':'disabled'}>🎲 Roll${total?` ${total} ${total===1?'die':'dice'}`:''}</button>`;
   const lg = document.getElementById('diceLegend');
@@ -3261,7 +3305,7 @@ function buildRules(){
   <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; 🛡 armor — wear</h2>
-  <p>Each carried <b>weapon</b> or <b>armor</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Gear has no wear track and cannot be equipped. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_USE} each time you press <b>use</b> for a hard use (a firefight, a day of digging). <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <p>Each carried <b>weapon</b> or <b>armor</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Gear has no wear track and cannot be equipped. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
   <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
   ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
 
