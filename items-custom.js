@@ -18,6 +18,7 @@ const ITEMS_CUSTOM = [
   {"n":"Grappling Hook","g":"Gear","c":"Survival","t":"Tool","p":25,"e":1,"ra":1,"d":"Hook and line for climbing or swinging. DRAFT: adds a Boost die to Athletics checks to climb."},
   {"n":"Multitool","g":"Gear","c":"Industrial","t":"Tool","p":50,"e":1,"ra":1,"d":"Pocket tool with pliers, drivers and a cutter. DRAFT: lets you attempt simple Mechanics checks without a full tool kit."},
   {"n":"Salvaged Parts","g":"Gear","c":"Industrial","p":10,"e":1,"ra":0,"d":"Scavenged components. Spend them on repairs or trade them."},
+  {"n":"Canvas Backpack","g":"Gear","c":"Equipment","t":"Bag","p":50,"e":4,"ra":1,"d":"A sturdy two-strap canvas pack. Carried, it raises the encumbrance threshold by 4 (the amount in its Enc field) and weighs nothing itself."},
   {"n":"Sling Bag","g":"Gear","c":"Equipment","t":"Bag","p":30,"e":0,"ra":0,"d":"A shoulder bag. Carried, it raises the encumbrance threshold by the amount in its Enc field."},
   {"n":"Nightsister Charms","g":"Gear","c":"Relics","e":0,"ra":8,"d":"Talismans of Dathomiri magick carried by Merrin."},
   {"n":"Doll","g":"Gear","c":"Other","p":5,"e":0,"ra":0,"d":"A child's toy. Kata does not go anywhere without it."},

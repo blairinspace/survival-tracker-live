@@ -125,6 +125,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const sv0 = S; fresh(); const pb0 = st('pike'), bag = pb0.inv.find(x=>x.type==='Bag'); if(!bag || packBonus(pb0)!==2 || effThresh(pb0)!==pb0.encThresh+2) throw new Error('bag capacity wrong');
   invSet('pike', pb0.inv.indexOf(bag), 'carry', false); if(packBonus(pb0)!==0) throw new Error('stowed bag still adds capacity'); invSet('pike', pb0.inv.indexOf(bag), 'carry', true);
   invAdd('pike','Gear','Backpack'); if(pb0.inv[pb0.inv.length-1].type!=='Bag') throw new Error('catalog backpack should land as a Bag');
+  const pbB = packBonus(pb0); invAdd('pike','Gear','canvas backpack'); if(pb0.inv[pb0.inv.length-1].type!=='Bag' || packBonus(pb0)!==pbB+4) throw new Error('Canvas Backpack should add 4 to the threshold');
   if(migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Satchel',type:'Gear (pack)',qty:1,wt:3}]}], ship:S.ship, log:[]}).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Satchel').type!=='Bag') throw new Error('Gear (pack) not renamed to Bag');
   S = sv0;
   // dice: face counts, a known tally, the pool builder, a feed round-trip and the destiny pool
