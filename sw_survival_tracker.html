@@ -782,7 +782,10 @@ function setBuild(c, name){
   else { c.waterOz = b.waterOz; if(b.hunger!==1) c.mods.hungerRate = b.hunger; else delete c.mods.hungerRate; }
   return true;
 }
-for(const c of CHARS){ c.build0 = c.build; setBuild(c, c.build); }
+for(const c of CHARS){ c.build0 = c.build; c.name0 = c.name; setBuild(c, c.build); }
+// A character's name can be changed in the Character Creator (cs.sheet.name); it is written onto the roster entry so every card, log line and menu follows.
+const cleanName = v => String(v||'').replace(/[<>&"`\\]/g,'').replace(/'/g,'’').trim().slice(0,40);
+function setName(c, v){ c.name = cleanName(v) || c.name0; }
 const SILHOUETTES = ['0 — Jawa, astromech','1 — most humanoids','2 — wampa, tauntaun','3 — rancor','4 — larger still'];
 
 const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunning'],['wil','Willpower'],['pr','Presence']];
@@ -2602,11 +2605,12 @@ function sheetBio(id, k, v){
   else sh.bio[k] = String(v).slice(0,60);
   render();
 }
+function sheetName(id, v){ const sh = st(id).sheet, c = cfg(id), was = c.name; sh.name = cleanName(v); setName(c, sh.name); if(c.name!==was) logMsg(`🪪 ${was} is now called ${c.name}.`); render(); }
 function sheetSil(id, v){ st(id).sheet.sil = clamp(parseInt(v)||0, 0, 4); render(); }
 function sheetFS(id, v){ const cs = st(id); cs.sheet.fs = +v ? 1 : 0; if(!cs.sheet.fs && cs.force) cs.force = 0; render(); }
 function newSheet(c){
-  setBuild(c, c.build0);
-  return { species:c.species||'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, obl:[], duty:[], soakMod:0, defRMod:0, defMMod:0,
+  setBuild(c, c.build0); setName(c, '');
+  return { name:'', species:c.species||'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, obl:[], duty:[], soakMod:0, defRMod:0, defMMod:0,
            fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{},
            bio:Object.fromEntries(BIO_FIELDS.map(([k])=>[k, k==='h' ? String(c.h||'') : k==='build' ? c.build0 : ''])), sil:c.sil===undefined ? 1 : c.sil };
 }
@@ -2630,12 +2634,13 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
     for(const x of sh[k]){ if(typeof x.n!=='string') x.n=''; x.v = clamp(Math.round(+x.v)||0, 0, 100); }
   }
   sh.dark = sh.dark ? 1 : 0; if(sh.mor < 30) sh.dark = 1;
-  if(!sh.bio || typeof sh.bio!=='object' || Array.isArray(sh.bio)) sh.bio = {};   // the short bio from guided creation
+  sh.name = cleanName(sh.name); setName(c, sh.name);
+  if(!sh.bio || typeof sh.bio!=='object' || Array.isArray(sh.bio)) sh.bio = {};   // the short bio from the Character Creator
   for(const [k] of BIO_FIELDS) if(typeof sh.bio[k]!=='string') sh.bio[k] = k==='h' ? String(c.h||'') : '';
   if(!setBuild(c, sh.bio.build)){ sh.bio.build = c.build0; setBuild(c, c.build0); }   // the build drives water, hunger and pack life
   sh.sil = Number.isFinite(+sh.sil) && sh.sil!==undefined && sh.sil!==null ? clamp(Math.round(+sh.sil), 0, 4) : (c.sil===undefined ? 1 : c.sil);
   if(sh.fs!==undefined) sh.fs = +sh.fs ? 1 : 0;
-  if(sh.cc && (typeof sh.cc!=='object' || Array.isArray(sh.cc))) delete sh.cc;   // guided creation in progress
+  if(sh.cc && (typeof sh.cc!=='object' || Array.isArray(sh.cc))) delete sh.cc;   // Character Creator in progress
   if(sh.cc) for(const g of ['fc','fs','fp']) if(!sh.cc[g] || typeof sh.cc[g]!=='object') sh.cc[g] = {};
   if(!sh.tr || typeof sh.tr!=='object' || Array.isArray(sh.tr)) sh.tr = {};
   for(const k in sh.tr) if(!sh.tr[k] || typeof sh.tr[k]!=='object' || Array.isArray(sh.tr[k])) delete sh.tr[k];
@@ -2970,12 +2975,12 @@ function renderSheet(){
       ${g==='Custom' ? `<tr><td colspan="4"><button class="mini" onclick="sheetAddSkill('${id}')" title="Add a skill that is not on the standard list (homebrew, or from another book)">＋ add custom skill</button></td></tr>` : ''}</table>`;
   });
   document.getElementById('sheetBody').innerHTML = `
-    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">🧭 guided creation</button>`}
+    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the name, bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">👤 Character Creator</button>`}
       ${ro('Species', sh.species, 'Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
       ${ro('Career', sh.career, 'Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
       ${c.droid ? '' : ro('Force sensitive', isFS(cs) ? 'Yes' : 'No', 'Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.')}
-      ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], k==='build' ? 'Build sets food, water or power needs. ' + BUILDS[sh.bio.build].tip : 'Set in guided creation, step 1.')).join('')}
+      ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], k==='build' ? 'Build sets food, water or power needs. ' + BUILDS[sh.bio.build].tip : 'Set in the Character Creator, step 1.')).join('')}
       ${ro('Silhouette', String(sh.sil), 'Size in the rules: attacks against a target 2+ sizes larger are one step easier, 2+ smaller one step harder. Most characters are 1.')}
     </div>
     ${creationHtml(cs)}
@@ -3384,7 +3389,7 @@ function moralityHtml(cs){
 }
 
 /* ================================================================
-   GUIDED CHARACTER CREATION — a walkthrough on the sheet that fills it in
+   CHARACTER CREATOR — a walkthrough on the sheet that fills it in
    step by step (Force and Destiny core rules; species and careers come from
    rules.js). Progress lives in cs.sheet.cc so it syncs and survives a reload:
      cc = { step, bonus, sp species, wtB / stB threshold bases, car career,
@@ -3490,7 +3495,8 @@ function creationHtml(cs){
   let body = '';
   if(step===1) body = `<p>This walks through making a <b>Force and Destiny</b> character and fills in ${esc(cfg(id).name)}'s sheet as you go. Start with a concept: where did they grow up, how did they first feel the Force, and why are they out in the galaxy now instead of hiding?</p>
     <p><b>Short bio</b> — these appear beside the character's name at the top of the sheet. Leave any blank to hide it.</p>
-    <div class="shead bio"> ${BIO_FIELDS.map(([k,lab,ph])=>k==='build' ? `<label title="Build sets this character's needs on the Tracker tab. ${esc(BUILDS[sh.bio.build].tip)}">Build<select onchange="sheetBio('${id}','build',this.value)">${buildsFor(cfg(id)).map(b=>`<option ${b===sh.bio.build?'selected':''} title="${esc(BUILDS[b].tip)}">${b}</option>`).join('')}</select></label>` : `<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
+    <div class="shead bio"><label title="The character's name everywhere in the tracker. Clear it to go back to ${esc(cfg(id).name0)}.">Name<input type="text" style="width:180px" value="${esc(cfg(id).name)}" placeholder="${esc(cfg(id).name0)}" onchange="sheetName('${id}',this.value)"></label>
+      ${BIO_FIELDS.map(([k,lab,ph])=>k==='build' ? `<label title="Build sets this character's needs on the Tracker tab. ${esc(BUILDS[sh.bio.build].tip)}">Build<select onchange="sheetBio('${id}','build',this.value)">${buildsFor(cfg(id)).map(b=>`<option ${b===sh.bio.build?'selected':''} title="${esc(BUILDS[b].tip)}">${b}</option>`).join('')}</select></label>` : `<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
       ${cfg(id).droid ? '' : `<label title="Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.">Force sensitive<select onchange="sheetFS('${id}',this.value)"><option value="1" ${isFS(cs)?'selected':''}>Yes</option><option value="0" ${isFS(cs)?'':'selected'}>No</option></select></label>`}
       <label title="Size in the rules. Most characters are 1; Jawa-sized characters and small droids are 0.">Silhouette<select onchange="sheetSil('${id}',this.value)">${SILHOUETTES.map((t,i)=>`<option value="${i}" ${i===sh.sil?'selected':''}>${t}</option>`).join('')}</select></label></div>
     <p class="tinfo"><b>Build: ${esc(sh.bio.build)}.</b> ${esc(BUILDS[sh.bio.build].tip)} Changing it changes this character's needs on the Tracker tab from now on.</p>
@@ -3531,7 +3537,7 @@ function creationHtml(cs){
     <p><b>Gear:</b> a starting character has ${CC_START_CREDITS} credits${CC_BONUS[cc.bonus||''].cr?` plus ${CC_BONUS[cc.bonus].cr.toLocaleString('en-US')} from the Morality option`:''} to spend on the Items tab. <button class="mini" onclick="ccCredits('${id}')">set credits to ${(CC_START_CREDITS + CC_BONUS[cc.bonus||''].cr).toLocaleString('en-US')}</button> (now ${sh.credits.toLocaleString('en-US')})</p>
     <p>Last, decide a <b>Motivation</b> (what drives them) with your GM, and the group picks its shared resource: a ship, a holocron, or a mentor.</p>
     <p><button class="mini atk" onclick="ccEnd('${id}')">✓ finish — close the walkthrough</button></p>`; }
-  return `<details class="sfold crate" open><summary>🧭 <b>Guided character creation</b> <span class="sub">· step ${step} of ${CC_STEPS.length}: ${CC_STEPS[step-1]} · ${sh.xp} XP available</span></summary>
+  return `<details class="sfold crate" open><summary>👤 <b>Character Creator</b> <span class="sub">· step ${step} of ${CC_STEPS.length}: ${CC_STEPS[step-1]} · ${sh.xp} XP available</span></summary>
     <div class="ccsteps">${CC_STEPS.map((n,i)=>`<button class="chip ${i+1===step?'on':''}" onclick="ccStep('${id}',${i+1})">${i+1}. ${n}</button>`).join('')}</div>
     <div class="ccbody">${body}</div>
     <div class="ccnav"><button class="mini" onclick="ccStep('${id}',${step-1})" ${step>1?'':'disabled'}>← back</button>
