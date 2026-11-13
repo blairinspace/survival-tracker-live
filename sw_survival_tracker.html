@@ -51,6 +51,7 @@
   .mini{font-size:10.5px;padding:2px 6px}
   .mini.force{border-color:var(--force);color:var(--force)}
   .mini.droid{border-color:var(--droid);color:var(--droid)}
+  .mini.atk{border-color:var(--gold);color:var(--gold)}
   .gearrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11.5px}
   .gearrow .gi{display:flex;align-items:center;gap:4px;color:var(--dim)}
   .gearrow input[type=number]{width:48px;padding:2px 4px;font-size:11.5px}
@@ -542,10 +543,13 @@ const STATUSES = {
   med15:  {label:'🧘 Meditating (15 min)', dur:0.25, act:'resting', deltas:{rest:-8},  fs:true},
   med30:  {label:'🧘 Meditating (30 min)', dur:0.5,  act:'resting', deltas:{rest:-14}, fs:true, sleepCredit:0.25},
   wash:   {label:'🛁 Washing (full wash)', dur:0.5, act:'resting', deltas:{hygiene:-HYG.wash}},
-  sleep:  {label:'😴 Sleeping', dur:8, act:'sleeping', deltas:{}}
+  sleep:  {label:'😴 Sleeping', dur:8, act:'sleeping', deltas:{}},
+  // repairs on a weapon, armor or tool: the wear comes off when the work is finished (nothing if abandoned)
+  tuneup:  {label:'🔧 Tune-up',  dur:0.25, act:'light', deltas:{}, repair:true},
+  overhaul:{label:'🔧 Overhaul', dur:1,    act:'light', deltas:{}, repair:true}
 };
 const SNACK_HUNGER=5;                     // snack: instant bite on the move (≈ a third of a day on the trail)
-const TUNEUP = 20;                        // droid tune-up wear relief (~30 min with tools)
+const TUNEUP = 20;                        // droid tune-up wear relief (30 min with tools — DROID_REPAIR_HRS)
 
 /* Conditions. mult: need-accrual multipliers (value or fn(lvl));
    stMod: strain-threshold modifier (value or fn(lvl)) — conditions never tick strain by the hour;
@@ -1124,7 +1128,7 @@ function condMult(cs, key){
   }
   return m;
 }
-const activeAct = cs => cs.status ? STATUSES[cs.status.kind].act : cs.activity;
+const activeAct = cs => cs.status ? (cs.status.act || STATUSES[cs.status.kind].act) : cs.activity;   // a droid on the bench overrides the repair's default
 // Stim doses: a rolling window that opens with the first stim and clears STIM.windowHrs later.
 function rolloverStimWindow(cs){
   if(cs.stimsToday>0 && S.hour - (cs.stimWindowStart??-99) >= STIM.windowHrs){ cs.stimsToday=0; return true; }
@@ -1270,6 +1274,11 @@ function tick(cs, dt){
 }
 function endStatus(cs, c, events){
   const def = STATUSES[cs.status.kind];
+  if(def.repair){   // the work is done — how well it went is a Mechanics check (rollRepair), so nothing changes yet
+    const j = cs.status.self ? { kind:cs.status.kind, self:1 } : { kind:cs.status.kind, ...cs.status.item };
+    cs.repair = j;
+    events.push(['ld', `🔧 ${c.name} ${j.self ? `comes off the bench` : `finishes work on ${esc(repairTargetLabel(cs, j))}`} — roll <b>Mechanics</b> on the card to see how the ${plainLabel(def.label).toLowerCase()} went.`]);
+  } else
   events.push(['lg',`${c.name} finishes ${plainLabel(def.label).toLowerCase()} — status back to normal.`]);
   if(cs.status.kind==='sleep' && cs.status.total>=SLEEP.fullNightHrs && cs.strain>0){   // a full night's rest clears all strain (RAW)
     cs.strain = 0;
@@ -1598,18 +1607,20 @@ function rechargeAll(id){
   logMsg(`⚡ ${c.name}'s depleted packs recharge (power source required — GM approves). ${cs.packsCharged} packs ready.`, 'ld');
   render();
 }
-function tuneUp(id){
-  const cs = st(id);
-  cs.maint = clamp(cs.maint - TUNEUP, 0, 100);
-  cs.conds = cs.conds.filter(x=>x.id!=='corroded');
-  logMsg(`🔧 ${cfg(id).name} gets a ~30-min tune-up (−${TUNEUP} wear; corrosion cleaned). Tools + a pair of hands required.`, 'ld');
+// A droid's own tune-up / overhaul: timed like equipment repairs. The droid is on the bench (resting)
+// for the duration and the wear comes off when the clock has run the job out.
+const DROID_REPAIR_HRS = { tuneup:0.5, overhaul:2 };   // a droid is a bigger job than a blaster: 30 min, and a couple of hours
+function startDroidRepair(id, kind){
+  const cs = st(id), def = STATUSES[kind], dur = DROID_REPAIR_HRS[kind]; if(!cs || !def) return;
+  if(cs.status) cancelStatus(id, true);
+  delete cs.repair;
+  cs.prevAct = cs.activity;
+  cs.status = { kind, remain:dur, total:dur, self:1, act:'resting' };
+  logMsg(`${def.label} — ${cfg(id).name} goes on the bench (${fmtDur(dur)}). Advance the clock, then roll Mechanics. ${kind==='overhaul'?'Requires a workshop or bench (GM approves).':'Tools and a pair of hands required.'}`, 'ld');
   render();
 }
-function overhaul(id){
-  st(id).maint = 0;
-  logMsg(`🔧⚙ ${cfg(id).name} receives a full overhaul — wear reset to 0. Requires a workshop/bench and a couple of hours (GM approves).`, 'ld');
-  render();
-}
+function tuneUp(id){ startDroidRepair(id, 'tuneup'); }
+function overhaul(id){ startDroidRepair(id, 'overhaul'); }
 
 /* ================================================================
    SHIP — Mantis. Simulation on the party clock + player actions
@@ -1758,18 +1769,76 @@ function useItem(id,i){
   logMsg(`🔧 ${isArmor(it) ? `${cfg(id).name}'s ${esc(it.alias||it.name||'armor')} takes a hit` : `${cfg(id).name} uses ${esc(it.alias||it.name||'an item')}`} (+${WEAR_PER_USE} wear → ${Math.round(it.wear)}${it.wear>=100?', now BROKEN':''}).`, it.wear>=100?'lw':'');
   render();
 }
-function tuneItem(id,i){
-  const cs=st(id), it=cs.inv[i]; if(!it) return;
-  it.wear = clamp((it.wear||0)-GEAR_TUNEUP, 0, 100);
-  logMsg(`🔧 ${cfg(id).name} tunes up ${esc(it.alias||it.name||'an item')} (−${GEAR_TUNEUP} wear → ${Math.round(it.wear)}). Tools + a few minutes.`, 'ld');
+/* ---- repairs: tune-up and overhaul are timed jobs done by a MECHANIC (the "repairs by" pick on the
+   owner's card; the owner by default). The job is a status on the mechanic; when the clock runs it out the
+   mechanic holds a pending cs.repair and rolls Mechanics (rollRepair → Dice tab). The roll decides the wear:
+     tune-up   success −15 (−5 more per extra success) · failure nothing
+     overhaul  success wear to 0 · failure half the wear comes off
+     Despair   the work makes it worse (+10 wear)
+   A droid's own service works the same way, with the droid on the bench and its "repairs by" pick rolling. ---- */
+const REPAIR_DESPAIR_WEAR = 10, REPAIR_EXTRA_PER_SUCCESS = 5;
+const mechOf = cs => (cs.mech && st(cs.mech)) || cs;                       // who does this card's repairs
+function setMech(id, v){ const cs = st(id); cs.mech = (v && v!==id && st(v)) ? v : ''; render(); }
+function repairTarget(holder, j){   // → the droid itself, or the item being worked on (in its owner's inventory)
+  if(j.self) return { self:true, cs:holder };
+  const owner = st(j.owner) || holder;
+  const it = (owner.inv[j.i] && owner.inv[j.i].name===j.name) ? owner.inv[j.i] : owner.inv.find(x=>x && x.name===j.name);
+  return it ? { it, owner } : null;
+}
+function repairTargetLabel(holder, j){
+  const t = repairTarget(holder, j); if(!t) return j.name || 'an item';
+  if(t.self) return cfg(holder.id).name;
+  return (t.owner.id!==holder.id ? cfg(t.owner.id).name+"'s " : '') + (invLabel(t.it) || 'item');
+}
+// Difficulty by how far gone it is: Worn/Scuffed · Faulty · Failing/Broken → tune-up 1/2/3, overhaul 2/3/4
+const repairDiff = (kind, wear) => (wear>=80 ? 3 : wear>=60 ? 2 : 1) + (kind==='overhaul' ? 1 : 0);
+const hasTools = cs => cs.inv.some(it=>it && isCarried(it) && isTool(it)) || !!cfg(cs.id).droid;
+function startRepair(id, i, kind){
+  const owner = st(id), it = owner.inv[i], def = STATUSES[kind]; if(!it || !def) return;
+  const mech = mechOf(owner);
+  if(mech.status) cancelStatus(mech.id, true);
+  if(mech.repair) logMsg(`🔧 ${cfg(mech.id).name} sets aside the unrolled job on ${esc(repairTargetLabel(mech, mech.repair))}.`, 'lw');
+  delete mech.repair;
+  mech.prevAct = mech.activity;
+  mech.status = { kind, remain:def.dur, total:def.dur, item:{ owner:id, i, name:it.name||'' } };
+  logMsg(`${def.label} — ${cfg(mech.id).name} starts work on ${esc(repairTargetLabel(mech, mech.status.item))} (${fmtDur(def.dur)}). Advance the clock, then roll Mechanics${kind==='overhaul'?'; needs a bench or kit (GM approves)':''}.`, 'ld');
   render();
 }
-function overhaulItem(id,i){
-  const cs=st(id), it=cs.inv[i]; if(!it) return;
-  it.wear = 0;
-  logMsg(`🔧⚙ ${cfg(id).name} fully overhauls ${esc(it.name||'an item')} — wear reset to 0. Requires a bench/kit (GM approves).`, 'ld');
-  render();
+// The job is finished: load the Mechanics check into the Dice tab. Rolling it applies the result.
+function rollRepair(id){
+  const holder = st(id), j = holder && holder.repair; if(!j) return;
+  const t = repairTarget(holder, j);
+  if(!t){ logMsg(`🔧 The item ${esc(j.name||'')} is no longer in the inventory — job dropped.`, 'lw'); delete holder.repair; render(); return; }
+  const roller = j.self ? mechOf(holder) : holder, wear = t.self ? holder.maint : (t.it.wear||0);
+  const s = skillState(roller, SKILLS.find(x=>x.k==='mechanics')), diff = repairDiff(j.kind, wear), noKit = !hasTools(roller);
+  Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:noKit?1:0, d:diff, c:0, F:0});
+  Object.assign(DICE_UI, { who:roller.id, ch:s.cv, rk:s.rank, label:`Mechanics — ${j.kind==='overhaul'?'overhaul':'tune-up'}`, weapon:null,
+    repair:{ holder:id, note:`${j.kind==='overhaul'?'Overhaul':'Tune-up'} of ${repairTargetLabel(holder, j)} (wear ${Math.round(wear)}): ${DIFFS[diff][0]} difficulty${noKit?', +1 Setback for no tools carried':''}. Add Setback yourself for no bench or bad conditions.` } });
+  document.getElementById('diceLabel').value = DICE_UI.label;
+  showTab('dice');
 }
+function repairDrop(id){ const cs = st(id); if(cs && cs.repair){ logMsg(`🔧 ${cfg(id).name} drops the unrolled job on ${esc(repairTargetLabel(cs, cs.repair))} — no repair made.`, 'lw'); delete cs.repair; render(); } }
+// Apply a rolled Mechanics result (r = tally of the dice) to the pending job. Returns the plain-text outcome.
+function applyRepair(id, r){
+  const holder = st(id), j = holder && holder.repair; if(!j) return '';
+  const t = repairTarget(holder, j); delete holder.repair; if(!t) return '';
+  const droid = !!t.self, before = droid ? holder.maint : (t.it.wear||0), ok = r.netS > 0;
+  let after = before;
+  if(j.kind==='overhaul') after = ok ? 0 : before/2;
+  else if(ok) after = before - (droid ? TUNEUP : GEAR_TUNEUP) - REPAIR_EXTRA_PER_SUCCESS*(r.netS-1);
+  if(r.y > 0) after += REPAIR_DESPAIR_WEAR;
+  after = clamp(+after.toFixed(2), 0, 100);
+  if(droid){ holder.maint = after; if(ok) holder.conds = holder.conds.filter(x=>x.id!=='corroded'); } else t.it.wear = after;
+  const what = repairTargetLabel(holder, {...j}), job = j.kind==='overhaul' ? 'overhaul' : 'tune-up';
+  const out = [`${ok?'Success':'Failed'} — ${job} of ${what}: wear ${Math.round(before)} → ${Math.round(after)}${!ok && j.kind!=='overhaul' ? ' (no improvement; the time is spent)' : ''}.`];
+  if(r.y > 0) out.push(`Despair: the work made it worse (+${REPAIR_DESPAIR_WEAR} wear).`);
+  if(r.x > 0) out.push(`Triumph: a Boost die on its next use.`);
+  if(r.netA > 0) out.push(`${r.netA} Advantage to spend — time saved, or a Boost on the next repair.`);
+  if(r.netA < 0) out.push(`${-r.netA} Threat — strain for the mechanic, or a spare part used up.`);
+  return out.join(' ');
+}
+function tuneItem(id,i){ startRepair(id, i, 'tuneup'); }
+function overhaulItem(id,i){ startRepair(id, i, 'overhaul'); }
 
 /* ---- images ----
    Images are GM-set repo files (img/<id>.jpg|png, img/ship.*, img/scene.*), loaded
@@ -1828,9 +1897,11 @@ function condFxLines(cs){
 }
 
 function statusBadge(cs){
-  if(!cs.status) return '';
+  const pend = cs.repair ? `<span class="badge b-status" title="The work is done — roll Mechanics to see how it went">🔧 ${cs.repair.kind==='overhaul'?'Overhaul':'Tune-up'} of ${esc(repairTargetLabel(cs, cs.repair))} done <button class="mini atk" onclick="rollRepair('${cs.id}')">roll Mechanics</button><span class="x" onclick="repairDrop('${cs.id}')" title="Drop the job — no repair is made">✖</span></span> ` : '';
+  if(!cs.status) return pend;
   const def = STATUSES[cs.status.kind];
-  return `<span class="badge b-status">${def.label} — ${fmtDur(Math.max(0,cs.status.remain))} left<span class="x" onclick="cancelStatus('${cs.id}')" title="Cancel — return to normal">✖</span></span>`;
+  const tgt = cs.status.item ? `: ${esc(repairTargetLabel(cs, cs.status.item))}` : '';
+  return pend + `<span class="badge b-status">${def.label}${tgt} — ${fmtDur(Math.max(0,cs.status.remain))} left<span class="x" onclick="cancelStatus('${cs.id}')" title="Cancel — return to normal">✖</span></span>`;
 }
 
 // The card's inventory: an encumbrance line, then three dropdowns — Weapons, Armor, Gear — listing what is
@@ -1852,9 +1923,9 @@ function invSection(cs){
   const wearRow = (it,i,t,wr,useLabel,useTip,useCall) => `<div class="needrow">
         <span class="needlabel" title="Click to set wear" onclick="editWear('${id}',${i})">🔧 Wear</span>
         <div class="barwrap"><div class="bar" style="width:${wr}%;background:${t.color}"></div><span class="barval">${Math.round(wr)}</span></div>
-        <button class="mini" onclick="${useCall}('${id}',${i})" title="${useTip}">${useLabel}</button>
-        <button class="mini droid" onclick="tuneItem('${id}',${i})" title="Field tune-up — −${GEAR_TUNEUP} wear">tune-up</button>
-        <button class="mini droid" onclick="overhaulItem('${id}',${i})" title="Full overhaul — wear reset to 0">overhaul</button>
+        <button class="mini ${useCall==='rollAttack'?'atk':''}" onclick="${useCall}('${id}',${i})" title="${useTip}">${useLabel}</button>
+        <button class="mini droid" onclick="tuneItem('${id}',${i})" title="Field tune-up — ${fmtDur(STATUSES.tuneup.dur)} of work, then a Mechanics check: −${GEAR_TUNEUP} wear on a success, −${REPAIR_EXTRA_PER_SUCCESS} more per extra success.">tune-up</button>
+        <button class="mini droid" onclick="overhaulItem('${id}',${i})" title="Full overhaul — ${fmtDur(STATUSES.overhaul.dur)} of work, then a Mechanics check: wear back to 0 on a success, half of it on a failure.">overhaul</button>
       </div>
       <div class="fx gearfx">${t.fx}</div>`;
   const wepBody = weps.map(({it,i})=>{
@@ -1893,7 +1964,8 @@ function invSection(cs){
       <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
   const gearBody = listBody(gear), consBody = listBody(cons);
-  return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}</div>
+  return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
+      <span style="margin-left:auto" title="Who does the tune-ups and overhauls started from this card. They are busy for the job, then roll Mechanics for the result.">🔧 repairs by <select onchange="setMech('${id}',this.value)">${S.chars.map(x=>`<option value="${x.id===id?'':x.id}" ${(cs.mech||'')===(x.id===id?'':x.id)?'selected':''}>${esc(cfg(x.id).name)}${x.id===id?' (self)':''}</option>`).join('')}</select></span></div>
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
     ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
@@ -2010,7 +2082,7 @@ function droidCard(cs, c, div){
   const disabled = strainOut(cs, c);
   const wrecked  = cs.wounds>cs.wt && cs.wt>0;
   const over = overload(cs);
-  const badges =
+  const badges = statusBadge(cs) +
     (cs.charge>=100 ? `<span class="badge b-off">🔋 SHUTDOWN</span> ` : '') +
     (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span>` : '') +
     condBadges(cs);
@@ -2032,7 +2104,7 @@ function droidCard(cs, c, div){
     ${needRow(cs,'charge','🔋 Charge',
       `<button class="mini droid" onclick="swapPack('${cs.id}')">swap pack</button><button class="mini droid" onclick="rechargeAll('${cs.id}')">⚡ recharge</button>`)}
     ${needRow(cs,'maint','🔧 Wear',
-      `<button class="mini droid" onclick="tuneUp('${cs.id}')">tune-up</button><button class="mini droid" onclick="overhaul('${cs.id}')">overhaul</button>`)}
+      `<button class="mini droid" onclick="tuneUp('${cs.id}')" title="Tune-up — ${fmtDur(DROID_REPAIR_HRS.tuneup)} on the bench, then a Mechanics check: −${TUNEUP} wear and corrosion cleaned on a success.">tune-up</button><button class="mini droid" onclick="overhaul('${cs.id}')" title="Full overhaul — ${fmtDur(DROID_REPAIR_HRS.overhaul)} on the bench, then a Mechanics check: wear back to 0 on a success, half of it on a failure.">overhaul</button>`)}
     <div class="gearrow">
       <span class="gi">🔋 charged <input type="number" min="0" value="${cs.packsCharged}" onchange="setStock('${cs.id}','packsCharged',this.value)" title="Charged spare packs"></span>
       <span class="gi">🪫 depleted <input type="number" min="0" value="${cs.packsDepleted}" onchange="setStock('${cs.id}','packsDepleted',this.value)" title="Depleted packs"></span>
@@ -2629,6 +2701,7 @@ function rollAttack(id, i){
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
   const upg = t.upg||0;   // a failing weapon: upgrade the difficulty once
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:t.setb||0, d:2-Math.min(2,upg), c:Math.min(2,upg), F:0});
+  DICE_UI.repair = null;
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
     weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng,
              note: t.setb ? `${t.name} weapon: ${t.setb} Setback${upg?' and an upgraded difficulty':''} already added` : '', src:{id, i, name:it.name} } });
@@ -2727,14 +2800,14 @@ function rollSkill(id, key){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
   const s = skillState(cs, sk);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null });
   document.getElementById('diceLabel').value = sk.n;
   showTab('dice');
 }
 function rollForce(id){
   const cs = st(id), n = Math.max(0, cs.sheet.fr - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, {p:0, a:0, b:0, k:0, d:0, c:0, F:n});
-  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null });
+  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null, repair:null });
   document.getElementById('diceLabel').value = 'Force power';
   showTab('dice');
 }
@@ -2846,7 +2919,7 @@ const SYM_TIPS = {
 };
 const DIFFS = [['Simple',0],['Easy',1],['Average',2],['Hard',3],['Daunting',4],['Formidable',5]];
 const FEED_MAX = 50, POOL_MAX = 12;
-const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null };
+const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null, repair:null };
 let ROLLS = [];   // feed entries, oldest first
 
 const rollInt = n => (typeof crypto!=='undefined' && crypto.getRandomValues)
@@ -2872,8 +2945,8 @@ const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${face
 
 /* ---- pool builder ---- */
 function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
-function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; renderDice(); }
-function poolNoWeapon(){ DICE_UI.weapon=null; renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; renderDice(); }
+function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; renderDice(); }
 function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
   const p = DICE_UI.pool;
   if(p[from]>0){ p[from]--; p[to] = Math.min(POOL_MAX, p[to]+1); } else p[from] = 1;
@@ -2899,7 +2972,13 @@ function rollPool(){
     const it = src && st(src.id) && st(src.id).inv[src.i];   // the attack wears the weapon a little
     if(it && it.name===src.name && isWeapon(it)){ it.wear = clamp((it.wear||0)+WEAR_PER_ATTACK, 0, 100); render(); }
   }
+  if(DICE_UI.repair){   // a repair roll: the dice decide how much wear comes off
+    const text = applyRepair(DICE_UI.repair.holder, tally(parseRoll(e.r)));
+    DICE_UI.repair = null;
+    if(text){ e.rep = text.slice(0,300); logMsg('🔧 '+esc(text), 'ld'); render(); }
+  }
   postFeed(e);
+  renderDice();
 }
 
 /* ---- feed (append-only) ---- */
@@ -2958,7 +3037,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    ${weaponCardHtml(e.w, dice)}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice)}</div></div>`;
 }
 function renderFeed(){
@@ -3035,6 +3114,7 @@ function renderDice(){
       <button class="mini" onclick="poolClear()">clear</button>
     </div>
     ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
+    ${DICE_UI.repair ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.repair.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the repair">✕</button></div>` : ''}
     <div class="poolprev">${total ? DICE_ORDER.map(t=>`<span class="die ${DICE[t].cls} t-${t}" title="${DICE[t].name}"></span>`.repeat(p[t])).join('') : 'Empty pool — click the dice above to add them.'}</div>
     <button class="primary rollbtn" onclick="rollPool()" ${total?'':'disabled'}>🎲 Roll${total?` ${total} ${total===1?'die':'dice'}`:''}</button>`;
   const lg = document.getElementById('diceLegend');
@@ -3331,7 +3411,7 @@ function buildRules(){
   <p><b>🎒 Bag:</b> a bag <i>raises</i> what you can haul rather than adding weight, as long as it is carried. Set an item's Type to <b>Bag</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; 🛡 armor — wear</h2>
-  <p>Each carried <b>weapon</b>, <b>armor</b> or <b>tool</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Other gear has no wear track and cannot be equipped. Worn tools follow the same Setback table as weapons; press <b>use</b> after a hard job. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <p>Each carried <b>weapon</b>, <b>armor</b> or <b>tool</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Other gear has no wear track and cannot be equipped. Worn tools follow the same Setback table as weapons; press <b>use</b> after a hard job. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> (${fmtDur(STATUSES.tuneup.dur)} of work, then a <b>Mechanics</b> check — Easy, Average or Hard as the wear worsens) relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> (${fmtDur(STATUSES.overhaul.dur)}, then Mechanics one step harder; a failure still clears half) resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
   <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
   ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
 

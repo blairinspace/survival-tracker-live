@@ -220,6 +220,37 @@ print('\n=== SMOKE TEST — UI code paths ===');
   invAdd('gibbs','Gear','Canvas Backpack'); invSet('gibbs',kc.inv.length-1,'carry',false); if(crateWeight(kc)!==7) throw new Error('stowed bag should count 1');
   invSet('gibbs',la,'qty',8); const ch = gearHtml(kc); if(crateWeight(kc)!==35 || !/over capacity/.test(ch) || /undefined|NaN/.test(ch)) throw new Error('over-capacity warning missing');
   S = svC;
+  // timed repairs + Mechanics check: the job runs on the mechanic's clock, then a roll decides the wear
+  const svR = S; fresh(); const rc = st('gibbs'), ri = rc.inv.findIndex(isWeapon), rw = rc.inv[ri]; rw.eq = 1; rw.wear = 50;
+  const T = str => tally(parseRoll(str));
+  tuneItem('gibbs',ri); if(rw.wear!==50 || !rc.status || rc.status.kind!=='tuneup') throw new Error('tune-up should not be instant');
+  cancelStatus('gibbs'); advance(1); if(Math.round(rw.wear)!==50 || rc.repair) throw new Error('a cancelled tune-up still counted');
+  rw.wear = 50; tuneItem('gibbs',ri); advance(0.25); if(rc.status || !rc.repair || Math.round(rw.wear)!==50) throw new Error('finished tune-up should wait for the roll');
+  if(!/roll Mechanics/.test(statusBadge(rc)) || /undefined|NaN/.test(statusBadge(rc))) throw new Error('pending-roll badge missing');
+  rollRepair('gibbs'); if(!DICE_UI.repair || DICE_UI.who!=='gibbs' || DICE_UI.pool.d!==1 || DICE_UI.pool.k!==1 /* Gibbs carries no tools */) throw new Error('repair pool wrong: '+JSON.stringify(DICE_UI.pool));
+  const w0 = rw.wear, txt = applyRepair('gibbs', T('a:ss a:s d:f')); if(Math.abs(rw.wear-(w0-GEAR_TUNEUP-REPAIR_EXTRA_PER_SUCCESS))>0.01 || rc.repair || !/Success/.test(txt)) throw new Error('tune-up success wrong: '+rw.wear+' '+txt);
+  rw.wear = 50; tuneItem('gibbs',ri); advance(0.25); applyRepair('gibbs', T('a: d:f c:y')); if(Math.abs(rw.wear-(50+REPAIR_DESPAIR_WEAR))>0.2) throw new Error('failed tune-up with Despair should add wear: '+rw.wear);
+  rw.wear = 80; overhaulItem('gibbs',ri); advance(0.5); if(!rc.status) throw new Error('overhaul finished early'); advance(0.5); if(rc.status || !rc.repair) throw new Error('overhaul should be waiting for the roll after 1 hr');
+  rollRepair('gibbs'); if(DICE_UI.pool.d!==4) throw new Error('overhaul of a Failing item should be Daunting'); poolClear();
+  const w1 = rw.wear; applyRepair('gibbs', T('a: d:f')); if(Math.abs(rw.wear-w1/2)>0.01) throw new Error('failed overhaul should clear half');
+  rw.wear = 80; overhaulItem('gibbs',ri); advance(1); applyRepair('gibbs', T('p:x d:')); if(rw.wear!==0) throw new Error('overhaul success should clear wear');
+  // another character does the work: the job and the roll sit on the mechanic
+  setMech('gibbs','tann'); rw.wear = 40; tuneItem('gibbs',ri); const tn = st('tann'); if(rc.status || !tn.status || tn.status.item.owner!=='gibbs') throw new Error('job should be on the mechanic');
+  advance(0.25); if(!tn.repair || rc.repair) throw new Error('pending roll should be on the mechanic'); rollRepair('tann'); if(DICE_UI.who!=='tann' || DICE_UI.pool.k!==0 /* Tann has a tool kit */) throw new Error('mechanic should roll');
+  const fN = ROLLS.length; rollPool(); if(tn.repair || ROLLS.length!==fN+1 || !ROLLS[ROLLS.length-1].rep || DICE_UI.repair) throw new Error('rolling the pool should apply the repair');
+  if(!S.log.some(l=>/tune-up of Gibbs/.test(l.m))) throw new Error('repair outcome not logged');
+  rw.wear = 30; tuneItem('gibbs',ri); const backR = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!backR.chars.find(x=>x.id==='tann').status.item || backR.chars.find(x=>x.id==='gibbs').mech!=='tann') throw new Error('repair status / mechanic lost on the wire');
+  cancelStatus('tann'); setMech('gibbs','');
+  // droids: 30 min / 2 hr on the bench, then the roll
+  tuneUp('bd1'); const dv = {innerHTML:'',className:''}; droidCard(st('bd1'), cfg('bd1'), dv); if(!/Tune-up — 30 min left/.test(dv.innerHTML)) throw new Error('droid card should show the repair badge'); cancelStatus('bd1');
+  const dr = st('alpha'); dr.maint = 60; dr.conds.push({id:'corroded',lvl:1}); tuneUp('alpha'); if(dr.maint!==60 || !dr.status || activeAct(dr)!=='resting') throw new Error('droid tune-up should be a timed bench job');
+  advance(0.25); if(!dr.status) throw new Error('droid tune-up finished early'); advance(0.25); if(dr.status || !dr.repair) throw new Error('droid tune-up should wait for the roll after 30 min');
+  setMech('alpha','tann'); rollRepair('alpha'); if(DICE_UI.who!=='tann') throw new Error("the droid's mechanic should roll"); poolClear();
+  const mt0 = dr.maint; applyRepair('alpha', T('a:s d:')); if(Math.abs(dr.maint-(mt0-TUNEUP))>0.01 || dr.conds.some(x=>x.id==='corroded')) throw new Error('droid tune-up success wrong: '+dr.maint);
+  dr.maint = 90; overhaul('alpha'); advance(1.75); if(!dr.status) throw new Error('droid overhaul finished early'); advance(0.25); applyRepair('alpha', T('a:s d:')); if(dr.maint!==0) throw new Error('droid overhaul success should clear wear');
+  const ar2 = st('gibbs'); invAdd('gibbs','Armor','Laminate Armour'); const ai2 = ar2.inv.length-1; invSet('gibbs',ai2,'eq',1); ar2.inv[ai2].wear = 70; overhaulItem('gibbs',ai2); advance(1); applyRepair('gibbs', T('a:s d:')); if(ar2.inv[ai2].wear!==0) throw new Error('armor overhaul should clear wear on a success');
+  repairDrop('gibbs');
+  S = svR;
   if(INV_TYPES.includes('Gear (worn)')) throw new Error('Gear (worn) type still offered');
   render(); const invHtml = document.getElementById('sheetBody').innerHTML + document.getElementById('cards').innerHTML;
   if(/undefined|NaN|\[object/.test(invHtml)) throw new Error('broken interpolation in the inventory views');
