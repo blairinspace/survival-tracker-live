@@ -1832,7 +1832,7 @@ function statusBadge(cs){
 // Weapons and armor have a wear track (use or hit / tune-up / overhaul) while equipped; gear has none.
 function invSection(cs){
   const id = cs.id, w = invWeight(cs), over = overload(cs), eff = effThresh(cs), pb = packBonus(cs);
-  const carried = cs.inv.map((it,i)=>({it,i})).filter(x=>isCarried(x.it));
+  const carried = cs.inv.map((it,i)=>({it,i})).filter(x=>isCarried(x.it)).sort(byLabel(invLabel));   // A–Z by what the card calls it
   const stowed = cs.inv.length - carried.length;
   const eqBox = (it,i,tip) => it.auto ? '' : `<input type="checkbox" ${it.eq?'checked':''} onchange="invSet('${id}',${i},'eq',this.checked)" title="Equipped — ${tip}">`;
   const nameCell = it => `<span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it)||'(unnamed)')}</span>${(+it.qty||0)!==1 && !it.auto ? ` <span style="color:var(--dim)">×${+it.qty||0}</span>` : ''}`;
@@ -2522,6 +2522,8 @@ function dbFind(name){
 }
 const dbOf = it => (it && it.ref && dbFind(it.ref)) || null;
 const invLabel = it => it.alias || it.name || '';
+// display order only (the stored order never changes): A–Z, unnamed rows last so a new blank row stays at the bottom
+const byLabel = key => (a, b) => { const x = (key(a.it)||'').trim(), y = (key(b.it)||'').trim(); return (!x)-(!y) || x.localeCompare(y, undefined, {sensitivity:'base', numeric:true}) || a.i-b.i; };
 const isWeapon = it => (it.type||'').toLowerCase()==='weapon';
 const numOr = (...vs) => { for(const v of vs){ if(v!==undefined && v!==null && v!=='' && Number.isFinite(+v) && Math.abs(+v)<1000) return +v; } return 0; };
 function dbDesc(rec){   // plain text — callers escape
@@ -2639,7 +2641,7 @@ function refreshDbNames(){   // the shared <datalist> behind every Item box
 }
 function gearHtml(cs){
   refreshDbNames();
-  const id = cs.id, rows = cs.inv.map((it,i)=>({it,i}));
+  const id = cs.id, rows = cs.inv.map((it,i)=>({it,i})).sort(byLabel(it=>it.name));   // A–Z by database name; i stays the real index
   const eqBox = (it,i) => `<input type="checkbox" ${isCarried(it)?'checked':''} onchange="invSet('${id}',${i},'carry',this.checked)" title="Carry — on your person. Only carried items appear on the Tracker card, count toward encumbrance, and can be eaten, used or equipped. Untick to stow it (on the ship, at camp).">`;
   const eqTag = it => isEquipped(it) ? `<span class="badge b-hb" title="Equipped — ticked on the Tracker card">equipped</span> ` : '';
   const itemIn = (it,i) => `<input type="text" class="wname" list="dbNames" value="${esc(it.name)}" placeholder="item — type to search the database" title="The Items database entry. Pick another name to swap the item (its stats are re-imported); free text makes an unlinked item." onchange="invSet('${id}',${i},'db',this.value)">`;

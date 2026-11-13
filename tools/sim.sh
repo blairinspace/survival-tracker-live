@@ -211,6 +211,8 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const cardInv = invSection(st('cal')); if((cardInv.match(/<details/g)||[]).length!==5 || !/Consumables/.test(cardInv) || !/Tools/.test(cardInv) || !/Weapons/.test(cardInv) || !/Armor/.test(cardInv) || /undefined|NaN/.test(cardInv)) throw new Error('card should have five inventory dropdowns');
   const crate = gearHtml(st('cal')); if(!/Personal Item Storage Crate/.test(crate) || (crate.match(/<details/g)||[]).length!==6 || !/Consumables/.test(crate) || /undefined|NaN/.test(crate)) throw new Error('sheet inventory should be a crate with three dropdowns');
   sheetOpen('armor',false); if(/<details class="sfold" open[^>]*'armor'/.test(gearHtml(st('cal'))) || !/<details class="sfold" open[^>]*'weapons'/.test(gearHtml(st('cal')))) throw new Error('dropdown open state not remembered'); sheetOpen('armor',true);
+  const ordC = [...invSection(st('cal')).split('🎒 Gear')[1].matchAll(/<td><span class="[a-z]*" title="[^"]*">([^<]+)</g)].map(m=>m[1]); if(ordC.length<3 || ordC.join('|')!==[...ordC].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true})).join('|')) throw new Error('card gear not alphabetical: '+ordC.join(', '));
+  const invBefore = JSON.stringify(st('cal').inv.map(x=>x.name)); render(); if(JSON.stringify(st('cal').inv.map(x=>x.name))!==invBefore) throw new Error('sorting changed the stored order');
   if(INV_TYPES.includes('Gear (worn)')) throw new Error('Gear (worn) type still offered');
   render(); const invHtml = document.getElementById('sheetBody').innerHTML + document.getElementById('cards').innerHTML;
   if(/undefined|NaN|\[object/.test(invHtml)) throw new Error('broken interpolation in the inventory views');
