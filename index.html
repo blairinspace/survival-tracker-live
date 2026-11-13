@@ -2558,14 +2558,14 @@ const ATTR_TIPS = {
   wil:'Willpower — discipline and mental endurance. Sets strain threshold; rolled for Discipline, Vigilance and Coercion.',
   pr:'Presence — charisma and confidence. Rolled for Charm, Cool, Leadership and Negotiation.',
 };
-const SHEET_TEXT = ['species','career','specs'];
-const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_TEXT = ['species','career','specs','morS','morW'];
+const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
 function newSheet(c){
-  return { species:c.species||'', career:'', specs:'', soakMod:0, defRMod:0, defMMod:0,
+  return { species:c.species||'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, obl:[], duty:[], soakMod:0, defRMod:0, defMMod:0,
            fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{} };
 }
 function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
@@ -2582,6 +2582,12 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
   sh.cust = arrayify(sh.cust); if(!Array.isArray(sh.cust)) sh.cust = [];
   sh.cust = sh.cust.filter(x=>x && typeof x==='object' && x.id);
   for(const x of sh.cust){ if(typeof x.n!=='string') x.n=''; if(!ATTR_TIPS[x.ch]) x.ch='int'; }
+  for(const k of ['obl','duty']){   // Obligation / Duty entries: { id, n type, v magnitude }
+    sh[k] = arrayify(sh[k]); if(!Array.isArray(sh[k])) sh[k] = [];
+    sh[k] = sh[k].filter(x=>x && typeof x==='object' && x.id);
+    for(const x of sh[k]){ if(typeof x.n!=='string') x.n=''; x.v = clamp(Math.round(+x.v)||0, 0, 100); }
+  }
+  sh.dark = sh.dark ? 1 : 0; if(sh.mor < 30) sh.dark = 1;
   if(!sh.tr || typeof sh.tr!=='object' || Array.isArray(sh.tr)) sh.tr = {};
   for(const k in sh.tr) if(!sh.tr[k] || typeof sh.tr[k]!=='object' || Array.isArray(sh.tr[k])) delete sh.tr[k];
   // committed Force dice are cs.force (the Tracker card's field) — one value for both tabs. A save from
@@ -2611,6 +2617,7 @@ function sheetSet(id, k, v){
   const sh = st(id).sheet;
   if(SHEET_TEXT.includes(k)) sh[k] = String(v).slice(0,120);
   else if(SHEET_NUM[k]) sh[k] = clamp(Math.round(parseFloat(v))||0, ...SHEET_NUM[k]);
+  if(k==='mor') moralSync(sh);
   if(k==='fr' && st(id).force > forceCap(st(id))) setForce(id, sh.fr);   // lowering the rating releases the excess
   render();
 }
@@ -2869,6 +2876,16 @@ function rollForce(id){
 }
 const rankCostTip = (s) => s.rank>=SKILL_RANK_MAX ? 'Rank 5 is the maximum.'
   : `Next rank (${s.rank+1}) costs ${5*(s.rank+1) + (s.career?0:5)} XP — 5 × the new rank${s.career?'':', +5 because this is not a career skill'}. Ranks are bought one at a time; no skill above rank 2 at character creation.`;
+const skillCost = s => 5*(s.rank+1) + (s.career ? 0 : 5);   // next rank: 5 × new rank, +5 if not a career skill
+function skillBuy(id, key){
+  const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return false;
+  const s = skillState(cs, sk), cost = skillCost(s);
+  if(s.rank >= SKILL_RANK_MAX || cs.sheet.xp < cost) return false;
+  (cs.sheet.sk[key] || (cs.sheet.sk[key] = {})).r = s.rank + 1; cs.sheet.xp -= cost;
+  render(); return true;
+}
+const skillNorm = n => normName(n).replace(/knowledge/,'').replace(/[^a-z]+/g,' ').trim();
+function skillKeyByName(name){ const q = skillNorm(name), hit = q && SKILLS.find(x=>skillNorm(x.n)===q); return hit ? hit.k : ''; }
 function skillRowHtml(cs, sk){
   const s = skillState(cs, sk), id = cs.id;
   const chSel = `<select class="chsel" title="Characteristic this skill rolls with" onchange="${sk.cust ? `sheetCust('${id}','${sk.cust}','ch',this.value)` : `sheetSkill('${id}','${sk.k}','ch',this.value)`}">` +
@@ -2880,7 +2897,7 @@ function skillRowHtml(cs, sk){
   return `<tr class="${s.career?'career':''}">
     <td class="skn" title="${esc(sk.tip)}">${name} ${chSel}</td>
     <td class="c"><input type="checkbox" ${s.career?'checked':''} onchange="sheetSkill('${id}','${sk.k}','c',this.checked)" title="Career skill — granted by your career and specializations. Career skills are 5 XP cheaper per rank."></td>
-    <td class="c"><input type="number" min="0" max="${SKILL_RANK_MAX}" value="${s.rank}" onchange="sheetSkill('${id}','${sk.k}','r',this.value)" title="${rankCostTip(s)}"></td>
+    <td class="c"><input type="number" min="0" max="${SKILL_RANK_MAX}" value="${s.rank}" onchange="sheetSkill('${id}','${sk.k}','r',this.value)" title="${rankCostTip(s)}">${s.rank<SKILL_RANK_MAX ? `<button class="mini" onclick="skillBuy('${id}','${sk.k}')" ${cs.sheet.xp>=skillCost(s)?'':'disabled'} title="Buy rank ${s.rank+1} for ${skillCost(s)} XP (${s.career?'career skill':'non-career: +5'}). You have ${cs.sheet.xp} XP. Typing in the box changes the rank without spending XP.">▲${skillCost(s)}</button>` : ''}</td>
     <td><button class="skroll" onclick="rollSkill('${id}','${sk.k}')" title="${ATTRS.find(a=>a[0]===s.ch)[1]} ${s.cv} + rank ${s.rank} → ${s.p} Proficiency, ${s.a} Ability. Click to load this pool into the Dice tab.">${pool || '—'}</button></td>
   </tr>`;
 }
@@ -2927,6 +2944,7 @@ function renderSheet(){
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
     ${gearHtml(cs)}
     ${talentsHtml(cs)}
+    ${moralityHtml(cs)}
     <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
 }
 
@@ -3037,6 +3055,7 @@ function specAdd(id, tid, free){
   cs.sheet.tr[tid] = { _:1, _x:cost }; cs.sheet.xp -= cost;
   const list = cs.sheet.specs.split(',').map(x=>x.trim()).filter(Boolean);   // keep the sheet's Specializations box in step
   if(!list.some(x=>normName(x)===normName(t.n))) cs.sheet.specs = list.concat(t.n).join(', ').slice(0,120);
+  for(const name of t.skills){ const k = skillKeyByName(name); if(k) (cs.sheet.sk[k] || (cs.sheet.sk[k] = {})).c = 1; }   // its career skills
   render(); return true;
 }
 function specRemove(id, tid){
@@ -3165,6 +3184,78 @@ function talentsHtml(cs){
     ${table}
     <div class="geartables">${folds}</div>
     <button class="mini" onclick="treesFor('${id}')" title="Open the Trees tab to add a specialization, a Force power or a signature ability">＋ browse &amp; add trees</button>
+  </details>`;
+}
+
+/* ================================================================
+   MORALITY · CONFLICT · OBLIGATION · DUTY — on each sheet.
+   Morality 0–100 (start 50) with the session's Conflict; at session end
+   roll 1d10 − Conflict and add it to Morality. Below 30 the character is a
+   dark side Force user and stays one until Morality climbs above 70.
+   Obligation and Duty are lists of { id, n type, v magnitude } per
+   character; the session-start d100 is rolled against the party total.
+   ================================================================ */
+function moralSync(sh){ if(sh.mor < 30) sh.dark = 1; else if(sh.mor > 70) sh.dark = 0; }
+function moralBand(sh){
+  if(sh.mor > 70) return { name:'Light side paragon', color:'var(--accent)', fx:'+1 Light Destiny point each session' + (sh.mor>90 ? ' · strain threshold +2' : sh.mor>80 ? ' · strain threshold +1' : '') };
+  if(sh.dark) return { name:'Dark side Force user', color:'var(--bad)',
+    fx:'uses ● dark side results freely (○ costs strain and a Destiny flip) · +1 Dark Destiny each session' + (sh.mor<10 ? ' · strain threshold −2, wound threshold +2' : sh.mor<20 ? ' · strain threshold −1, wound threshold +1' : '') + (sh.mor>=30 ? ' · stays dark until Morality passes 70' : '') };
+  return { name:'Light side Force user', color:'var(--dim)', fx:'using ● dark side results costs strain, Conflict and a Destiny flip' };
+}
+function sheetAdj(id, k, d){ sheetSet(id, k, st(id).sheet[k] + d); }
+function conflictResolve(id, doubled, forced){   // end of session: 1d10 − Conflict, doubled if the GM triggered this Morality
+  const cs = st(id), sh = cs.sheet, roll = forced || rollInt(10)+1, delta = (roll - sh.conf) * (doubled ? 2 : 1), was = sh.mor;
+  sh.mor = clamp(sh.mor + delta, 0, 100); moralSync(sh);
+  postFeed({ k:'p', h:'Morality', m:`${cfg(id).name}: rolled ${roll} − ${sh.conf} Conflict${doubled?' (×2, triggered)':''} → Morality ${delta>=0?'+':''}${delta} (${was} → ${sh.mor}). ${moralBand(sh).name}.` });
+  sh.conf = 0; render(); return delta;
+}
+function tallyAdd(id, kind){ st(id).sheet[kind].push({ id:randomId().slice(0,6), n:'', v:kind==='obl'?10:5 }); render(); }
+function tallySet(id, kind, eid, k, v){
+  const x = st(id).sheet[kind].find(y=>y.id===eid); if(!x) return;
+  if(k==='n') x.n = String(v).slice(0,60); else x.v = clamp(Math.round(parseFloat(v))||0, 0, 100);
+  render();
+}
+function tallyDel(id, kind, eid){ const sh = st(id).sheet; sh[kind] = sh[kind].filter(y=>y.id!==eid); render(); }
+function partyTally(kind){   // every character's entries in roster order — the d100 table
+  const rows = []; let total = 0;
+  for(const cs of S.chars) for(const x of cs.sheet[kind]) if(x.v > 0){ rows.push({ who:cs.id, n:x.n, from:total+1, to:total+x.v }); total += x.v; }
+  return { rows, total };
+}
+function tallyRoll(kind, forced){   // session start: d100 against the party's total Obligation or Duty
+  const { rows, total } = partyTally(kind), roll = forced || rollInt(100)+1, name = kind==='obl' ? 'Obligation' : 'Duty';
+  const hit = rows.find(r=>roll>=r.from && roll<=r.to), dbl = roll<100 && roll%11===0;
+  let m = `Rolled ${roll} against a party total of ${total}. `;
+  if(!hit) m += kind==='obl' ? 'Not triggered — the party\'s troubles leave them alone this session.' : 'Not triggered.';
+  else if(kind==='obl') m += `Triggered: ${cfg(hit.who).name}'s ${hit.n || 'Obligation'}. This session everyone's strain threshold is −${dbl?2:1}, and ${cfg(hit.who).name}'s is −${dbl?4:2}${dbl?' (doubles: effect doubled)':''}.`;
+  else m += `Triggered: ${cfg(hit.who).name}'s ${hit.n || 'Duty'}. This session everyone's wound threshold is +${dbl?2:1}, and ${cfg(hit.who).name}'s is +${dbl?4:2}${dbl?' (doubles: effect doubled)':''}.`;
+  postFeed({ k:'p', h:name+' check', m });
+  return { roll, hit, dbl };
+}
+function moralityHtml(cs){
+  const sh = cs.sheet, id = cs.id, band = moralBand(sh), sum = k => sh[k].reduce((a,x)=>a+x.v, 0);
+  const tally = (kind, label, tip, ph) => { const pt = partyTally(kind); return `<div><table class="taltable"><tr><th title="${esc(tip)}">${label}</th><th>Size</th><th></th></tr>` +
+    sh[kind].map(x=>`<tr><td><input type="text" style="width:100%" value="${esc(x.n)}" placeholder="${ph}" onchange="tallySet('${id}','${kind}','${x.id}','n',this.value)"></td>
+      <td><input type="number" min="0" max="100" value="${x.v}" onchange="tallySet('${id}','${kind}','${x.id}','v',this.value)"></td>
+      <td><button class="mini" onclick="tallyDel('${id}','${kind}','${x.id}')" title="Remove">✕</button></td></tr>`).join('') +
+    `<tr><td colspan="3"><button class="mini" onclick="tallyAdd('${id}','${kind}')">＋ add ${label.toLowerCase()}</button>
+      <span class="tinfo"> ${esc(cfg(id).name)}: <b>${sum(kind)}</b> · party total <b>${pt.total}</b></span>
+      <button class="mini atk" onclick="tallyRoll('${kind}')" ${pt.total?'':'disabled'} title="Session start: roll d100 against the party total. The result goes to the roll feed on the Dice tab.">🎲 roll ${label} check</button></td></tr></table></div>`; };
+  return `<details class="sfold crate" ${SHEET_UI.open.mor?'open':''} ontoggle="sheetOpen('mor',this.open)">
+    <summary>⚖ <b>Morality, Obligation &amp; Duty</b> <span class="sub">· Morality ${sh.mor} · Conflict ${sh.conf} · Obligation ${sum('obl')} · Duty ${sum('duty')}</span></summary>
+    <div class="sboxes">
+      <div class="sbox" title="Morality runs 0–100 and starts at 50. Below 30 you become a dark side Force user and stay one until you climb above 70. Above 70 you are a light side paragon.">Morality<div class="vals"><input type="number" min="0" max="100" value="${sh.mor}" onchange="sheetSet('${id}','mor',this.value)"></div><small style="color:${band.color}">${band.name}</small></div>
+      <div class="sbox" title="Conflict earned this session: using dark side results, and acts of cruelty, fear, anger or selfishness (the GM awards 1–10+). At the end of the session roll 1d10 and subtract Conflict; the result is added to Morality.">Conflict<div class="vals"><button class="mini" onclick="sheetAdj('${id}','conf',-1)">−</button> <input type="number" min="0" max="99" value="${sh.conf}" onchange="sheetSet('${id}','conf',this.value)"> <button class="mini" onclick="sheetAdj('${id}','conf',1)">＋</button></div><small>this session</small></div>
+      <div class="sbox" title="End of session: roll 1d10, subtract this session's Conflict, add the result to Morality, and reset Conflict to 0. Use ×2 if the GM triggered this character's Morality and they engaged with it.">End of session<div class="vals"><button class="mini atk" onclick="conflictResolve('${id}')">🎲 resolve Conflict</button> <button class="mini" onclick="conflictResolve('${id}',true)">×2</button></div><small>1d10 − Conflict</small></div>
+    </div>
+    <div class="tinfo" style="color:${band.color}">${band.fx}. <span style="color:var(--dim)">Threshold changes are not applied automatically.</span></div>
+    <div class="shead">
+      <label title="Emotional strength — no rules effect; a guide to who the character is at their best.">Emotional strength<input type="text" class="wide" value="${esc(sh.morS)}" placeholder="e.g. Compassion" onchange="sheetSet('${id}','morS',this.value)"></label>
+      <label title="Emotional weakness — the flip side of the strength; what tempts the character toward Conflict.">Emotional weakness<input type="text" class="wide" value="${esc(sh.morW)}" placeholder="e.g. Hatred" onchange="sheetSet('${id}','morW',this.value)"></label>
+    </div>
+    <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      ${tally('obl','Obligation','Obligation (Edge of the Empire): debts, bounties, oaths — what the galaxy holds over you. At session start the GM rolls d100 against the party total; if it comes up, everyone is distracted (strain threshold −1, yours −2).','e.g. Bounty, Debt, Family')}
+      ${tally('duty','Duty','Duty (Age of Rebellion): your standing mission for the cause. At session start the GM rolls d100 against the party total; if it comes up, everyone is inspired (wound threshold +1, yours +2).','e.g. Intelligence, Sabotage')}
+    </div>
   </details>`;
 }
 
@@ -3326,7 +3417,7 @@ function feedEntryHtml(e){
       <small>${SYM.l[0]} ${+e.light||0} Light · ${SYM.n[0]} ${+e.dark||0} Dark remaining · ${by} · ${t}</small></div>`;
   }
   if(e.k==='p'){
-    return `<div class="roll"><div class="rhead"><b>Destiny pool</b><span>${by} · ${t}</span></div>
+    return `<div class="roll"><div class="rhead"><b>${esc(String(e.h||'Destiny pool').slice(0,40))}</b><span>${by} · ${t}</span></div>
       <div class="rres">${esc(String(e.m||'').slice(0,160))}</div></div>`;
   }
   const dice = parseRoll(e.r); if(!dice.length) return '';

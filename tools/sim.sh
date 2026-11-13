@@ -332,6 +332,33 @@ print('\n=== SMOKE TEST — UI code paths ===');
     print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
     S = migrate(JSON.parse(keep)); showTab('tracker');
   })();
+  // morality / conflict / obligation / duty, career skills from a specialization, buying skill ranks
+  (()=>{
+    const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet, n0 = ROLLS.length;
+    sh.mor = 50; sh.conf = 4; sh.dark = 0;
+    if(conflictResolve('cal', false, 7)!==3 || sh.mor!==53 || sh.conf!==0) throw new Error('conflict resolution wrong');
+    sh.conf = 9; conflictResolve('cal', true, 1); if(sh.mor!==37 || moralBand(sh).name!=='Light side Force user') throw new Error('doubled conflict wrong');
+    sheetSet('cal','mor',25); if(!sh.dark) throw new Error('did not fall below 30'); sheetSet('cal','mor',50); if(!sh.dark || !/stays dark/.test(moralBand(sh).fx)) throw new Error('dark side should stick until 70');
+    sheetSet('cal','mor',85); if(sh.dark || !/strain threshold \+1/.test(moralBand(sh).fx)) throw new Error('paragon band wrong');
+    sheetAdj('cal','conf',-1); if(sh.conf!==0) throw new Error('conflict went negative');
+    for(const x of S.chars){ x.sheet.obl = []; x.sheet.duty = []; }
+    tallyAdd('cal','obl'); tallySet('cal','obl',sh.obl[0].id,'n','Bounty'); tallySet('cal','obl',sh.obl[0].id,'v',20);
+    const bo = st('bode'); tallyAdd('bode','obl'); tallySet('bode','obl',bo.sheet.obl[0].id,'v',15); tallyAdd('bode','duty');
+    const order = S.chars.map(x=>x.id), first = order.indexOf('cal') < order.indexOf('bode') ? 'cal' : 'bode';
+    if(partyTally('obl').total!==35 || partyTally('duty').total!==5) throw new Error('party totals wrong');
+    if(tallyRoll('obl', 36).hit || tallyRoll('obl', 1).hit.who!==first || !tallyRoll('obl', 22).dbl || tallyRoll('obl', 35).hit.who===first) throw new Error('obligation table wrong');
+    const mw = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet;
+    if(mw.mor!==85 || mw.obl.length!==1 || mw.obl[0].n!=='Bounty' || !Array.isArray(mw.duty)) throw new Error('morality / obligation lost on the wire');
+    sh.tr = {}; sh.sk = {}; sh.xp = 100; sh.specs = ''; specAdd('cal','healer');
+    if(!sh.sk.medicine || !sh.sk.medicine.c || !sh.sk.xenology.c || !sh.sk.education.c || !sh.sk.discipline.c) throw new Error('specialization career skills not ticked');
+    const noKey = [...new Set(RULES_DB.trees.filter(t=>t.k==='spec').flatMap(t=>t.skills).filter(n=>!skillKeyByName(n) && !/choice|any/i.test(n)))]; if(noKey.length) throw new Error('career skills with no sheet skill: '+noKey.join(', '));
+    if(!skillBuy('cal','medicine') || sh.xp!==95 || !skillBuy('cal','medicine') || sh.xp!==85 || !skillBuy('cal','stealth') || sh.xp!==75 || sh.sk.stealth.r!==1) throw new Error('skill purchase cost wrong');
+    sh.xp = 4; if(skillBuy('cal','medicine')) throw new Error('bought a skill rank without the XP');
+    SHEET_UI.id = 'cal'; render(); const h = document.getElementById('sheetBody').innerHTML;
+    if(!/Morality, Obligation/.test(h) || !/Bounty/.test(h) || /undefined|NaN|\[object/.test(moralityHtml(cal))) throw new Error('morality section broken');
+    print(`  morality: conflict resolves, the dark side sticks until 70, obligation / duty table rolls (${ROLLS.length-n0} feed entries), specializations tick career skills, skill ranks cost XP`);
+    S = migrate(JSON.parse(keep));
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
