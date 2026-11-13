@@ -327,26 +327,36 @@
 <div class="topbar" id="titleBar">
   <div class="group">
     <h1 style="margin:0">Survival Tracker</h1>
-    <button onclick="exportState()">💾 Save</button>
-    <button onclick="document.getElementById('importFile').click()">📂 Load</button>
-    <button onclick="resetAll()" title="Start over at Day 1, 00:00 (asks first)">🆕 New</button>
-    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
   </div>
   <div class="group" style="margin-left:auto">
     <span class="label">🔗 Live</span>
     <span id="roomState" class="label" style="color:var(--dim)">solo — not shared</span>
   </div>
   <div class="group">
-    <span class="label">Room</span>
-    <input type="text" id="roomIn" placeholder="room code or link" style="width:170px" onkeydown="if(event.key==='Enter')roomJoin()">
-    <button class="mini" onclick="roomJoin()">Join</button>
-    <button class="mini" onclick="roomCreate()" title="Start a new shared live room for your table">✨ Create</button>
-    <button class="mini" onclick="roomCopyLink()" title="Copy a link that auto-joins this room">🔗 Copy link</button>
-    <button class="mini" onclick="roomLeave()" title="Stop live sharing on this device (local data untouched)">Leave</button>
+    <span class="label" title="Your name labels your dice rolls and Destiny flips in the feed">You</span>
+    <input type="text" id="playerIn" placeholder="your name" style="width:110px" onchange="setPlayerName(this.value)">
   </div>
   <div class="group">
-    <span class="label">You</span>
-    <input type="text" id="playerIn" placeholder="your name" style="width:110px" onchange="setPlayerName(this.value)">
+    <button id="sessionBtn" onclick="toggleSession()" title="Backups (save / load), starting a new session, and the live-room controls">⚙ Session</button>
+  </div>
+  <div class="group" id="sessionPanel" style="display:none;flex-basis:100%;border-top:1px dashed var(--border);padding-top:10px;gap:14px">
+    <div class="group">
+      <span class="label">Backup</span>
+      <button onclick="exportState()" title="Download the whole session as a file — your backup">💾 Save</button>
+      <button onclick="document.getElementById('importFile').click()" title="Restore a saved file (replaces the current session)">📂 Load</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importState(this)">
+    </div>
+    <div class="group">
+      <span class="label">Room</span>
+      <input type="text" id="roomIn" placeholder="room code or link" style="width:170px" onkeydown="if(event.key==='Enter')roomJoin()">
+      <button class="mini" onclick="roomJoin()">Join</button>
+      <button class="mini" onclick="roomCopyLink()" title="Copy a link that auto-joins this room — send it to a new player or open it on a new device">🔗 Copy link</button>
+      <button class="mini" onclick="roomCreate()" title="Start a new shared live room for your table">✨ Create</button>
+      <button class="mini" onclick="roomLeave()" title="Stop live sharing on this device (local data untouched)">Leave</button>
+    </div>
+    <div class="group" style="margin-left:auto">
+      <button onclick="resetAll()" style="border-color:var(--bad);color:var(--bad)" title="Start over at Day 1, 00:00 — resets the shared room for everyone (asks first). Save a backup before you do.">🆕 New session</button>
+    </div>
   </div>
   <div class="group">
     <span id="syncMsg" class="label" style="color:var(--dim)"></span>
@@ -3596,6 +3606,11 @@ const CLOUD = {
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 
+function toggleSession(){
+  const p = document.getElementById('sessionPanel'), open = p.style.display==='none';
+  p.style.display = open ? 'flex' : 'none';
+  document.getElementById('sessionBtn').className = open ? 'primary' : '';
+}
 function setPlayerName(n){
   CLOUD.player = (n||'').trim() || 'Player';
   lsSet('st_player', CLOUD.player);
