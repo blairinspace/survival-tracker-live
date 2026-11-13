@@ -21,10 +21,12 @@ const ITEMS_CUSTOM = [
   {"n":"Sling Bag","g":"Gear","c":"Equipment","t":"Bag","p":30,"e":0,"ra":0,"d":"A shoulder bag. Carried, it raises the encumbrance threshold by the amount in its Enc field."},
   {"n":"Nightsister Charms","g":"Gear","c":"Relics","e":0,"ra":8,"d":"Talismans of Dathomiri magick carried by Merrin."},
   {"n":"Doll","g":"Gear","c":"Other","p":5,"e":0,"ra":0,"d":"A child's toy. Kata does not go anywhere without it."},
+  {"n":"Wig","g":"Gear","c":"Other","p":30,"e":0.2,"ra":0,"d":"Synthetic fiber, a hat of hair."},
   // --- weapons & armor not in the workbook ---
   {"n":"Ritual Dagger","g":"Melee Weapons","c":"Melee","sk":"Melee","dam":1,"crit":3,"rng":"Engaged","e":1,"hp":0,"ra":6,"q":"Pierce 1","d":"A Nightsister ceremonial blade. DRAFT stats, modelled on a combat knife."},
   {"n":"Flight Jacket","g":"Armour","c":"Armour","def":0,"soak":1,"p":50,"e":1,"hp":0,"ra":1,"d":"A padded pilot's jacket. DRAFT stats, same as heavy clothing."},
   {"n":"Poncho","g":"Armour","c":"Armour","def":0,"soak":1,"e":1,"hp":0,"ra":1,"d":"Stats copied from Cal's sheet on the Forge."},
   {"n":"Stormtrooper Armor","g":"Armour","c":"Armour","def":0,"soak":3,"r":1,"e":4,"hp":2,"ra":5,"d":"Stats copied from Cal's sheet on the Forge. Encumbrance is a DRAFT."},
+  {"n":"Combat-Rated EVA Suit","g":"Armour","c":"Armour","def":0,"soak":2,"p":2500,"e":4,"hp":2,"ra":6,"d":"A sealed, armored vacuum suit with its own air supply and magnetic boots, built to take fire during boarding actions. DRAFT stats: soak of an enviro-suit, bulk of a spacesuit."},
   {"n":"Beskar Plating","g":"Armour","c":"Armour","def":2,"soak":3,"r":1,"e":3,"hp":5,"ra":10,"d":"Stats copied from Cal's sheet on the Forge. Encumbrance is a DRAFT."}
 ];

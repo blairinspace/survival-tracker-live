@@ -612,10 +612,12 @@ const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal',
 
 // carry: on the character's person (ticked on the sheet; unticked = stowed on the ship or at camp). Only carried
 // items show on the Tracker card, count toward encumbrance, and can be eaten, used or equipped.
-// eq: equipped (ticked in the card's Weapons / Armor lists) — in hand or worn. Weapons and armor only. Equipped
+// eq: equipped (ticked in the card's Weapons / Armor / Tools lists) — in hand or worn. Weapons, armor and tools only. Equipped
 // items get a wear track and feed soak and defense; worn-down armor protects less (ATIERS). (This replaced the 'Gear (worn)' type.)
 const isCarried  = it => !!it && (it.auto || it.carry!==0);
-const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0 && (isWeapon(it) || isArmor(it));   // only weapons and armor can be equipped
+const isTool = it => (it.type||'').toLowerCase()==='tool';
+const isCons = it => ['snack','ration','meal'].includes((it.type||'').toLowerCase());   // consumables: what the hunger buttons eat
+const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0 && (isWeapon(it) || isArmor(it) || isTool(it));   // weapons, armor and tools can be equipped
 /* Build a <select> of inventory types; preserves any custom saved value as its own option. */
 function typeSelect(val, onchangeExpr, width){
   const v = val||'';
@@ -1195,7 +1197,7 @@ function tick(cs, dt){
   // faster in harsh environments), on top of per-use wear
   const wearEnv = env.maint || 1;
   for(const it of cs.inv){
-    if(!isEquipped(it)) continue;   // only weapons and armor wear, and only while equipped
+    if(!isEquipped(it)) continue;   // only weapons, armor and tools wear, and only while equipped
     const before = it.wear||0;
     if(before>=100) continue;
     it.wear = clamp(before + WEAR_PER_HOUR*wearEnv*dt, 0, 100);
@@ -1840,7 +1842,8 @@ function invSection(cs){
       <summary>${icon} ${label} <b>${list.length}</b>${nEq?` <span style="color:var(--gold)">· ${nEq} equipped</span>`:''}</summary>
       ${list.length ? body : `<div class="gearempty">${empty}</div>`}</details>`;
   };
-  const weps = carried.filter(x=>isWeapon(x.it)), arms = carried.filter(x=>isArmor(x.it)), gear = carried.filter(x=>!isWeapon(x.it) && !isArmor(x.it));
+  const weps = carried.filter(x=>isWeapon(x.it)), arms = carried.filter(x=>isArmor(x.it)), tools = carried.filter(x=>isTool(x.it)), cons = carried.filter(x=>isCons(x.it));
+  const gear = carried.filter(x=>!isWeapon(x.it) && !isArmor(x.it) && !isTool(x.it) && !isCons(x.it));
   const wearRow = (it,i,t,wr,useLabel,useTip,useCall) => `<div class="needrow">
         <span class="needlabel" title="Click to set wear" onclick="editWear('${id}',${i})">🔧 Wear</span>
         <div class="barwrap"><div class="bar" style="width:${wr}%;background:${t.color}"></div><span class="barval">${Math.round(wr)}</span></div>
@@ -1869,17 +1872,29 @@ function invSection(cs){
       ${eq ? wearRow(it, i, a.tier, wr, 'hit', `The armor took a solid hit — adds ${WEAR_PER_USE} wear`, 'useItem') : ''}
     </div>`;
   }).join('');
-  const gearBody = `<table class="invtable"><tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>` + gear.map(({it})=>{
+  const toolBody = tools.map(({it,i})=>{
+    const eq = isEquipped(it), wr = clamp(it.wear||0,0,100), t = tierOf(wr, WTIERS), rec = dbOf(it);
+    return `<div class="gearitem" style="${eq?'':'opacity:.7'}">
+      <div class="gearline"><span class="gearname">${eqBox(it,i,'in hand or on your belt, ready to use. An equipped tool shows its wear track.')} ${nameCell(it)}</span>
+        ${eq ? `<span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span>` : ''}</div>
+      ${rec && (rec.f||rec.d) ? `<div class="gearfx">${esc(rec.f||rec.d)}</div>` : ''}
+      ${eq ? wearRow(it, i, t, wr, 'use', `Use this tool hard (a repair job, a long climb) — adds ${WEAR_PER_USE} wear`, 'useItem') : ''}
+    </div>`;
+  }).join('');
+  const listBody = list => `<table class="invtable"><tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>` + list.map(({it})=>{
     const tot = (it.qty||0)*(it.wt||0);
     const totCell = isPack(it) ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${tot.toFixed(2)}</td>` : `<td class="tot">${tot.toFixed(2)}</td>`;
     return `<tr><td><span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it)||'(unnamed)')}</span></td>
       <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
+  const gearBody = listBody(gear), consBody = listBody(cons);
   return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
       ${stowed?`<span title="Items on the sheet with Carry unticked">· ${stowed} stowed</span>`:''}
       <button class="mini" onclick="sheetPick('${id}');showTab('sheet')" title="The inventory is edited on this character's sheet">✎ edit on sheet</button></div>
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
+    ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
+    ${sect('consOpen', '🍞', 'Consumables', cons, consBody, 'No snacks, rations or meals carried.')}
     ${sect('invOpen', '🎒', 'Gear', gear, gearBody, 'No gear carried.')}`;
 }
 
@@ -2416,7 +2431,7 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, gear:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
@@ -2664,7 +2679,7 @@ function gearHtml(cs){
       <td class="c">${n2(i,'soak',a.baseSoak,'Soak this armor adds to your Brawn.')}</td>
       <td class="keep">${del(i)}</td></tr>` + descRow(it, i, 8, (a.def!==a.baseDef || a.soak!==a.baseSoak) ? `<span class="nomatch" title="Armor wear is tracked on the Tracker card — tune-up or overhaul it there">${a.tier.name}: protecting at defense ${a.def}, soak ${a.soak}.</span> ` : '');
   }).join('');
-  const other = rows.filter(x=>!isWeapon(x.it) && !isArmor(x.it)).map(({it,i})=>{
+  const plainRows = f => rows.filter(x=>f(x.it)).map(({it,i})=>{
     if(it.auto) return `<tr class="irow"><td></td><td class="skn" colspan="2"><i>${esc(it.name)}</i></td><td class="c">${+it.qty||0}</td><td class="c">${n2(i,'wt',+it.wt||0,'Encumbrance each','0.05')}</td><td>${esc(it.type)}</td><td></td></tr>
       <tr class="idesc"><td></td><td colspan="6">${it.auto==='canteen' ? 'Fill level and refills are on the Tracker card.' : 'Charged and depleted counts are on the Tracker card.'}</td></tr>`;
     return `<tr class="irow ${isCarried(it)?'':'uneq'}">
@@ -2673,6 +2688,8 @@ function gearHtml(cs){
       <td>${typeSelect(it.type, `invSet('${id}',${i},'type',this.value)`, 96)}</td>
       <td>${del(i)}</td></tr>` + descRow(it, i, 7);
   }).join('');
+  const isOther = it => !isWeapon(it) && !isArmor(it) && !isTool(it) && !isCons(it);
+  const plainHead = label => `<tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>${label}</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>`;
   const w = invWeight(cs), thr = effThresh(cs), pb = packBonus(cs);
   const unlinked = rows.filter(x=>!x.it.auto && x.it.name && !dbOf(x.it)).length;
   const cnt = f => { const l = rows.filter(x=>f(x.it)), c = l.filter(x=>isCarried(x.it)).length; return `<b>${l.length}</b>${l.length ? ` <span class="sub">· ${c} carried${l.length-c ? `, ${l.length-c} stowed` : ''}</span>` : ''}`; };
@@ -2692,8 +2709,9 @@ function gearHtml(cs){
       ${weps}${addRow('Weapon', 11, 'a weapon')}</table>`)}
     ${fold('armor', '🛡', 'Armor', cnt(isArmor), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
       ${arms}${addRow('Armor', 8, 'armor')}</table>`)}
-    ${fold('gear', '🎒', 'Gear', cnt(it=>!it.auto && !isWeapon(it) && !isArmor(it)), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Gear</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>
-      ${other}${addRow('Gear', 7, 'gear, food or medical supplies')}</table>`)}
+    ${fold('tools', '🔧', 'Tools', cnt(isTool), `<table class="sktable">${plainHead('Tools')}${plainRows(isTool)}${addRow('Tool', 7, 'a tool')}</table>`)}
+    ${fold('cons', '🍞', 'Consumables', cnt(isCons), `<table class="sktable">${plainHead('Consumables')}${plainRows(isCons)}${addRow('Ration', 7, 'a snack, ration or meal')}</table>`)}
+    ${fold('gear', '🎒', 'Gear', cnt(it=>!it.auto && isOther(it)), `<table class="sktable">${plainHead('Gear')}${plainRows(isOther)}${addRow('Gear', 7, 'gear or medical supplies')}</table>`)}
   </div></details>`;
 }
 
@@ -3307,7 +3325,7 @@ function buildRules(){
   <p><b>🎒 Bag:</b> a bag <i>raises</i> what you can haul rather than adding weight, as long as it is carried. Set an item's Type to <b>Bag</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; 🛡 armor — wear</h2>
-  <p>Each carried <b>weapon</b> or <b>armor</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Gear has no wear track and cannot be equipped. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
+  <p>Each carried <b>weapon</b>, <b>armor</b> or <b>tool</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Other gear has no wear track and cannot be equipped. Worn tools follow the same Setback table as weapons; press <b>use</b> after a hard job. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
   <table><tr><th>Tier</th><th>Wear</th><th>Effect</th></tr>
   ${WTIERS.map((t,i)=>{ const next=WTIERS[i+1]; const range=next?`${t.min}–${next.min-1}`:`${t.min}`; return `<tr><td style="color:${t.color};font-weight:700">${t.name}</td><td>${range}</td><td>${t.fx}</td></tr>`; }).join('')}</table>
 
@@ -3508,7 +3526,7 @@ function syncSubset(state){
   if(c.ship) delete c.ship.img;
   if(Array.isArray(c.chars)) c.chars.forEach(ch=>{
     delete ch.img;
-    delete ch.invOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen;   // per-player UI state stays local
+    delete ch.invOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen; delete ch.toolsOpen; delete ch.consOpen;   // per-player UI state stays local
     if(ch.invV===2){   // pre-overhaul counters from a browser that hasn't refreshed: ignore, don't echo, don't fight over them
       delete ch.rationsStock; delete ch.snacks; delete ch.stims;
       if(Array.isArray(ch.inv)) ch.inv = ch.inv.filter(it=>!(it && LEGACY_AUTO.includes(it.auto)));
@@ -3681,7 +3699,7 @@ function applyRemote(remote){
   for(const c of CHARS) if(next.visible[c.id]===undefined) next.visible[c.id]=true;
   for(const ch of next.chars){   // keep this player's own open panels open across remote updates
     const old = S && S.chars && S.chars.find(x=>x.id===ch.id);
-    if(old){ ch.invOpen=old.invOpen; ch.customOpen=old.customOpen; ch.gearOpen=old.gearOpen; ch.armorOpen=old.armorOpen; }
+    if(old){ ch.invOpen=old.invOpen; ch.customOpen=old.customOpen; ch.gearOpen=old.gearOpen; ch.armorOpen=old.armorOpen; ch.toolsOpen=old.toolsOpen; ch.consOpen=old.consOpen; }
   }
   S = next;
   CLOUD.shadow = remoteSub;                 // server truth is the remote; preserved local diffs re-push below
