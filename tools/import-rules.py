@@ -298,7 +298,7 @@ def main():
                     layout_grid(nodes, by, top)
                     by[top]['root'] = 1
                     for n in nodes:
-                        n['e'] = short(n['e'], 460) if n['e'] else ''
+                        n['e'] = short(n['e'], 700 if n['id'] == top else 460) if n['e'] else ''
                 tree['id'] = slug(('sig ' if kind == 'sig' else 'fp ' if kind == 'power' else '') + tree['n'] +
                                   (' ' + tree['career'] if kind == 'spec' and not core else ''))
                 if tree['id'] in seen:
