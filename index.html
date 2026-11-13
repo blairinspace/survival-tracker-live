@@ -608,7 +608,7 @@ const AUTO_ITEMS = {
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Gear (pack)','Snack','Ration','Meal','Medical','Other'];
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal','Medical','Other'];
 
 // carry: on the character's person (ticked on the sheet; unticked = stowed on the ship or at camp). Only carried
 // items show on the Tracker card, count toward encumbrance, and can be eaten, used or equipped.
@@ -681,7 +681,7 @@ const CHARS = [
   trait:'Compact and dense — burns fuel like a much bigger man; hunger runs 15% ahead of the party.'},
  {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Slender', fs:true,
   waterOz:40, rations:1.0, mods:{hungerRate:1.35, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
-  kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Gear (pack)',1,2] ],
+  kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Bag',1,2] ],
   trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party: a small body has the fastest burn and the thinnest reserves (+35%); tireless (fatigues 15% slower).'},
  {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
   waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
@@ -1057,8 +1057,8 @@ const plainLabel = s => s.replace(/^\S+ /,'');          // '🍲 Eating (meal)' 
 // Thirst points a drink restores: a character's waterOz cancels one day of baseline accrual.
 const ozToPts = (c, oz) => oz * 24*NEEDS.water.tiers[0].rate / c.waterOz;
 const sleepRecovery = c => 100/(c.mods.sleepNeed||SLEEP.hoursDefault);   // sleep-debt pts restored per hour asleep
-// Gear (pack): counts 0 toward carried weight; its "Enc ea" value is capacity granted per pack.
-const isPack    = it => (it.type||'').toLowerCase()==='gear (pack)';
+// Bag: counts 0 toward carried weight; while carried, its Enc value is added to the encumbrance threshold instead.
+const isPack    = it => ['bag','gear (pack)'].includes((it.type||'').toLowerCase());
 // Only carried items weigh anything. Armor never counts toward encumbrance (worn or not).
 const isArmor   = it => (it.type||'').toLowerCase()==='armor';
 const invWeight = cs => cs.inv.reduce((a,it)=>a + ((!isCarried(it)||isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
@@ -1389,6 +1389,7 @@ function upgradeInv(cs, c, invV0){
   delete cs.rationsStock; delete cs.snacks; delete cs.stims; cs.invV = 2;
   for(const it of cs.inv){
     if((it.type||'').toLowerCase()==='gear (worn)') it.type = 'Gear';   // the old worn-gear type is gone
+    if((it.type||'').toLowerCase()==='gear (pack)') it.type = 'Bag';    // renamed
     if((it.type||'').toLowerCase()==='food') it.type = /snack/i.test(it.name) ? 'Snack' : /meal/i.test(it.name) ? 'Meal' : 'Ration';
     linkRow(it);
   }
@@ -3053,6 +3054,7 @@ const ITEMS_MAX_ROWS = 250;                               // rows rendered befor
 function invTypeFor(it){
   if(it.t) return it.t;                                        // custom entries may say outright
   if(it.g==='Gear' && /\bration/i.test(it.n||'')) return 'Ration';
+  if(it.g==='Gear' && /carrying capacity|encumbrance (threshold|capacity)/i.test(it.f||'')) return 'Bag';   // backpacks, satchels, pouches
   return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other');
 }
 /* per-device view state for the tab — never synced */
@@ -3300,9 +3302,9 @@ function buildRules(){
   <tr><td>Datapad / multitool</td><td>Gear</td><td>0.5</td></tr>
   <tr><td>Toolkit</td><td>Tool</td><td>1</td></tr>
   <tr><td>Armor (any)</td><td>Armor</td><td>0 (never counts)</td></tr>
-  <tr><td>Backpack / satchel / load-bearing rig</td><td>Gear (pack)</td><td>+cap (see below)</td></tr></table>
+  <tr><td>Backpack / satchel / load-bearing rig</td><td>Bag</td><td>+cap (see below)</td></tr></table>
   <p>Each point over threshold: needs accrue <b>+${ENC_DRAIN_PER_PT*100}% faster</b> (sleep debt +${ENC_SLEEP_PER_PT*100}%); RAW: 1 Setback to Brawn/Agility checks per point over.</p>
-  <p><b>🎒 Gear (pack):</b> a pack <i>raises</i> what you can haul rather than adding weight. Set an item's Type to <b>Gear (pack)</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
+  <p><b>🎒 Bag:</b> a bag <i>raises</i> what you can haul rather than adding weight, as long as it is carried. Set an item's Type to <b>Bag</b> and its <b>Enc ea</b> becomes the <b>capacity that pack grants</b> — each pack (× qty) adds to your effective threshold, while the pack itself counts <b>0</b> toward carried weight. The inventory header shows the breakdown, e.g. <b>7+8 🎒</b> = Brawn-7 body threshold plus 8 from packs.</p>
 
   <h2>🗡 Weapons &amp; 🛡 armor — wear</h2>
   <p>Each carried <b>weapon</b> or <b>armor</b> ticked <b>Eq</b> (equipped) on the card shows its own <b>🔧 Wear</b> track (0 = pristine → 100 = broken). Gear has no wear track and cannot be equipped. Worn weapons add Setback (table below); worn <b>armor protects less</b>, and the sheet's soak and defense drop automatically — ${ATIERS.filter(t=>t.defLoss||t.soakLoss).map(t=>`<b>${t.name}</b> (${t.min}+): ${stripTags(t.fx).replace(/\.$/,'').replace(/^.*— /,'')}`).join(' · ')}. Press <b>hit</b> when armor takes a solid blow. Equipment degrades two ways: <b>ambient wear</b> from grit, damp and knocks while equipped (~+${(WEAR_PER_HOUR*24).toFixed(1)}/day in temperate — pristine → broken in about ${WEAR_DAYS} days if never cleaned — accelerated by <b>harsh environments</b>, up to ${ENVS.scorching.maint}× in Extreme Heat, so ~${Math.round(WEAR_DAYS/ENVS.scorching.maint)} days there), <b>plus</b> +${WEAR_PER_ATTACK} each time an attack is rolled with a weapon (the card's <b>⚔ attack</b> button or the sheet's), and +${WEAR_PER_USE} each time armor takes a <b>hit</b>. The attack button adds a worn weapon's Setback dice for you. <b>tune-up</b> relieves −${GEAR_TUNEUP} (a quick bench touch-up); <b>overhaul</b> resets wear to 0 (a full strip-down; GM approves). Click the <b>🔧 Wear</b> label to set a value directly.</p>
@@ -3620,6 +3622,9 @@ function pushLocal(){
       updates[k]=cur[k];
     }
   }
+  // a top-level key we emptied (the last countdown removed, the last homebrew item deleted) is pruned from
+  // `cur` altogether, so the loop above never sees it — delete it on the server or it comes straight back
+  for(const k in (prev||{})) if(!(k in cur)) updates[k] = null;
   if(!Object.keys(updates).length) return;
   const prevShadow = CLOUD.shadow;
   CLOUD.shadow = cur;                              // optimistic; on failure fall back to the last acknowledged
@@ -3660,6 +3665,7 @@ function threeWayMerge(base, local, remote){
       out[k] = local[k];                                                     // we edited this field
     }
   }
+  for(const k in base) if(!(k in local) && k!=='chars' && k!=='ship') delete out[k];   // we emptied this list (pruned keys vanish from `local`)
   return out;
 }
 function applyRemote(remote){

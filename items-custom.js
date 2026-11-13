@@ -1,7 +1,7 @@
 // Custom item entries — hand-maintained (NOT generated; tools/import-items.py never touches this file).
 // These fill gaps in the workbook catalog so every inventory item can link to a database entry.
 // Same record keys as items.js, plus:
-//   t   inventory type the item lands as (Snack / Ration / Meal / Gear (pack) / Tool / …) when it isn't obvious from the group
+//   t   inventory type the item lands as (Snack / Ration / Meal / Bag / Tool / …) when it isn't obvious from the group
 //   d   description shown on the character sheet
 // Stats marked DRAFT in the description are placeholders written by Claude — correct them freely.
 const ITEMS_CUSTOM = [
@@ -18,7 +18,7 @@ const ITEMS_CUSTOM = [
   {"n":"Grappling Hook","g":"Gear","c":"Survival","t":"Tool","p":25,"e":1,"ra":1,"d":"Hook and line for climbing or swinging. DRAFT: adds a Boost die to Athletics checks to climb."},
   {"n":"Multitool","g":"Gear","c":"Industrial","t":"Tool","p":50,"e":1,"ra":1,"d":"Pocket tool with pliers, drivers and a cutter. DRAFT: lets you attempt simple Mechanics checks without a full tool kit."},
   {"n":"Salvaged Parts","g":"Gear","c":"Industrial","p":10,"e":1,"ra":0,"d":"Scavenged components. Spend them on repairs or trade them."},
-  {"n":"Sling Bag","g":"Gear","c":"Equipment","t":"Gear (pack)","p":30,"e":0,"ra":0,"d":"A shoulder bag. Worn, it raises the encumbrance threshold by the amount in its Enc field."},
+  {"n":"Sling Bag","g":"Gear","c":"Equipment","t":"Bag","p":30,"e":0,"ra":0,"d":"A shoulder bag. Carried, it raises the encumbrance threshold by the amount in its Enc field."},
   {"n":"Nightsister Charms","g":"Gear","c":"Relics","e":0,"ra":8,"d":"Talismans of Dathomiri magick carried by Merrin."},
   {"n":"Doll","g":"Gear","c":"Other","p":5,"e":0,"ra":0,"d":"A child's toy. Kata does not go anywhere without it."},
   // --- weapons & armor not in the workbook ---

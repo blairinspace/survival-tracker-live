@@ -117,6 +117,16 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const tOld = migrate({chars:[], ship:S.ship, log:[], travelDest:'Jedha', travelEta:4}); if(tOld.counters.length!==1 || tOld.counters[0].label!=='Travel to Jedha' || tOld.counters[0].hrs!==4 || tOld.travelDest!==undefined) throw new Error('old travel timer not converted');
   if(migrate(JSON.parse(JSON.stringify(syncSubset({...S, counters:[]})))).counters.length!==0) throw new Error('empty counters not restored');
   if(/undefined|NaN/.test(document.getElementById('counters').innerHTML)) throw new Error('counter chips broken');
+  // sync: removing the LAST countdown must not be undone by the next room update (pruned keys vanish from the wire)
+  const base0 = {hour:1, counters:[{id:'a',label:'Caf',hrs:2,total:2}], chars:[], ship:{}}, local0 = {hour:1, chars:[], ship:{}}, remote0 = {hour:2, counters:[{id:'a',label:'Caf',hrs:2,total:2}], chars:[], ship:{}};
+  const m0 = threeWayMerge(base0, local0, remote0); if(m0.counters || m0.hour!==2) throw new Error('a removed last countdown came back in the merge');
+  if(!threeWayMerge({hour:1,chars:[],ship:{}}, {hour:1,chars:[],ship:{}}, remote0).counters) throw new Error('merge dropped a countdown someone else added');
+  // bags: the renamed pack type raises the threshold while carried
+  const sv0 = S; fresh(); const pb0 = st('pike'), bag = pb0.inv.find(x=>x.type==='Bag'); if(!bag || packBonus(pb0)!==2 || effThresh(pb0)!==pb0.encThresh+2) throw new Error('bag capacity wrong');
+  invSet('pike', pb0.inv.indexOf(bag), 'carry', false); if(packBonus(pb0)!==0) throw new Error('stowed bag still adds capacity'); invSet('pike', pb0.inv.indexOf(bag), 'carry', true);
+  invAdd('pike','Gear','Backpack'); if(pb0.inv[pb0.inv.length-1].type!=='Bag') throw new Error('catalog backpack should land as a Bag');
+  if(migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Satchel',type:'Gear (pack)',qty:1,wt:3}]}], ship:S.ship, log:[]}).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Satchel').type!=='Bag') throw new Error('Gear (pack) not renamed to Bag');
+  S = sv0;
   // dice: face counts, a known tally, the pool builder, a feed round-trip and the destiny pool
   const sizes = {b:6,k:6,a:8,d:8,p:12,c:12,F:12};
   for(const t in sizes) if(DICE[t].faces.length!==sizes[t]) throw new Error('die '+t+' has the wrong number of faces');
