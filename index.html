@@ -1065,6 +1065,12 @@ const isPack    = it => ['bag','gear (pack)'].includes((it.type||'').toLowerCase
 const isArmor   = it => (it.type||'').toLowerCase()==='armor';
 const invWeight = cs => cs.inv.reduce((a,it)=>a + ((!isCarried(it)||isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
 const packBonus = cs => cs.inv.reduce((a,it)=>a + (isCarried(it)&&isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
+// Personal Item Storage Crate: what a character has stowed (Carry unticked) is limited by bulk, the same for
+// everyone. A warning, not a block — the GM decides where the overflow goes. Stowed armor counts at its full
+// encumbrance (it is only free while worn); a stowed bag is an empty container, not its capacity.
+const CRATE_CAP = 30, BAG_STOWED_ENC = 1;
+const stowedEnc = it => isPack(it) ? BAG_STOWED_ENC : (isArmor(it) && !(+it.wt>0) ? numOr((dbOf(it)||{}).e) : (+it.wt||0));
+const crateWeight = cs => cs.inv.reduce((a,it)=>a + (it && !it.auto && !isCarried(it) ? (+it.qty||0)*stowedEnc(it) : 0), 0);
 const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
 const FORCE_COMMIT_MAX = 8;
@@ -2694,13 +2700,14 @@ function gearHtml(cs){
   const cnt = f => { const l = rows.filter(x=>f(x.it)), c = l.filter(x=>isCarried(x.it)).length; return `<b>${l.length}</b>${l.length ? ` <span class="sub">· ${c} carried${l.length-c ? `, ${l.length-c} stowed` : ''}</span>` : ''}`; };
   const fold = (key, icon, label, count, body) => `<details class="sfold" ${SHEET_UI.open[key]?'open':''} ontoggle="sheetOpen('${key}',this.open)">
       <summary>${icon} ${label} ${count}</summary>${body}</details>`;
-  const total = rows.filter(x=>!x.it.auto).length;
+  const total = rows.filter(x=>!x.it.auto).length, crate = crateWeight(cs);
   return `<details class="sfold crate" ${SHEET_UI.open.crate?'open':''} ontoggle="sheetOpen('crate',this.open)">
-    <summary>📦 Personal Item Storage Crate <b>${total}</b> <span class="sub">· enc ${w.toFixed(1)} / ${thr}${unlinked ? ` · <span style="color:var(--warn)">⚠ ${unlinked} unmatched</span>` : ''}</span></summary>
+    <summary>📦 Personal Item Storage Crate <b>${total}</b> <span class="sub">· carried ${w.toFixed(1)} / ${thr} · <span style="${crate>CRATE_CAP?'color:var(--bad);font-weight:700':''}" title="Bulk of everything stowed (Carry unticked). The crate holds ${CRATE_CAP}.">stowed ${+crate.toFixed(1)} / ${CRATE_CAP}${crate>CRATE_CAP?' — over capacity':''}</span>${unlinked ? ` · <span style="color:var(--warn)">⚠ ${unlinked} unmatched</span>` : ''}</span></summary>
   <div class="geartables">
     <div class="drow" style="margin:0" title="Over the threshold you add Setback dice to Brawn and Agility checks, and the tracker speeds up thirst, hunger and fatigue. Armor never counts; packs raise the threshold.">
       <span class="label">Encumbrance</span> <b style="color:${w>thr?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> /
       <input type="number" min="0" style="width:52px" value="${cs.encThresh}" onchange="setThresh('${id}','encThresh',this.value)" title="Body threshold = Brawn + 5 (set automatically when Brawn changes; editable)">${pb?` <span style="color:var(--gold)">+ ${pb} from packs = ${thr}</span>`:''}
+      <span class="label" style="margin-left:14px" title="What is stowed in the crate (Carry unticked), by bulk. Stowed armor counts at its full encumbrance; a stowed bag counts ${BAG_STOWED_ENC}. Zero-encumbrance items are free. Over ${CRATE_CAP} is a warning for the GM — the overflow belongs in the ship's hold.">Stowed</span> <b style="color:${crate>CRATE_CAP?'var(--bad)':'var(--text)'}">${+crate.toFixed(1)}</b> / ${CRATE_CAP}
       <span class="label" style="margin-left:14px">Food</span> <span style="font-size:12px;color:var(--dim)" title="The hunger buttons on the Tracker card each eat one item of the matching type">🍪 ${stockOf(cs,'Snack')} snacks · 🍞 ${stockOf(cs,'Ration')} rations · 🍲 ${stockOf(cs,'Meal')} meals</span>
       ${unlinked ? `<span class="nomatch" style="color:var(--warn);font-size:12px;margin-left:14px">⚠ ${unlinked} item${unlinked===1?'':'s'} not matched to the database</span>` : ''}
     </div>
@@ -3308,7 +3315,7 @@ function buildRules(){
   <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
-  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
+  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Items with <b>Carry</b> unticked are stowed in the character's <b>Personal Item Storage Crate</b>, which holds <b>${CRATE_CAP} encumbrance</b> for everyone (stowed armor counts at its full encumbrance, a stowed bag counts ${BAG_STOWED_ENC}); going over only raises a warning. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
   <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
   <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
   <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>0.5</td></tr>
