@@ -359,6 +359,33 @@ print('\n=== SMOKE TEST — UI code paths ===');
     print(`  morality: conflict resolves, the dark side sticks until 70, obligation / duty table rolls (${ROLLS.length-n0} feed entries), specializations tick career skills, skill ranks cost XP`);
     S = migrate(JSON.parse(keep));
   })();
+  // guided character creation: species, career, specialization, free ranks, characteristics
+  (()=>{
+    const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet;
+    if(RULES_DB.species.length<8 || RULES_DB.careers.length<6) throw new Error('species / careers did not load');
+    ccStart('cal'); ccBlank('cal'); if(!sh.cc || sh.species || Object.keys(sh.tr).length) throw new Error('blank sheet failed');
+    ccBonus('cal','xp'); ccSetSpecies('cal','Cerean');
+    if(cal.attr.int!==3 || cal.attr.ag!==1 || cal.wt!==12 || cal.st!==15 || sh.xp!==100 || sh.xpTotal!==100 || (sh.sk.vigilance||{}).r!==1) throw new Error('Cerean not applied');
+    ccBonus('cal','mor71'); if(sh.xp!==90 || sh.mor!==71) throw new Error('changing the Morality option did not move the XP back');
+    ccSetSpecies('cal',"Twi'lek"); if(sh.sk.vigilance || cal.attr.pr!==3 || cal.st!==13 || sh.xp!==100) throw new Error('switching species left the old one behind');
+    if(!ccPick('cal','fp','charm') || ccPick('cal','fp','deception') || sh.sk.charm.r!==1) throw new Error('either/or species rank wrong');
+    ccSetCareer('cal','Consular'); if(sh.career!=='Consular' || !sh.sk.cool.c || sh.fr!==1) throw new Error('career not applied');
+    if(!ccPick('cal','fc','cool') || !ccPick('cal','fc','discipline') || !ccPick('cal','fc','lore') || ccPick('cal','fc','leadership')) throw new Error('career free ranks should stop at 3');
+    ccSetCareer('cal','Guardian'); if(sh.sk.lore || sh.sk.cool.r || !sh.sk.cool.c || !sh.sk.brawl.c) throw new Error('switching career left ranks or ticks behind');
+    ccSetCareer('cal','Consular'); ccPick('cal','fc','discipline');
+    ccSetSpec('cal','sage'); ccSetSpec('cal','healer'); if(sh.tr.sage || !sh.tr.healer || sh.specs!=='Healer' || !sh.sk.medicine.c || sh.xp!==100) throw new Error('first specialization should be free and replaceable');
+    if(!ccPick('cal','fs','discipline') || ccPick('cal','fs','discipline')===false || sh.sk.discipline.r!==1) throw new Error('toggle free specialization rank');
+    ccPick('cal','fs','discipline'); if(sh.sk.discipline.r!==2 || ccPick('cal','fc','discipline')===false) throw new Error('rank 2 from two free picks');
+    ccSetSpecies('cal','Human'); if(sh.sk.charm || ccPickLimit(cal,'fp')!==2 || !ccPick('cal','fp','stealth') || !ccPick('cal','fp','mechanics') || ccPick('cal','fp','charm')) throw new Error('Human non-career ranks wrong');
+    const xp0 = sh.xp, wt0 = cal.wt;
+    if(!ccAttr('cal','br',1) || cal.attr.br!==3 || sh.xp!==xp0-30 || cal.wt!==wt0+1 || !ccAttr('cal','br',-1) || sh.xp!==xp0 || cal.wt!==wt0 || ccAttr('cal','br',-1)) throw new Error('characteristic purchase wrong');
+    ccBonus('cal','cr'); ccCredits('cal'); if(sh.credits!==3000) throw new Error('starting credits wrong');
+    const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(!w.cc || w.cc.sp!=='Human' || !w.cc.fp.stealth || typeof w.cc.fc!=='object') throw new Error('creation progress lost on the wire');
+    let bad = 0; SHEET_UI.id = 'cal'; for(let i=1;i<=CC_STEPS.length;i++){ ccStep('cal',i); bad += (creationHtml(cal).match(/undefined|NaN|\[object/g)||[]).length; }
+    ccEnd('cal'); if(sh.cc || creationHtml(cal)!=='' || bad) throw new Error('creation walkthrough render broken');
+    print(`  creation: ${RULES_DB.species.length} species and ${RULES_DB.careers.length} careers; species, career, specialization, free ranks and characteristic purchases apply and undo cleanly`);
+    S = migrate(JSON.parse(keep));
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
