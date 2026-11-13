@@ -1515,7 +1515,7 @@ function setForce(id, v){
   const cs = st(id);
   if(cs.force===undefined) return;   // droids have no Force points
   cs.force = clamp(parseInt(v)||0, 0, forceCap(cs));
-  logMsg(`✨ ${cfg(id).name} commits ${cs.force} Force point(s) — bodily needs slowed ${Math.round((1-forceMult(cs))*100)}%. (Committed points are unavailable for other powers.)`,'lf');
+  logMsg(`✨ ${cfg(id).name} holds Morichro with ${cs.force} Force point(s) — bodily needs slowed ${Math.round((1-forceMult(cs))*100)}%. (Committed points are unavailable for other powers.)`,'lf');
   render();
 }
 function setAttr(id, key, v){
@@ -1833,7 +1833,6 @@ function statusBadge(cs){
 function invSection(cs){
   const id = cs.id, w = invWeight(cs), over = overload(cs), eff = effThresh(cs), pb = packBonus(cs);
   const carried = cs.inv.map((it,i)=>({it,i})).filter(x=>isCarried(x.it)).sort(byLabel(invLabel));   // A–Z by what the card calls it
-  const stowed = cs.inv.length - carried.length;
   const eqBox = (it,i,tip) => it.auto ? '' : `<input type="checkbox" ${it.eq?'checked':''} onchange="invSet('${id}',${i},'eq',this.checked)" title="Equipped — ${tip}">`;
   const nameCell = it => `<span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it)||'(unnamed)')}</span>${(+it.qty||0)!==1 && !it.auto ? ` <span style="color:var(--dim)">×${+it.qty||0}</span>` : ''}`;
   const sect = (flag, icon, label, list, body, empty) => {
@@ -1888,9 +1887,7 @@ function invSection(cs){
       <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
   const gearBody = listBody(gear), consBody = listBody(cons);
-  return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
-      ${stowed?`<span title="Items on the sheet with Carry unticked">· ${stowed} stowed</span>`:''}
-      <button class="mini" onclick="sheetPick('${id}');showTab('sheet')" title="The inventory is edited on this character's sheet">✎ edit on sheet</button></div>
+  return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}</div>
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
     ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
@@ -1965,7 +1962,7 @@ function organicCard(cs, c, div){
   const badges = statusBadge(cs) +
     (cs.stimHrs>0 ? `<span class="badge b-stim" title="Stimulant active — effects listed in the box below">💉 Stim<span class="cdt">⏳${fmtDur(cs.stimHrs)}</span></span> ` : '') +
     (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span> ` : '') +
-    (c.fs && cs.force>0 ? `<span class="badge b-force">Force ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
+    (c.fs && cs.force>0 ? `<span class="badge b-force">Morichro ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
     condBadges(cs);
   div.className = 'card'+(dead?' dead':uncon?' uncon':'');
   div.innerHTML = `
@@ -1996,7 +1993,7 @@ function organicCard(cs, c, div){
     <div class="gearrow">
       <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
       <span class="gi">💉 <b title="Stimpacks carried — the Stimpack rows in the inventory; change the quantity on the Sheets tab">${stockOf(cs,'Stim')}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
-      ${c.fs?`<span class="gi">✨ Force <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
+      ${c.fs?`<span class="gi" title="Morichro — the Jedi technique of turning the Force inward to slow the body's need for food, water, rest and air">✨ Morichro <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
     ${invSection(cs)}
     ${organicEffects(cs, c, {dead, uncon, over})}`;
@@ -2784,7 +2781,7 @@ function renderSheet(){
       ${box('Defense','Defense adds that many Setback dice to attacks against you: ranged / melee. Taken from the best equipped armor, plus Deflection (ranged) and Defensive (melee) on equipped weapons, plus a bonus you type for talents.',
         `<b class="derived">${cb.defR}</b> / <b class="derived">${cb.defM}</b> <span title="Bonus to ranged / melee defense from talents and anything else">+ ${num('defRMod')} / ${num('defMMod')}</span>`,
         `ranged / melee · armor ${cb.aDef}${cb.defl?` · deflection ${cb.defl}`:''}${cb.dfns?` · defensive ${cb.dfns}`:''}`)}
-      ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Force on the Tracker card.',
+      ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Morichro on the Tracker card.',
         (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
         ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
       ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp')+' / '+num('xpTotal'), 'available / total')}
@@ -3369,7 +3366,7 @@ function buildRules(){
   <p>The dose counter runs on a rolling <b>${STIM.windowHrs} h window</b> that opens with the first stim and clears ${STIM.windowHrs} h later — the card shows the time left in parentheses, and the log notes when tolerance clears.</p>
 
   <h2>✨ Force commitment (Cal, Bode, Merrin, Pike)</h2>
-  <p>Force sensitives may commit Force dice — <b>up to their Force rating</b> (set on the Sheets tab; ${FORCE_COMMIT_MAX} at most) — to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
+  <p><b>✨ Morichro:</b> Force sensitives may commit Force dice — <b>up to their Force rating</b> (set on the Sheets tab; ${FORCE_COMMIT_MAX} at most) — to sustain their bodies. Each committed point slows <b>all four needs by ${FORCE_PER_PT*100}%</b> (8 points = −64%). Committed points remain unavailable for other Force powers until released. Merrin channels this through Nightsister magick.</p>
 
   <h2>💧 Thirst ladder</h2>
   <p>Reaches Collapse in <b>~${thirstDays} days</b> (~${Math.round(ladderHours('water'))} h) walking in a temperate climate; about twice that resting in shade, well under two days in desert heat. Each tier carries its own accrual rate: thirst quickens as it deepens, because every percent of body water lost hurts more than the last.</p>
