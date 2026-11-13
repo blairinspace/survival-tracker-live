@@ -350,6 +350,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     tallyAdd('cal','obl'); tallySet('cal','obl',sh.obl[0].id,'n','Bounty'); tallySet('cal','obl',sh.obl[0].id,'v',20);
     const bo = st('bode'); tallyAdd('bode','obl'); tallySet('bode','obl',bo.sheet.obl[0].id,'v',15); tallyAdd('bode','duty');
     const order = S.chars.map(x=>x.id), first = order.indexOf('cal') < order.indexOf('bode') ? 'cal' : 'bode';
+    tallyType('bode','duty',bo.sheet.duty[0].id,'Sabotage'); tallySet('bode','duty',bo.sheet.duty[0].id,'v',5); if(bo.sheet.duty[0].n!=='Sabotage' || !/Destroy or cripple/.test(tallyHtml(bo,'duty')) || !/Bounty/.test(tallyHtml(cal,'obl')) || /undefined|NaN/.test(tallyHtml(bo,'duty'))) throw new Error('obligation / duty type picker wrong');
     if(partyTally('obl').total!==35 || partyTally('duty').total!==5) throw new Error('party totals wrong');
     if(tallyRoll('obl', 36).hit || tallyRoll('obl', 1).hit.who!==first || !tallyRoll('obl', 22).dbl || tallyRoll('obl', 35).hit.who===first) throw new Error('obligation table wrong');
     const mw = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet;

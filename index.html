@@ -3242,7 +3242,7 @@ function conflictResolve(id, doubled, forced){   // end of session: 1d10 − Con
   postFeed({ k:'p', h:'Morality', m:`${cfg(id).name}: rolled ${roll} − ${sh.conf} Conflict${doubled?' (×2, triggered)':''} → Morality ${delta>=0?'+':''}${delta} (${was} → ${sh.mor}). ${moralBand(sh).name}.` });
   sh.conf = 0; render(); return delta;
 }
-function tallyAdd(id, kind){ st(id).sheet[kind].push({ id:randomId().slice(0,6), n:'', v:kind==='obl'?10:5 }); render(); }
+function tallyAdd(id, kind){ st(id).sheet[kind].push({ id:randomId().slice(0,6), n:'', v:TALLY[kind].start }); render(); }
 function tallySet(id, kind, eid, k, v){
   const x = st(id).sheet[kind].find(y=>y.id===eid); if(!x) return;
   if(k==='n') x.n = String(v).slice(0,60); else x.v = clamp(Math.round(parseFloat(v))||0, 0, 100);
@@ -3264,15 +3264,61 @@ function tallyRoll(kind, forced){   // session start: d100 against the party's t
   postFeed({ k:'p', h:name+' check', m });
   return { roll, hit, dbl };
 }
+/* Obligation (Edge of the Empire) and Duty (Age of Rebellion) types, with a one-line explanation each.
+   These two books are not in the rules vault, so the wording here is the tracker's own. */
+const TALLY = {
+  obl: { label:'Obligation', start:10,
+    tip:'Obligation: debts, bounties, oaths — what the galaxy holds over you. At session start the GM rolls d100 against the party total; if it comes up, everyone is distracted (strain threshold −1, yours −2).',
+    types:[
+      ['Addiction','A dependence on a substance or a thrill that has to be fed, whatever it costs.'],
+      ['Betrayal','You betrayed someone, or were betrayed, and the fallout is still chasing you.'],
+      ['Blackmail','Someone holds evidence or a secret over you and expects favours to keep quiet.'],
+      ['Bounty','There is a price on your head, and hunters come looking for it.'],
+      ['Criminal','You have a record or an open warrant; the law and your old associates both remember.'],
+      ['Debt','You owe a great deal of credits to someone who intends to collect.'],
+      ['Dutybound','You are sworn to a cause, code or person that makes demands on you.'],
+      ['Family','Kin who need your protection, your money or your presence.'],
+      ['Favor','You owe someone a serious favour, and they can call it in at any time.'],
+      ['Oath','A personal vow you have promised to keep or fulfil.'],
+      ['Obsession','A fixation on a person, thing or goal that pulls you off course.'],
+      ['Responsibility','People, a place or a creature that depend on you by choice rather than blood.'],
+    ] },
+  duty: { label:'Duty', start:10,
+    tip:'Duty: your standing mission for the cause. At session start the GM rolls d100 against the party total; if it comes up, everyone is inspired (wound threshold +1, yours +2). Duty grows as you serve, and every 100 the group earns raises its standing.',
+    types:[
+      ['Combat Victory','Win fights against the enemy and prove they can be beaten.'],
+      ['Counter-Intelligence','Find and stop enemy spies and informants, and keep your own side\'s secrets safe.'],
+      ['Intelligence','Gather information on enemy plans, movements and weaknesses.'],
+      ['Internal Security','Root out traitors and threats inside your own organisation.'],
+      ['Personnel','Look after your people: rescue the captured, protect the vulnerable, keep morale up.'],
+      ['Political Support','Win worlds, leaders and public opinion over to the cause.'],
+      ['Recruiting','Bring new, capable people into the fight.'],
+      ['Resource Acquisition','Secure the supplies, credits and raw materials the cause runs on.'],
+      ['Sabotage','Destroy or cripple enemy equipment, facilities and operations.'],
+      ['Space Superiority','Control the space lanes: win ship battles and keep routes open.'],
+      ['Tech Procurement','Obtain advanced or experimental technology, often by stealing the enemy\'s.'],
+      ['Support','Make everyone else\'s mission possible: transport, medicine, repairs, logistics.'],
+    ] },
+};
+function tallyType(id, kind, eid, v){
+  if(v==='__other'){ const x = st(id).sheet[kind].find(y=>y.id===eid), t = prompt(`Type the ${TALLY[kind].label}:`, x ? x.n : ''); if(t===null){ render(); return; } v = t; }
+  tallySet(id, kind, eid, 'n', v);
+}
+function tallyHtml(cs, kind){
+  const sh = cs.sheet, id = cs.id, T = TALLY[kind], pt = partyTally(kind), mine = sh[kind].reduce((a,x)=>a+x.v, 0), names = T.types.map(t=>t[0]);
+  return `<div><table class="taltable"><tr><th title="${esc(T.tip)}">${T.label}</th><th>Size</th><th></th></tr>` +
+    sh[kind].map(x=>{ const desc = (T.types.find(t=>t[0]===x.n)||[])[1] || '';
+      return `<tr><td><select style="width:100%" title="${esc(desc)}" onchange="tallyType('${id}','${kind}','${x.id}',this.value)"><option value="">— choose a type —</option>` +
+        T.types.map(t=>`<option ${t[0]===x.n?'selected':''} title="${esc(t[1])}">${esc(t[0])}</option>`).join('') + (x.n && !names.includes(x.n) ? `<option selected>${esc(x.n)}</option>` : '') +
+        `<option value="__other">other (type it)…</option></select>${desc ? `<div class="tinfo" style="margin:2px 0 0">${esc(desc)}</div>` : ''}</td>
+      <td><input type="number" min="0" max="100" value="${x.v}" onchange="tallySet('${id}','${kind}','${x.id}','v',this.value)"></td>
+      <td><button class="mini" onclick="tallyDel('${id}','${kind}','${x.id}')" title="Remove">✕</button></td></tr>`; }).join('') +
+    `<tr><td colspan="3"><button class="mini" onclick="tallyAdd('${id}','${kind}')">＋ add ${T.label.toLowerCase()}</button>
+      <span class="tinfo"> ${esc(cfg(id).name)}: <b>${mine}</b> · party total <b>${pt.total}</b></span>
+      <button class="mini atk" onclick="tallyRoll('${kind}')" ${pt.total?'':'disabled'} title="Session start: roll d100 against the party total. The result goes to the roll feed on the Dice tab.">🎲 roll ${T.label} check</button></td></tr></table></div>`;
+}
 function moralityHtml(cs){
   const sh = cs.sheet, id = cs.id, band = moralBand(sh), sum = k => sh[k].reduce((a,x)=>a+x.v, 0);
-  const tally = (kind, label, tip, ph) => { const pt = partyTally(kind); return `<div><table class="taltable"><tr><th title="${esc(tip)}">${label}</th><th>Size</th><th></th></tr>` +
-    sh[kind].map(x=>`<tr><td><input type="text" style="width:100%" value="${esc(x.n)}" placeholder="${ph}" onchange="tallySet('${id}','${kind}','${x.id}','n',this.value)"></td>
-      <td><input type="number" min="0" max="100" value="${x.v}" onchange="tallySet('${id}','${kind}','${x.id}','v',this.value)"></td>
-      <td><button class="mini" onclick="tallyDel('${id}','${kind}','${x.id}')" title="Remove">✕</button></td></tr>`).join('') +
-    `<tr><td colspan="3"><button class="mini" onclick="tallyAdd('${id}','${kind}')">＋ add ${label.toLowerCase()}</button>
-      <span class="tinfo"> ${esc(cfg(id).name)}: <b>${sum(kind)}</b> · party total <b>${pt.total}</b></span>
-      <button class="mini atk" onclick="tallyRoll('${kind}')" ${pt.total?'':'disabled'} title="Session start: roll d100 against the party total. The result goes to the roll feed on the Dice tab.">🎲 roll ${label} check</button></td></tr></table></div>`; };
   return `<details class="sfold crate" ${SHEET_UI.open.mor?'open':''} ontoggle="sheetOpen('mor',this.open)">
     <summary>⚖ <b>Morality, Obligation &amp; Duty</b> <span class="sub">· Morality ${sh.mor} · Conflict ${sh.conf} · Obligation ${sum('obl')} · Duty ${sum('duty')}</span></summary>
     <div class="sboxes">
@@ -3283,8 +3329,8 @@ function moralityHtml(cs){
     <div class="tinfo" style="color:${band.color}">${band.fx}. <span style="color:var(--dim)">Threshold changes are not applied automatically.</span></div>
     ${moralPickHtml(cs)}
     <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
-      ${tally('obl','Obligation','Obligation (Edge of the Empire): debts, bounties, oaths — what the galaxy holds over you. At session start the GM rolls d100 against the party total; if it comes up, everyone is distracted (strain threshold −1, yours −2).','e.g. Bounty, Debt, Family')}
-      ${tally('duty','Duty','Duty (Age of Rebellion): your standing mission for the cause. At session start the GM rolls d100 against the party total; if it comes up, everyone is inspired (wound threshold +1, yours +2).','e.g. Intelligence, Sabotage')}
+      ${tallyHtml(cs,'obl')}
+      ${tallyHtml(cs,'duty')}
     </div>
   </details>`;
 }
@@ -3298,7 +3344,7 @@ function moralityHtml(cs){
    Every step writes straight to the normal sheet fields, so the player can
    also edit anything by hand at any point.
    ================================================================ */
-const CC_STEPS = ['Concept','Morality','Species','Career','Specialization','Spend XP','Finish'];
+const CC_STEPS = ['Concept','Morality','Obligation & Duty','Species','Career','Specialization','Spend XP','Finish'];
 const CC_BONUS = {   // Step 2: one starting Morality option
   '':      { label:'none yet',               xp:0,  cr:0,    mor:50 },
   xp:      { label:'+10 starting XP',        xp:10, cr:0,    mor:50 },
@@ -3395,21 +3441,26 @@ function creationHtml(cs){
     <div class="ccsteps">${Object.keys(CC_BONUS).filter(Boolean).map(k=>`<button class="chip ${cc.bonus===k?'on':''}" onclick="ccBonus('${id}','${cc.bonus===k?'':k}')">${CC_BONUS[k].label}</button>`).join('')}</div>
     <p>Then choose an <b>emotional strength</b> and its paired <b>weakness</b>, or roll for them. They have no rules effect; they tell you what tempts the character.</p>
     ${moralPickHtml(cs)}`;
-  else if(step===3) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
+  else if(step===3) body = `<p>These come from the other two game lines and are <b>optional</b> in a Force and Destiny game — ask your GM which your table uses. A character can have Morality plus either or both.</p>
+    <p><b>Obligation</b> (Edge of the Empire) is what the galaxy holds over you: a debt, a bounty, a promise. The GM rolls against the party's total at the start of each session, and when yours comes up it weighs on everyone. Starting size depends on party size: 20 each for two players, 15 for three, 10 for four or five, 5 for six or more. You may take <b>extra</b> at creation for a bonus: +5 for 5 XP or 1,000 credits, +10 for 10 XP or 2,500 credits (at most your starting size again in total).</p>
+    <p><b>Duty</b> (Age of Rebellion) is the job you have taken on for your cause. It works the other way: when yours comes up, everyone is inspired, and it <b>grows</b> as you complete missions. It starts at the same size as Obligation would, and you may lower it at creation for the same bonuses.</p>
+    <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">${tallyHtml(cs,'obl')}${tallyHtml(cs,'duty')}</div>
+    <p>Bonus XP or credits from these trades are not added automatically — type them into the XP or Credits box.</p>`;
+  else if(step===4) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
     <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}</b>
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>
     ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : `<p>Other species: type the name in the Species box and set characteristics, thresholds and XP by hand.</p>`}`;
-  else if(step===4) body = `<p>Your <b>career</b> never changes. It gives six career skills (cheaper to raise forever), decides which specializations are cheap, and for these careers starts you at Force rating 1.</p>
+  else if(step===5) body = `<p>Your <b>career</b> never changes. It gives six career skills (cheaper to raise forever), decides which specializations are cheap, and for these careers starts you at Force rating 1.</p>
     <div class="cccards">${RULES_DB.careers.map(x=>`<div class="tnode ${car&&car.n===x.n?'own':'can'}" onclick="ccSetCareer('${id}','${x.n}')"><b>${esc(x.n)}</b><small>${esc(x.skills.join(', '))}</small></div>`).join('')}</div>
     ${car ? `<p><b>Free career ranks:</b> one free rank in ${car.free} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : `<p>Careers from other books: type the name in the Career box and tick its career skills by hand.</p>`}`;
-  else if(step===5){
+  else if(step===6){
     const opts = RULES_DB.trees.filter(t=>t.k==='spec' && car && t.career===car.n);
     body = `<p>Your first <b>specialization</b> is free. It adds four more career skills and a talent tree to spend XP in.</p>` +
       (car ? `<div class="cccards">${opts.map(t=>`<div class="tnode ${spec&&spec.id===t.id?'own':'can'}" onclick="ccSetSpec('${id}','${t.id}')"><b>${esc(t.n)}</b><small>${esc(t.skills.join(', '))}</small></div>`).join('')}</div>` : `<p>Choose a career first.</p>`) +
       (spec ? `<p><b>Free specialization ranks:</b> one free rank in 2 of its 4 skills. <button class="mini" onclick="treesFor('${id}','${spec.id}')">view the ${esc(spec.n)} tree →</button></p>` + picks('fs', spec.skills.map(skillKeyByName)) : '') +
       (sp && sp.free && sp.free.of==='noncareer' ? `<p><b>${esc(sp.n)} free ranks:</b> one rank each in ${sp.free.n} different <b>non-career</b> skills.</p>` + picks('fp', SKILLS.filter(x=>!(sh.sk[x.k]||{}).c || cc.fp[x.k]).map(x=>x.k)) : '');
   }
-  else if(step===6) body = `<p>You have <b>${sh.xp} XP</b> to spend. This is the <b>only</b> time XP can raise a characteristic (later only the Dedication talent can), and characteristics drive every dice pool, so most players spend heavily here.</p>
+  else if(step===7) body = `<p>You have <b>${sh.xp} XP</b> to spend. This is the <b>only</b> time XP can raise a characteristic (later only the Dedication talent can), and characteristics drive every dice pool, so most players spend heavily here.</p>
     <div class="sboxes">${ATTRS.map(([k,n])=>{ const cur = cs.attr[k], cost = 10*(cur+1), floor = sp ? sp.attr[k] : 1;
       return `<div class="sbox" title="${esc(ATTR_TIPS[k])}">${n}<div class="vals"><button class="mini" onclick="ccAttr('${id}','${k}',-1)" ${cur>floor?'':'disabled'} title="Undo: refund ${10*cur} XP">▼</button> <b class="derived">${cur}</b> <button class="mini" onclick="ccAttr('${id}','${k}',1)" ${cur<CC_ATTR_MAX && sh.xp>=cost?'':'disabled'} title="Raise to ${cur+1} for ${cost} XP">▲</button></div><small>${cur<CC_ATTR_MAX?`next: ${cost} XP`:'creation maximum'}</small></div>`; }).join('')}</div>
     <p><b>Costs:</b> characteristic 10 × new rating (max ${CC_ATTR_MAX}) · skill rank 5 × new rank, +5 if non-career (max rank ${CC_SKILL_MAX} now) · talent 5–25 by row · Force power as shown on its tree · extra specialization 10 × the number you will have, +10 outside your career.</p>
