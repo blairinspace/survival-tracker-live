@@ -2966,7 +2966,7 @@ function renderSheet(){
    row (or is the top box) or is joined to one already owned.
    ================================================================ */
 const RULES_DB = typeof RULES!=='undefined' ? RULES : { trees:[], talents:{} };
-RULES_DB.species = RULES_DB.species || []; RULES_DB.careers = RULES_DB.careers || [];
+RULES_DB.species = RULES_DB.species || []; RULES_DB.careers = RULES_DB.careers || []; RULES_DB.morality = RULES_DB.morality || [];
 const TREE_BY = {};
 for(const t of RULES_DB.trees){ TREE_BY[t.id] = t; t.by = {}; for(const n of t.nodes) t.by[n.id] = n; }
 const TREE_KINDS = { spec:'Specializations', sig:'Signature abilities', power:'Force powers' };
@@ -3209,6 +3209,32 @@ function moralBand(sh){
     fx:'uses ● dark side results freely (○ costs strain and a Destiny flip) · +1 Dark Destiny each session' + (sh.mor<10 ? ' · strain threshold −2, wound threshold +2' : sh.mor<20 ? ' · strain threshold −1, wound threshold +1' : '') + (sh.mor>=30 ? ' · stays dark until Morality passes 70' : '') };
   return { name:'Light side Force user', color:'var(--dim)', fx:'using ● dark side results costs strain, Conflict and a Destiny flip' };
 }
+/* emotional strength / weakness: picked from the rulebook's paired table (rules.js), or typed via "other" */
+function moralPick(id, k, v){
+  const sh = st(id).sheet, key = k==='s' ? 'morS' : 'morW';
+  if(v==='__other'){ const t = prompt(`Type the emotional ${k==='s'?'strength':'weakness'}:`, sh[key]); if(t===null){ render(); return; } v = t; }
+  sh[key] = String(v).slice(0,120);
+  const pair = k==='s' && RULES_DB.morality.find(m=>m.s===v);
+  if(pair && (!sh.morW || RULES_DB.morality.some(m=>m.w===sh.morW))) sh.morW = pair.w;   // a strength brings its paired weakness along
+  render();
+}
+function moralRoll(id, forced){   // d100 on the table; 97–00 means roll twice, so just roll again
+  let roll, row; do { roll = forced || rollInt(100)+1; row = RULES_DB.morality.find(m=>roll>=m.lo && roll<=m.hi); forced = 0; } while(!row && RULES_DB.morality.length);
+  if(!row) return null;
+  const sh = st(id).sheet; sh.morS = row.s; sh.morW = row.w; render(); return row;
+}
+function moralPickHtml(cs){
+  const sh = cs.sheet, id = cs.id, T = RULES_DB.morality;
+  const sel = (k, cur, lab, tip) => { const names = T.map(m=>m[k]), custom = cur && !names.includes(cur);
+    return `<label title="${esc(tip)}">${lab}<select onchange="moralPick('${id}','${k}',this.value)"><option value="">— choose —</option>` +
+      names.map(n=>`<option ${n===cur?'selected':''}>${esc(n)}</option>`).join('') + (custom ? `<option selected>${esc(cur)}</option>` : '') + `<option value="__other">other (type it)…</option></select></label>`; };
+  const sRow = T.find(m=>m.s===sh.morS), wRow = T.find(m=>m.w===sh.morW);
+  return `<div class="shead">
+      ${sel('s', sh.morS, 'Emotional strength', 'Emotional strength — no rules effect; who the character is at their best. Picking one also sets its paired weakness.')}
+      ${sel('w', sh.morW, 'Emotional weakness', 'Emotional weakness — the flip side of the strength; what tempts the character toward Conflict.')}
+      ${T.length ? `<button class="mini" onclick="moralRoll('${id}')" title="Roll d100 on the Morality table for a random pair">🎲 roll a pair</button>` : ''}
+    </div>` + (sRow || wRow ? `<div class="tinfo">${sRow ? `<b>${esc(sRow.s)}:</b> ${esc(sRow.se)}` : ''}${sRow && wRow ? '<br>' : ''}${wRow ? `<b>${esc(wRow.w)}:</b> ${esc(wRow.we)}` : ''}</div>` : '');
+}
 function sheetAdj(id, k, d){ sheetSet(id, k, st(id).sheet[k] + d); }
 function conflictResolve(id, doubled, forced){   // end of session: 1d10 − Conflict, doubled if the GM triggered this Morality
   const cs = st(id), sh = cs.sheet, roll = forced || rollInt(10)+1, delta = (roll - sh.conf) * (doubled ? 2 : 1), was = sh.mor;
@@ -3255,10 +3281,7 @@ function moralityHtml(cs){
       <div class="sbox" title="End of session: roll 1d10, subtract this session's Conflict, add the result to Morality, and reset Conflict to 0. Use ×2 if the GM triggered this character's Morality and they engaged with it.">End of session<div class="vals"><button class="mini atk" onclick="conflictResolve('${id}')">🎲 resolve Conflict</button> <button class="mini" onclick="conflictResolve('${id}',true)">×2</button></div><small>1d10 − Conflict</small></div>
     </div>
     <div class="tinfo" style="color:${band.color}">${band.fx}. <span style="color:var(--dim)">Threshold changes are not applied automatically.</span></div>
-    <div class="shead">
-      <label title="Emotional strength — no rules effect; a guide to who the character is at their best.">Emotional strength<input type="text" class="wide" value="${esc(sh.morS)}" placeholder="e.g. Compassion" onchange="sheetSet('${id}','morS',this.value)"></label>
-      <label title="Emotional weakness — the flip side of the strength; what tempts the character toward Conflict.">Emotional weakness<input type="text" class="wide" value="${esc(sh.morW)}" placeholder="e.g. Hatred" onchange="sheetSet('${id}','morW',this.value)"></label>
-    </div>
+    ${moralPickHtml(cs)}
     <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
       ${tally('obl','Obligation','Obligation (Edge of the Empire): debts, bounties, oaths — what the galaxy holds over you. At session start the GM rolls d100 against the party total; if it comes up, everyone is distracted (strain threshold −1, yours −2).','e.g. Bounty, Debt, Family')}
       ${tally('duty','Duty','Duty (Age of Rebellion): your standing mission for the cause. At session start the GM rolls d100 against the party total; if it comes up, everyone is inspired (wound threshold +1, yours +2).','e.g. Intelligence, Sabotage')}
@@ -3370,8 +3393,8 @@ function creationHtml(cs){
     <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
     <div class="ccsteps">${Object.keys(CC_BONUS).filter(Boolean).map(k=>`<button class="chip ${cc.bonus===k?'on':''}" onclick="ccBonus('${id}','${cc.bonus===k?'':k}')">${CC_BONUS[k].label}</button>`).join('')}</div>
-    <p>Then choose an <b>emotional strength</b> and its paired <b>weakness</b> (Compassion / Hatred, Bravery / Anger, Caution / Fear, Curiosity / Obsession, Justice / Cruelty …). They have no rules effect; they tell you what tempts the character.</p>
-    <div class="shead"><label>Emotional strength<input type="text" class="wide" value="${esc(sh.morS)}" onchange="sheetSet('${id}','morS',this.value)"></label><label>Emotional weakness<input type="text" class="wide" value="${esc(sh.morW)}" onchange="sheetSet('${id}','morW',this.value)"></label></div>`;
+    <p>Then choose an <b>emotional strength</b> and its paired <b>weakness</b>, or roll for them. They have no rules effect; they tell you what tempts the character.</p>
+    ${moralPickHtml(cs)}`;
   else if(step===3) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
     <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}</b>
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>

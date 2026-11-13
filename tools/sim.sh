@@ -341,6 +341,11 @@ print('\n=== SMOKE TEST — UI code paths ===');
     sheetSet('cal','mor',25); if(!sh.dark) throw new Error('did not fall below 30'); sheetSet('cal','mor',50); if(!sh.dark || !/stays dark/.test(moralBand(sh).fx)) throw new Error('dark side should stick until 70');
     sheetSet('cal','mor',85); if(sh.dark || !/strain threshold \+1/.test(moralBand(sh).fx)) throw new Error('paragon band wrong');
     sheetAdj('cal','conf',-1); if(sh.conf!==0) throw new Error('conflict went negative');
+    if(RULES_DB.morality.length!==12) throw new Error('Morality table did not load');
+    sh.morS = ''; sh.morW = ''; moralPick('cal','s','Compassion'); if(sh.morW!=='Hatred') throw new Error('paired weakness not set');
+    moralPick('cal','w','Fear'); moralPick('cal','s','Bravery'); if(sh.morW!=='Anger') throw new Error('paired weakness should follow the strength');
+    sh.morW = 'Homebrew flaw'; moralPick('cal','s','Love'); if(sh.morW!=='Homebrew flaw') throw new Error('a typed weakness should be kept');
+    if(moralRoll('cal', 50).s!=='Curiosity' || sh.morW!=='Obsession' || !moralRoll('cal', 99) || /undefined|NaN/.test(moralPickHtml(cal))) throw new Error('Morality roll wrong');
     for(const x of S.chars){ x.sheet.obl = []; x.sheet.duty = []; }
     tallyAdd('cal','obl'); tallySet('cal','obl',sh.obl[0].id,'n','Bounty'); tallySet('cal','obl',sh.obl[0].id,'v',20);
     const bo = st('bode'); tallyAdd('bode','obl'); tallySet('bode','obl',bo.sheet.obl[0].id,'v',15); tallyAdd('bode','duty');
