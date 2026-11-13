@@ -289,6 +289,31 @@
   .sysline .si b{color:var(--text)}
   /* ---- Items tab (catalog + homebrew) ---- */
   #items{display:none}
+  #trees{display:none}
+  .treecols{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+  .treelist{flex:0 0 230px;max-height:74vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:4px}
+  .treelist .tgroup{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;padding:6px 6px 2px}
+  .treelist button{display:block;width:100%;text-align:left;border:none;background:none;padding:3px 8px;font-size:12px;border-radius:5px;color:var(--text)}
+  .treelist button:hover{background:#222c3b} .treelist button.on{background:#1f3a5f}
+  .treelist button.has::after{content:' ●';color:var(--good)}
+  .treeview{flex:1 1 520px;min-width:0}
+  .thead{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-bottom:4px}
+  .thead h3{margin:0;font-size:16px;color:var(--text);text-transform:none;letter-spacing:0}
+  .thead .sub, .tinfo{font-size:11.5px;color:var(--dim)} .tinfo{margin-bottom:8px;line-height:1.5} .tinfo b{color:var(--text)}
+  .tgrid{position:relative;max-width:820px;margin-top:6px}
+  .tgrid svg{position:absolute;inset:0;width:100%;height:100%}
+  .tgrid svg line{stroke:#3a4352;stroke-width:3;vector-effect:non-scaling-stroke} .tgrid svg line.on{stroke:var(--good)}
+  .tnode{position:absolute;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:3px 6px;border:1px solid var(--border);border-radius:7px;
+    background:var(--panel2);color:var(--text);font-size:11.5px;line-height:1.2;text-align:center;overflow:hidden;cursor:default}
+  .tnode b{font-weight:600} .tnode small{font-size:10px;color:var(--dim)}
+  .tnode.act{border-left-width:4px;border-left-color:var(--gold)!important} .tnode.frc b::after{content:' ✦';color:var(--force)}
+  .tnode.can{border-color:var(--accent);cursor:pointer} .tnode.can:hover{background:#1f3a5f}
+  .tnode.own{background:#12331c;border-color:var(--good);cursor:pointer} .tnode.own small{color:#9be0a8}
+  .tnode.lock{color:#6f7885;border-color:#262d38;background:#171c25} .tnode.lock small{color:#565f6c} .tnode.lock.act{border-left-color:#6b5a26!important}
+  .tnode.root{background:#221c33} .tnode.root.own{background:#12331c}
+  .tlegend{font-size:10.5px;color:var(--dim);margin-top:8px}
+  .taltable{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px} .taltable td,.taltable th{padding:3px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+  .taltable th{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px} .taltable td.n{white-space:nowrap;font-weight:600} .taltable td.e{color:var(--dim)}
   .itemswrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
   .itembar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:10px}
   .itembar input[type=text]{width:260px;max-width:100%}
@@ -319,7 +344,7 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -399,6 +424,7 @@
   <button id="tabC" onclick="showTab('sheet')">Sheets</button>
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
+  <button id="tabTr" onclick="showTab('trees')">Trees</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Reference</button>
   <span id="destinyChip"></span>
@@ -445,6 +471,18 @@
   <div id="itemsBody"></div>
 </div></div>
 
+<div id="trees"><div class="itemswrap">
+  <div class="itembar">
+    <label title="Pick a character to buy talents for. With nobody picked, the trees are read-only.">buying for <select id="treeWho" onchange="treesSet('who',this.value)"></select></label>
+    <span id="treeXp" class="tinfo" style="margin:0"></span>
+    <input type="text" id="treeQ" placeholder="search trees and talents…" oninput="treesSet('q',this.value)">
+    <span class="group" id="treeKinds"></span>
+    <select id="treeBook" onchange="treesSet('book',this.value)" title="Game line"></select>
+    <select id="treeCareer" onchange="treesSet('career',this.value)" title="Career"></select>
+  </div>
+  <div class="treecols"><div class="treelist" id="treeList"></div><div class="treeview" id="treeView"></div></div>
+</div></div>
+
 <datalist id="dbNames"></datalist>
 <div id="sheet">
   <div class="drow" id="sheetChips"></div>
@@ -483,6 +521,8 @@
 <script src="items.js"></script>
 <!-- Hand-maintained extra entries (kit items the workbook lacks, food types) -->
 <script src="items-custom.js"></script>
+<!-- Talent trees, Force powers and talent effects, generated from the rules vault by tools/import-rules.py (the Trees tab is empty if this fails) -->
+<script src="rules.js"></script>
 
 <script>
 'use strict';
@@ -2151,6 +2191,7 @@ function render(){
   renderItems();
   renderDestiny();
   renderSheet();
+  renderTrees();
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2450,12 +2491,15 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
 }
 function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
+let TAB = 'tracker';
 function showTab(t){
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['dice','tabD'],['rules','tabR']]){
+  TAB = t;
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
   if(t==='dice'){ renderDice(); renderFeed(); }
+  if(t==='trees') renderTrees();
 }
 
 /* ================================================================
@@ -2516,13 +2560,13 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
 function newSheet(c){
   return { species:c.species||'', career:'', specs:'', soakMod:0, defRMod:0, defMMod:0,
-           fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[] };
+           fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{} };
 }
 function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
   const def = newSheet(c), sh = (cs.sheet && typeof cs.sheet==='object') ? cs.sheet : (cs.sheet = {});
@@ -2538,6 +2582,8 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
   sh.cust = arrayify(sh.cust); if(!Array.isArray(sh.cust)) sh.cust = [];
   sh.cust = sh.cust.filter(x=>x && typeof x==='object' && x.id);
   for(const x of sh.cust){ if(typeof x.n!=='string') x.n=''; if(!ATTR_TIPS[x.ch]) x.ch='int'; }
+  if(!sh.tr || typeof sh.tr!=='object' || Array.isArray(sh.tr)) sh.tr = {};
+  for(const k in sh.tr) if(!sh.tr[k] || typeof sh.tr[k]!=='object' || Array.isArray(sh.tr[k])) delete sh.tr[k];
   // committed Force dice are cs.force (the Tracker card's field) — one value for both tabs. A save from
   // before the Force rating existed may have more committed than the default rating: keep the commit.
   delete sh.frCommit;
@@ -2880,7 +2926,208 @@ function renderSheet(){
     <div class="sboxes">` + ATTRS.map(([k,n])=>
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
     ${gearHtml(cs)}
+    ${talentsHtml(cs)}
     <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
+}
+
+/* ================================================================
+   TREES — specialization talent trees, signature abilities and Force
+   powers (rules.js, generated from the rules vault by tools/import-rules.py).
+   What a character owns lives in cs.sheet.tr:
+     tr[treeId] = { _:1, _x:XP paid for the specialization, nodeId:1, ... }
+   (the "_" marker keeps a specialization with no talents yet alive on the
+   wire — the room drops empty objects). A specialization must be added
+   before its talents can be bought; a Force power or signature ability is
+   added by buying its top box. A box can be bought when it is in the top
+   row (or is the top box) or is joined to one already owned.
+   ================================================================ */
+const RULES_DB = typeof RULES!=='undefined' ? RULES : { trees:[], talents:{} };
+const TREE_BY = {};
+for(const t of RULES_DB.trees){ TREE_BY[t.id] = t; t.by = {}; for(const n of t.nodes) t.by[n.id] = n; }
+const TREE_KINDS = { spec:'Specializations', sig:'Signature abilities', power:'Force powers' };
+const TREE_ROW_H = 76;
+const TREES_UI = { who:'', q:'', kind:'spec', book:'', career:'', id:'' };
+const normName = s => String(s||'').trim().toLowerCase();
+
+function treeOwned(cs, tid){ return cs.sheet.tr[tid] || null; }
+function treeNodes(cs, tid){ const o = treeOwned(cs, tid), t = TREE_BY[tid]; return o && t ? t.nodes.filter(n=>o[n.id]) : []; }
+function ownedSpecs(cs){ return Object.keys(cs.sheet.tr).filter(k=>TREE_BY[k] && TREE_BY[k].k==='spec'); }
+function specInCareer(cs, t){ return t.career==='Universal' || !normName(cs.sheet.career) || normName(cs.sheet.career)===normName(t.career); }
+function specCost(cs, t){   // a new specialization: 10 × how many you will then have, +10 outside your career; the first is free
+  const n = ownedSpecs(cs).length + 1;
+  return n===1 ? 0 : 10*n + (specInCareer(cs, t) ? 0 : 10);
+}
+function nodeState(cs, t, n){   // own · can (buyable now) · lock, with the reason it is locked
+  const o = treeOwned(cs, t.id);
+  if(o && o[n.id]) return { s:'own' };
+  if(t.k==='spec' && !o) return { s:'lock', why:'Add this specialization to the character first.' };
+  if(t.k==='power' && n.root && cs.sheet.fr < t.fr) return { s:'lock', why:`Needs Force rating ${t.fr}.` };
+  if(!n.root && !(o && n.to.some(x=>o[x]))) return { s:'lock', why:'Not connected to anything you own yet.' };
+  return { s:'can' };
+}
+function treeBuy(id, tid, nid){
+  const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return false;
+  const stt = nodeState(cs, t, n);
+  if(stt.s==='own') return false;
+  if(stt.s==='lock'){ alert(stt.why); return false; }
+  if(cs.sheet.xp < n.c){ alert(`${cfg(id).name} has ${cs.sheet.xp} XP available — ${n.n} costs ${n.c}.`); return false; }
+  const o = cs.sheet.tr[tid] || (cs.sheet.tr[tid] = { _:1, _x:0 });
+  o[nid] = 1; cs.sheet.xp -= n.c;
+  render(); return true;
+}
+function treeCanRefund(cs, t, nid){   // everything else owned must still be reachable without this box
+  const o = treeOwned(cs, t.id); if(!o || !o[nid]) return false;
+  const own = t.nodes.filter(n=>o[n.id] && n.id!==nid), seen = new Set(own.filter(n=>n.root).map(n=>n.id)), queue = [...seen];
+  while(queue.length) for(const x of t.by[queue.pop()].to) if(o[x] && x!==nid && !seen.has(x)){ seen.add(x); queue.push(x); }
+  return seen.size===own.length;
+}
+function treeRefund(id, tid, nid){
+  const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return false;
+  if(!treeCanRefund(cs, t, nid)){ alert(`Something further down the tree depends on ${n.n} — refund that first.`); return false; }
+  const o = cs.sheet.tr[tid];
+  delete o[nid]; cs.sheet.xp = Math.min(SHEET_NUM.xp[1], cs.sheet.xp + n.c);
+  if(t.k!=='spec' && !treeNodes(cs, tid).length) delete cs.sheet.tr[tid];
+  render(); return true;
+}
+function treeClick(id, tid, nid){
+  const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return;
+  if((treeOwned(cs, tid)||{})[nid]){ if(confirm(`Refund ${n.n} and get ${n.c} XP back?`)) treeRefund(id, tid, nid); }
+  else treeBuy(id, tid, nid);
+}
+function specAdd(id, tid, free){
+  const cs = st(id), t = TREE_BY[tid]; if(!cs || !t || t.k!=='spec' || treeOwned(cs, tid)) return false;
+  const cost = free ? 0 : specCost(cs, t);
+  if(cs.sheet.xp < cost){ alert(`${cfg(id).name} has ${cs.sheet.xp} XP available — ${t.n} costs ${cost}.`); return false; }
+  cs.sheet.tr[tid] = { _:1, _x:cost }; cs.sheet.xp -= cost;
+  const list = cs.sheet.specs.split(',').map(x=>x.trim()).filter(Boolean);   // keep the sheet's Specializations box in step
+  if(!list.some(x=>normName(x)===normName(t.n))) cs.sheet.specs = list.concat(t.n).join(', ').slice(0,120);
+  render(); return true;
+}
+function specRemove(id, tid){
+  const cs = st(id), t = TREE_BY[tid], o = cs && treeOwned(cs, tid); if(!o || !t) return false;
+  const back = treeNodes(cs, tid).reduce((a,n)=>a+n.c, 0) + (+o._x||0);
+  delete cs.sheet.tr[tid]; cs.sheet.xp = Math.min(SHEET_NUM.xp[1], cs.sheet.xp + back);
+  cs.sheet.specs = cs.sheet.specs.split(',').map(x=>x.trim()).filter(x=>x && normName(x)!==normName(t.n)).join(', ');
+  render(); return true;
+}
+function xpSpentOnTrees(cs){
+  return Object.keys(cs.sheet.tr).reduce((a,k)=>a + (+cs.sheet.tr[k]._x||0) + treeNodes(cs,k).reduce((b,n)=>b+n.c,0), 0);
+}
+function talentRanks(cs){   // every talent the character owns, ranks added up across specializations
+  const out = {};
+  for(const tid of ownedSpecs(cs)) for(const n of treeNodes(cs, tid)){
+    const e = out[n.n] || (out[n.n] = { n:n.n, rank:0, from:[] });
+    e.rank++; if(!e.from.includes(TREE_BY[tid].n)) e.from.push(TREE_BY[tid].n);
+  }
+  return Object.values(out).sort((a,b)=>a.n.localeCompare(b.n));
+}
+function nodeTip(t, n, stt){
+  const tal = t.k==='spec' ? RULES_DB.talents[n.n] : null;
+  const kind = t.k==='spec' ? [n.t || (tal&&tal.a) || '', tal&&tal.r ? 'Ranked' : '', n.f ? 'Force talent' : ''].filter(Boolean).join(' · ')
+             : n.root ? (t.k==='power' ? 'Basic power' : 'Signature ability') : 'Upgrade';
+  const eff = tal ? tal.e : n.root && t.k==='power' ? t.basic : n.e || '';
+  const hint = !stt ? '' : stt.s==='own' ? 'Owned — click to refund.' : stt.s==='can' ? `Click to buy for ${n.c} XP.` : stt.why;
+  return `${n.n} — ${n.c} XP\n${kind}` + (eff ? `\n\n${eff}` : t.k==='spec' ? '' : '\n\n(Effect not written up in the vault yet — see the book.)') + (hint ? `\n\n${hint}` : '');
+}
+function treeHtml(t, cs){   // cs null = read-only
+  const id = cs ? cs.id : '', o = cs ? treeOwned(cs, t.id) : null, H = t.rows*TREE_ROW_H;
+  const cx = (n, other) => clamp(other.x + other.w/2, n.x + 0.5, n.x + n.w - 0.5);
+  const lines = [];
+  for(const n of t.nodes) for(const x of n.to){
+    const m = t.by[x]; if(!m || n.id > m.id) continue;
+    lines.push(`<line x1="${cx(n,m)}" y1="${n.y+0.5}" x2="${cx(m,n)}" y2="${m.y+0.5}" ${o && o[n.id] && o[m.id] ? 'class="on"' : ''}/>`);
+  }
+  const boxes = t.nodes.map(n=>{
+    const stt = cs ? nodeState(cs, t, n) : null;
+    const act = t.k==='spec' && /^active/i.test(n.t||'');
+    const sub = t.k==='spec' ? (act ? 'Active' : 'Passive') : n.root ? (t.k==='power' ? 'Basic power' : 'Signature ability') : '';
+    return `<div class="tnode ${stt?stt.s:''} ${act?'act':''} ${n.f?'frc':''} ${n.root&&t.k!=='spec'?'root':''}" title="${esc(nodeTip(t, n, stt))}"
+      style="left:${n.x*25+1}%;width:${n.w*25-2}%;top:${n.y*TREE_ROW_H+7}px;height:${TREE_ROW_H-14}px"
+      ${cs && stt.s!=='lock' ? `onclick="treeClick('${id}','${t.id}','${n.id}')"` : ''}><b>${esc(n.n)}</b><small>${stt&&stt.s==='own'?'✓ ':''}${n.c} XP${sub?' · '+sub:''}</small></div>`;
+  }).join('');
+  let info = '';
+  if(t.k==='spec'){
+    info = `<b>Career skills:</b> ${esc(t.skills.join(', ') || '—')}`;
+    if(cs){
+      const cost = specCost(cs, t);
+      info += '<br>' + (o
+        ? `<span style="color:var(--good)">✓ ${esc(cfg(id).name)} has this specialization.</span> <button class="mini" onclick="if(confirm('Remove ${esc(t.n).replace(/'/g,'’')} and refund every XP spent in it?'))specRemove('${id}','${t.id}')" title="Remove the specialization and refund its talents and its own cost">remove &amp; refund</button>`
+        : `<button class="mini atk" onclick="specAdd('${id}','${t.id}')" title="A new specialization costs 10 × the number you will then have, +10 outside your career. The first is free.">＋ add to ${esc(cfg(id).name)} · ${cost} XP${cost && !specInCareer(cs,t) ? ' (non-career)' : ''}</button>` +
+          (cost ? ` <button class="mini" onclick="specAdd('${id}','${t.id}',true)" title="Add it without spending XP (a starting specialization, or a GM grant)">add free</button>` : ''));
+    }
+  } else if(t.k==='power'){
+    info = `<b>Needs Force rating ${t.fr}.</b> ${esc(t.basic)}`;
+  } else info = `Buy the ability itself first, then the upgrades joined to it.`;
+  return `<div class="thead"><h3>${esc(t.n)}</h3><span class="sub">${TREE_KINDS[t.k].replace(/s$/,'').replace(/ie$/,'y')}${t.k!=='power' ? ' · '+esc(t.book) : ''}${t.career ? ' · '+esc(t.career) : ''}</span></div>
+    <div class="tinfo">${info}</div>
+    <div class="tgrid" style="height:${H}px"><svg viewBox="0 0 4 ${t.rows}" preserveAspectRatio="none">${lines.join('')}</svg>${boxes}</div>`;
+}
+function treesSet(k, v){
+  TREES_UI[k] = v;
+  if(k==='kind' || k==='book') TREES_UI.career = '';
+  renderTrees();   // view-only change: no state touched, so no full render / sync
+}
+function treesFor(id, tid){ TREES_UI.who = id; if(tid && TREE_BY[tid]){ TREES_UI.id = tid; TREES_UI.kind = TREE_BY[tid].k; TREES_UI.book = ''; TREES_UI.career = ''; TREES_UI.q = ''; } showTab('trees'); }
+function treesFiltered(){
+  const q = normName(TREES_UI.q);
+  return RULES_DB.trees.filter(t=> t.k===TREES_UI.kind
+    && (!TREES_UI.book || t.book===TREES_UI.book) && (!TREES_UI.career || t.career===TREES_UI.career)
+    && (!q || normName(t.n).includes(q) || normName(t.career).includes(q) || t.nodes.some(n=>normName(n.n).includes(q))));
+}
+function renderTrees(){
+  const listEl = document.getElementById('treeList'); if(!listEl || TAB!=='trees') return;
+  const setHtml = (elId, html) => { const el = document.getElementById(elId); if(el.innerHTML!==html) el.innerHTML = html; return el; };
+  if(!st(TREES_UI.who)) TREES_UI.who = '';
+  const cs = TREES_UI.who ? st(TREES_UI.who) : null;
+  setHtml('treeWho', `<option value="">— nobody (browse only) —</option>` + S.chars.map(x=>`<option value="${x.id}">${esc(cfg(x.id).name)}</option>`).join('')).value = TREES_UI.who;
+  setHtml('treeXp', cs ? `<b>${cs.sheet.xp}</b> XP available · ${xpSpentOnTrees(cs)} spent on trees` : '');
+  setHtml('treeKinds', Object.keys(TREE_KINDS).map(k=>`<button class="chip ${TREES_UI.kind===k?'on':''}" onclick="treesSet('kind','${k}')">${TREE_KINDS[k]}</button>`).join(''));
+  const ofKind = RULES_DB.trees.filter(t=>t.k===TREES_UI.kind);
+  const books = [...new Set(ofKind.map(t=>t.book))], careers = [...new Set(ofKind.filter(t=>!TREES_UI.book || t.book===TREES_UI.book).map(t=>t.career).filter(Boolean))].sort();
+  const bookEl = setHtml('treeBook', `<option value="">all game lines</option>` + books.map(b=>`<option>${esc(b)}</option>`).join(''));
+  bookEl.value = TREES_UI.book; bookEl.style.display = books.length>1 ? '' : 'none';
+  const carEl = setHtml('treeCareer', `<option value="">all careers</option>` + careers.map(b=>`<option>${esc(b)}</option>`).join(''));
+  carEl.value = TREES_UI.career; carEl.style.display = careers.length ? '' : 'none';
+  const qEl = document.getElementById('treeQ'); if(document.activeElement!==qEl) qEl.value = TREES_UI.q;
+  if(!RULES_DB.trees.length){ listEl.innerHTML = ''; document.getElementById('treeView').innerHTML = '<p class="tinfo">The talent trees did not load (rules.js is missing).</p>'; return; }
+  const list = treesFiltered();
+  if(!list.some(t=>t.id===TREES_UI.id)) TREES_UI.id = list.length ? list[0].id : '';
+  let group = null;
+  listEl.innerHTML = list.map(t=>{
+    const g = t.k==='power' ? '' : t.book + (t.career ? ' — ' + t.career : '');
+    const head = g!==group ? `<div class="tgroup">${esc(g)}</div>` : ''; group = g;
+    return head + `<button class="${t.id===TREES_UI.id?'on':''} ${cs && treeOwned(cs,t.id)?'has':''}" onclick="treesSet('id','${t.id}')">${esc(t.n)}</button>`;
+  }).join('') || '<div class="tgroup">nothing matches</div>';
+  const onBtn = listEl.querySelector && listEl.querySelector('button.on');
+  if(onBtn && TREES_UI.shown!==TREES_UI.id && onBtn.scrollIntoView){ onBtn.scrollIntoView({block:'nearest'}); }
+  TREES_UI.shown = TREES_UI.id;
+  const t = TREE_BY[TREES_UI.id];
+  document.getElementById('treeView').innerHTML = t ? treeHtml(t, cs) +
+    `<div class="tlegend">Hover a box for what it does. ${cs ? 'Blue outline = can buy now · green = owned (click to refund) · faded = not reachable yet.' : 'Pick a character under “buying for” to spend XP.'} Gold edge = active talent · ✦ = Force talent.</div>` : '';
+}
+/* the sheet's Talents & Force Powers dropdown */
+function talentsHtml(cs){
+  if(!RULES_DB.trees.length) return '';
+  const id = cs.id, tids = Object.keys(cs.sheet.tr).filter(k=>TREE_BY[k]);
+  const order = { spec:0, sig:1, power:2 };
+  tids.sort((a,b)=>order[TREE_BY[a].k]-order[TREE_BY[b].k] || TREE_BY[a].n.localeCompare(TREE_BY[b].n));
+  const ranks = talentRanks(cs);
+  const table = ranks.length ? `<table class="taltable"><tr><th>Talent</th><th>Type</th><th>What it does</th></tr>` + ranks.map(r=>{
+    const tal = RULES_DB.talents[r.n] || {};
+    return `<tr title="From ${esc(r.from.join(', '))}"><td class="n">${esc(r.n)}${r.rank>1 || tal.r ? ` <span class="badge b-cu">rank ${r.rank}</span>` : ''}</td><td>${esc(tal.a||'')}${tal.f?' ✦':''}</td><td class="e">${esc(tal.e||'')}</td></tr>`;
+  }).join('') + `</table>` : `<p class="tinfo">No talents bought yet.</p>`;
+  const folds = tids.map(tid=>{
+    const t = TREE_BY[tid], n = treeNodes(cs, tid).length, key = 't_'+tid;
+    return `<details class="sfold" ${SHEET_UI.open[key]?'open':''} ontoggle="sheetOpen('${key}',this.open)">
+      <summary>${t.k==='power'?'✨':t.k==='sig'?'⭐':'🌿'} <b>${esc(t.n)}</b> <span class="sub">· ${TREE_KINDS[t.k].replace(/s$/,'').replace(/ie$/,'y').toLowerCase()} · ${n} of ${t.nodes.length} bought</span></summary>
+      ${treeHtml(t, cs)}</details>`;
+  }).join('');
+  return `<details class="sfold crate" ${SHEET_UI.open.tal?'open':''} ontoggle="sheetOpen('tal',this.open)">
+    <summary>🌿 <b>Talents &amp; Force Powers</b> <span class="sub">· ${ranks.length} talent${ranks.length===1?'':'s'} · ${tids.length} tree${tids.length===1?'':'s'} · ${xpSpentOnTrees(cs)} XP spent</span></summary>
+    ${table}
+    <div class="geartables">${folds}</div>
+    <button class="mini" onclick="treesFor('${id}')" title="Open the Trees tab to add a specialization, a Force power or a signature ability">＋ browse &amp; add trees</button>
+  </details>`;
 }
 
 /* ================================================================

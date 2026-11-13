@@ -30,6 +30,7 @@ STUB
 # the tracker's script, minus its init() call
 [ -f items.js ] && cat items.js
 [ -f items-custom.js ] && cat items-custom.js
+[ -f rules.js ] && cat rules.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -277,6 +278,44 @@ print('\n=== SMOKE TEST — UI code paths ===');
   print(`  sheet: ${SKILLS.length} skills + ${st('cal').sheet.cust.length} custom, Cal Lightsaber (Ag 6, rank 5) → ${ls.p} Proficiency + ${ls.a} Ability, ${shBad} broken interpolations`);
   if(shBad) throw new Error('sheet smoke test failed');
   sheetDelSkill('cal',cu.id);
+  // trees: add a specialization, buy along the paths, refund without stranding, Force power prerequisites, wire round-trip
+  (()=>{
+    const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet;
+    if(RULES_DB.trees.length<150 || !TREE_BY['healer'] || !TREE_BY['fp-move'] || !RULES_DB.talents['Grit']) throw new Error('rules.js did not load');
+    for(const t of RULES_DB.trees){
+      if(!t.nodes.some(n=>n.root)) throw new Error('tree with no starting box: '+t.id);
+      for(const n of t.nodes){ if(n.x<0 || n.x+n.w>4 || n.y<0 || n.y>=t.rows) throw new Error('box off the grid: '+t.id+' '+n.id); for(const x of n.to) if(!t.by[x] || !t.by[x].to.includes(n.id)) throw new Error('one-way path: '+t.id+' '+n.id); }
+      const seen = new Set(t.nodes.filter(n=>n.root).map(n=>n.id)), q = [...seen]; while(q.length) for(const x of t.by[q.pop()].to) if(!seen.has(x)){ seen.add(x); q.push(x); }
+      if(seen.size!==t.nodes.length) throw new Error('unreachable box in '+t.id);
+      const cells = new Set(); for(const n of t.nodes) for(let i=0;i<n.w;i++){ const c = n.y+':'+(n.x+i); if(cells.has(c)) throw new Error('overlapping boxes in '+t.id+' at '+c); cells.add(c); }
+    }
+    sh.tr = {}; sh.xp = 100; sh.career = 'Consular'; sh.specs = ''; sh.fr = 1;
+    const H = TREE_BY['healer'];
+    if(treeBuy('cal','healer','r1c1')) throw new Error('bought a talent without the specialization');
+    if(specCost(cal,H)!==0 || !specAdd('cal','healer') || sh.xp!==100 || sh.specs!=='Healer') throw new Error('first specialization should be free');
+    if(specCost(cal,TREE_BY['arbiter-consular'])!==20 || specCost(cal,TREE_BY['ataru-striker'])!==30 || specCost(cal,RULES_DB.trees.find(t=>t.career==='Universal'))!==20) throw new Error('specialization cost wrong');
+    if(treeBuy('cal','healer','r2c1')) throw new Error('bought a row-2 talent with nothing above it');
+    if(!treeBuy('cal','healer','r1c1') || !treeBuy('cal','healer','r2c1') || !treeBuy('cal','healer','r2c2') || sh.xp!==75) throw new Error('buying along a path failed');
+    if(treeRefund('cal','healer','r1c1')) throw new Error('refund stranded r2c1');
+    if(!treeBuy('cal','healer','r1c2') || !treeRefund('cal','healer','r1c1') || sh.xp!==75) throw new Error('refund with another route failed');
+    const ph = talentRanks(cal).find(r=>r.n==='Physician'); if(!ph || ph.rank!==2) throw new Error('ranks not added up');
+    sh.xp = 5; if(treeBuy('cal','healer','r3c1')) throw new Error('bought with too little XP'); sh.xp = 100;
+    sh.fr = 0; if(treeBuy('cal','fp-move','basic')) throw new Error('bought a Force power with Force rating 0'); sh.fr = 1;
+    if(treeBuy('cal','fp-move','magnitude-1') || !treeBuy('cal','fp-move','basic') || !treeBuy('cal','fp-move','magnitude-1') || sh.xp!==85) throw new Error('Force power purchase order wrong');
+    if(treeRefund('cal','fp-move','basic') || !treeRefund('cal','fp-move','magnitude-1') || !treeRefund('cal','fp-move','basic') || sh.tr['fp-move'] || sh.xp!==100) throw new Error('Force power refund wrong');
+    specAdd('cal','arbiter-consular'); if(sh.xp!==80 || xpSpentOnTrees(cal)!==45) throw new Error('second specialization should cost 20');
+    const back = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet.tr;
+    if(!back['arbiter-consular'] || !back.healer.r2c1 || back.healer.r1c1) throw new Error('trees lost on the wire');
+    SHEET_UI.id = 'cal'; render(); const shT = document.getElementById('sheetBody').innerHTML;
+    if(!/Talents &amp; Force Powers/.test(shT) || !/Physician/.test(shT) || !/rank 2/.test(shT)) throw new Error('sheet talents section missing');
+    treesFor('cal','healer'); const tv = document.getElementById('treeView').innerHTML + document.getElementById('treeList').innerHTML;
+    let tBad = (tv.match(/undefined|NaN|\[object/g)||[]).length;
+    for(const t of RULES_DB.trees) tBad += (treeHtml(t, cal).match(/undefined|NaN|\[object/g)||[]).length + (treeHtml(t, null).match(/undefined|NaN|\[object/g)||[]).length;
+    if(tBad || !/tnode own/.test(tv)) throw new Error('trees tab smoke test failed');
+    specRemove('cal','healer'); if(sh.xp!==105 || sh.tr.healer || /Healer/.test(sh.specs)) throw new Error('removing a specialization should refund it');
+    print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
+    S = migrate(JSON.parse(keep)); showTab('tracker');
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
