@@ -166,6 +166,8 @@
   .shead{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
   .shead h2{font-size:20px;color:var(--gold);margin-right:6px}
   .shead label, .sbox{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+  .shead .ro{font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;padding:3px 0;min-width:48px;max-width:320px} .shead .ro.empty{color:var(--dim)}
+  .shead.bio{gap:8px 14px;margin-bottom:10px} .shead.bio input[type=text]{width:120px}
   .shead input[type=text]{width:150px} .shead input.wide{width:260px;max-width:80vw}
   .sdesc{font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px;max-width:900px} .sdesc b{color:#b6bec8;font-weight:600}
   .sboxes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -1100,6 +1102,8 @@ function migrate(s){ // patch older saves (and room snapshots)
    HELPERS
    ================================================================ */
 const cfg = id => CHARS.find(c=>c.id===id);
+// Force sensitive: the sheet's bio answer when there is one, else the roster default
+const isFS = cs => { const f = cs.sheet && cs.sheet.fs; return f===0 || f===1 ? !!f : !!(cfg(cs.id)||{}).fs; };
 const st  = id => S.chars.find(x=>x.id===id);
 const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -1467,7 +1471,7 @@ function upgradeInv(cs, c, invV0){
 
 function startStatus(id, kind, dur){
   const cs = st(id), c = cfg(id), def = STATUSES[kind];
-  if(def.fs && !c.fs) return;   // meditation is for Force sensitives only
+  if(def.fs && !isFS(cs)) return;   // meditation is for Force sensitives only
   if(cs.status) cancelStatus(id, true);
   const deltas = {...def.deltas};
   let cost = 0;
@@ -2093,7 +2097,7 @@ function organicCard(cs, c, div){
   const badges = statusBadge(cs) +
     (cs.stimHrs>0 ? `<span class="badge b-stim" title="Stimulant active — effects listed in the box below">💉 Stim<span class="cdt">⏳${fmtDur(cs.stimHrs)}</span></span> ` : '') +
     (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span> ` : '') +
-    (c.fs && cs.force>0 ? `<span class="badge b-force">Morichro ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
+    (isFS(cs) && cs.force>0 ? `<span class="badge b-force">Morichro ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
     condBadges(cs);
   div.className = 'card'+(dead?' dead':uncon?' uncon':'');
   div.innerHTML = `
@@ -2120,11 +2124,11 @@ function organicCard(cs, c, div){
       `<input type="number" min="0.5" max="16" step="0.5" value="${cs.sleepHrs}" style="width:50px" title="Hours to sleep (remembered; defaults to this character's nightly need)" onchange="setSleepHrs('${cs.id}',this.value)"><button class="mini" onclick="startSleep('${cs.id}')">sleep</button>`, tier('sleep'))}
     ${needRow(cs,'rest','⚡ Fatigue',
       `<button class="mini" onclick="startStatus('${cs.id}','rest15')">15m</button><button class="mini" onclick="startStatus('${cs.id}','rest30')">30m</button>`+
-      (c.fs?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
+      (isFS(cs)?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
     <div class="gearrow">
       <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
       <span class="gi">💉 <b title="Stimpacks carried — the Stimpack rows in the inventory; change the quantity on the Sheets tab">${stockOf(cs,'Stim')}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
-      ${c.fs?`<span class="gi" title="Morichro — the Jedi technique of turning the Force inward to slow the body's need for food, water, rest and air">✨ Morichro <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
+      ${isFS(cs)?`<span class="gi" title="Morichro — the Jedi technique of turning the Force inward to slow the body's need for food, water, rest and air">✨ Morichro <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
     ${invSection(cs)}
     ${organicEffects(cs, c, {dead, uncon, over})}`;
@@ -2567,9 +2571,13 @@ const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:tru
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
+const BIO_FIELDS = [['age','Age','e.g. 23'],['gender','Gender',''],['h','Height',`e.g. 5'11"`],['build','Build','e.g. Slender, Stocky'],['hair','Hair',''],['eyes','Eyes',''],['home','Homeworld',''],['feat','Notable features','scars, markings, cybernetics']];
+function sheetBio(id, k, v){ const sh = st(id).sheet; if(BIO_FIELDS.some(f=>f[0]===k)){ sh.bio[k] = String(v).slice(0,60); render(); } }
+function sheetFS(id, v){ const cs = st(id); cs.sheet.fs = +v ? 1 : 0; if(!cs.sheet.fs && cs.force) cs.force = 0; render(); }
 function newSheet(c){
   return { species:c.species||'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, obl:[], duty:[], soakMod:0, defRMod:0, defMMod:0,
-           fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{} };
+           fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{},
+           bio:Object.fromEntries(BIO_FIELDS.map(([k])=>[k, k==='h' ? String(c.h||'') : k==='build' ? String(c.build||'') : ''])) };
 }
 function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
   const def = newSheet(c), sh = (cs.sheet && typeof cs.sheet==='object') ? cs.sheet : (cs.sheet = {});
@@ -2591,6 +2599,9 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
     for(const x of sh[k]){ if(typeof x.n!=='string') x.n=''; x.v = clamp(Math.round(+x.v)||0, 0, 100); }
   }
   sh.dark = sh.dark ? 1 : 0; if(sh.mor < 30) sh.dark = 1;
+  if(!sh.bio || typeof sh.bio!=='object' || Array.isArray(sh.bio)) sh.bio = {};   // the short bio from guided creation
+  for(const [k] of BIO_FIELDS) if(typeof sh.bio[k]!=='string') sh.bio[k] = k==='h' ? String(c.h||'') : k==='build' ? String(c.build||'') : '';
+  if(sh.fs!==undefined) sh.fs = +sh.fs ? 1 : 0;
   if(sh.cc && (typeof sh.cc!=='object' || Array.isArray(sh.cc))) delete sh.cc;   // guided creation in progress
   if(sh.cc) for(const g of ['fc','fs','fp']) if(!sh.cc[g] || typeof sh.cc[g]!=='object') sh.cc[g] = {};
   if(!sh.tr || typeof sh.tr!=='object' || Array.isArray(sh.tr)) sh.tr = {};
@@ -2912,6 +2923,7 @@ function renderSheet(){
   const cs = st(SHEET_UI.id), c = cfg(cs.id), sh = cs.sheet, id = cs.id;
   chips.innerHTML = `<span class="label">Sheet</span>` + S.chars.map(x=>
     `<button class="chip ${x.id===id?'on':''}" onclick="sheetPick('${x.id}')">${esc(cfg(x.id).name)}</button>`).join('');
+  const ro = (lab, val, tip) => `<label title="${esc(tip)}">${lab}<span class="ro ${val?'':'empty'}">${esc(val || '—')}</span></label>`;
   const txt = (k, lab, ph, cls, tip) => `<label title="${esc(tip)}">${lab}<input type="text" class="${cls}" value="${esc(sh[k])}" placeholder="${ph}" onchange="sheetSet('${id}','${k}',this.value)"></label>`;
   const num = (k, cls) => `<input type="number" class="${cls||''}" min="${SHEET_NUM[k][0]}" max="${SHEET_NUM[k][1]}" value="${sh[k]}" onchange="sheetSet('${id}','${k}',this.value)">`;
   const eff = effStrainThresh(cs, c), cb = combatStats(cs);
@@ -2925,13 +2937,15 @@ function renderSheet(){
       ${g==='Custom' ? `<tr><td colspan="4"><button class="mini" onclick="sheetAddSkill('${id}')" title="Add a skill that is not on the standard list (homebrew, or from another book)">＋ add custom skill</button></td></tr>` : ''}</table>`;
   });
   document.getElementById('sheetBody').innerHTML = `
-    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc || !RULES_DB.species.length ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="A step-by-step walkthrough: Morality, species, career, specialization, free skill ranks, spending starting XP.">🧭 guided creation</button>`}
-      ${txt('species','Species','species','','Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
-      ${txt('career','Career','career','','Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
-      ${txt('specs','Specializations','e.g. Ataru Striker, Niman Disciple','wide','Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
+    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">🧭 guided creation</button>`}
+      ${ro('Species', sh.species, 'Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
+      ${ro('Career', sh.career, 'Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
+      ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
+      ${c.droid ? '' : ro('Force sensitive', isFS(cs) ? 'Yes' : 'No', 'Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.')}
+      ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], 'Set in guided creation, step 1.')).join('')}
     </div>
     ${creationHtml(cs)}
-    <div class="sdesc"><b>${esc(c.h)} · ${esc(c.build)} · ${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day`}</b><br>${c.trait}</div>
+    <div class="sdesc"><b>${[sh.bio.h, sh.bio.build].filter(Boolean).map(esc).join(' · ')}${sh.bio.h || sh.bio.build ? ' · ' : ''}${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day`}</b><br>${c.trait}</div>
     <div class="sboxes">
       ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
       ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
@@ -3416,6 +3430,12 @@ function ccSetSpec(id, tid){
   if(!treeOwned(cs, tid)) specAdd(id, tid, true);
   cc.spec = tid; render();
 }
+function ccOther(id, k, v){   // a species or career that is not in the vault: just the name; the numbers are set by hand
+  const sh = st(id).sheet, cc = sh.cc; v = String(v).trim().slice(0,120); if(!cc || !v) return;
+  if(k==='species'){ ccUnpick(sh, 'fp'); delete cc.sp; delete cc.wtB; delete cc.stB; sh.species = v; }
+  if(k==='career'){ ccUnpick(sh, 'fc'); delete cc.car; sh.career = v; }
+  render();
+}
 function ccAttr(id, k, d){   // creation is the only time XP buys a characteristic: 10 × the new rating, 5 at most
   const cs = st(id), sh = cs.sheet, sp = ccSpecies(cs), cur = cs.attr[k], floor = sp ? sp.attr[k] : 1;
   if(d>0){ const cost = 10*(cur+1); if(cur >= CC_ATTR_MAX || sh.xp < cost) return false; cs.attr[k]++; sh.xp -= cost; }
@@ -3435,7 +3455,10 @@ function creationHtml(cs){
       `<span class="tinfo" style="margin:0;align-self:center">${n} of ${lim} chosen · no skill above rank ${CC_SKILL_MAX} at creation</span></div>`; };
   let body = '';
   if(step===1) body = `<p>This walks through making a <b>Force and Destiny</b> character and fills in ${esc(cfg(id).name)}'s sheet as you go. Start with a concept: where did they grow up, how did they first feel the Force, and why are they out in the galaxy now instead of hiding?</p>
-    <p>Each step writes to the normal sheet boxes, so you can also type over anything by hand. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
+    <p><b>Short bio</b> — these appear beside the character's name at the top of the sheet. Leave any blank to hide it.</p>
+    <div class="shead bio">${BIO_FIELDS.map(([k,lab,ph])=>`<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
+      ${cfg(id).droid ? '' : `<label title="Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.">Force sensitive<select onchange="sheetFS('${id}',this.value)"><option value="1" ${isFS(cs)?'selected':''}>Yes</option><option value="0" ${isFS(cs)?'':'selected'}>No</option></select></label>`}</div>
+    <p>The species, career and specializations shown beside the name are set by the steps below. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
     <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
     <div class="ccsteps">${Object.keys(CC_BONUS).filter(Boolean).map(k=>`<button class="chip ${cc.bonus===k?'on':''}" onclick="ccBonus('${id}','${cc.bonus===k?'':k}')">${CC_BONUS[k].label}</button>`).join('')}</div>
@@ -3449,10 +3472,12 @@ function creationHtml(cs){
   else if(step===4) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
     <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}</b>
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>
-    ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : `<p>Other species: type the name in the Species box and set characteristics, thresholds and XP by hand.</p>`}`;
+    ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : ''}
+    <div class="shead"><label title="A species that is not in the list: type its name, then set characteristics, thresholds and XP by hand on the sheet.">Other species (not listed)<input type="text" value="${esc(sp ? '' : sh.species)}" placeholder="species name" onchange="ccOther('${id}','species',this.value)"></label></div>`;
   else if(step===5) body = `<p>Your <b>career</b> never changes. It gives six career skills (cheaper to raise forever), decides which specializations are cheap, and for these careers starts you at Force rating 1.</p>
     <div class="cccards">${RULES_DB.careers.map(x=>`<div class="tnode ${car&&car.n===x.n?'own':'can'}" onclick="ccSetCareer('${id}','${x.n}')"><b>${esc(x.n)}</b><small>${esc(x.skills.join(', '))}</small></div>`).join('')}</div>
-    ${car ? `<p><b>Free career ranks:</b> one free rank in ${car.free} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : `<p>Careers from other books: type the name in the Career box and tick its career skills by hand.</p>`}`;
+    ${car ? `<p><b>Free career ranks:</b> one free rank in ${car.free} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : ''}
+    <div class="shead"><label title="A career from another book: type its name, then tick its career skills by hand in the skill list.">Other career (not listed)<input type="text" value="${esc(car ? '' : sh.career)}" placeholder="career name" onchange="ccOther('${id}','career',this.value)"></label></div>`;
   else if(step===6){
     const opts = RULES_DB.trees.filter(t=>t.k==='spec' && car && t.career===car.n);
     body = `<p>Your first <b>specialization</b> is free. It adds four more career skills and a talent tree to spend XP in.</p>` +

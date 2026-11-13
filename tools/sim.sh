@@ -388,6 +388,12 @@ print('\n=== SMOKE TEST — UI code paths ===');
     ccBonus('cal','cr'); ccCredits('cal'); if(sh.credits!==3000) throw new Error('starting credits wrong');
     const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(!w.cc || w.cc.sp!=='Human' || !w.cc.fp.stealth || typeof w.cc.fc!=='object') throw new Error('creation progress lost on the wire');
     let bad = 0; SHEET_UI.id = 'cal'; for(let i=1;i<=CC_STEPS.length;i++){ ccStep('cal',i); bad += (creationHtml(cal).match(/undefined|NaN|\[object/g)||[]).length; }
+    sheetBio('cal','age','23'); sheetBio('cal','hair','Red'); sheetFS('cal',0); render();
+    const hd = document.getElementById('sheetBody').innerHTML;
+    if(isFS(cal) || /med15/.test(hd) || !/>23</.test(hd) || !/>Red</.test(hd) || /onchange="sheetSet\('cal','species'/.test(hd)) throw new Error('bio / read-only header wrong');
+    startStatus('cal','med15'); if(cal.status) throw new Error('a non-Force-sensitive character meditated'); sheetFS('cal',1); if(!isFS(cal)) throw new Error('Force sensitive toggle');
+    ccOther('cal','career','Smuggler'); if(sh.career!=='Smuggler' || sh.cc.car || sh.sk.cool && sh.sk.cool.r) throw new Error('other career wrong');
+    const wb = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(wb.bio.age!=='23' || wb.fs!==1 || typeof wb.bio.eyes!=='string') throw new Error('bio lost on the wire');
     ccEnd('cal'); if(sh.cc || creationHtml(cal)!=='' || bad) throw new Error('creation walkthrough render broken');
     print(`  creation: ${RULES_DB.species.length} species and ${RULES_DB.careers.length} careers; species, career, specialization, free ranks and characteristic purchases apply and undo cleanly`);
     S = migrate(JSON.parse(keep));
