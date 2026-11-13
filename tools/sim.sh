@@ -312,6 +312,22 @@ print('\n=== SMOKE TEST — UI code paths ===');
     let tBad = (tv.match(/undefined|NaN|\[object/g)||[]).length;
     for(const t of RULES_DB.trees) tBad += (treeHtml(t, cal).match(/undefined|NaN|\[object/g)||[]).length + (treeHtml(t, null).match(/undefined|NaN|\[object/g)||[]).length;
     if(tBad || !/tnode own/.test(tv)) throw new Error('trees tab smoke test failed');
+    // Grit / Toughened / Dedication / Force Rating change the sheet when bought and change it back on refund
+    { const st0 = cal.st, wt0 = cal.wt, fr0 = sh.fr, ag0 = cal.attr.ag, br0 = cal.attr.br, xp0 = (sh.xp = 500), tr0 = JSON.stringify(sh.tr);
+      const A = 'arbiter-consular';   // r1c3 Grit → r2c3 Toughened → r3c3 → r4c3 → r5c3 Dedication → r5c2 → r5c1 Force Rating
+      for(const nid of ['r1c3','r2c3','r3c3','r4c3']) if(!treeBuy('cal',A,nid)) throw new Error('could not buy '+nid);
+      if(cal.st!==st0+1 || cal.wt!==wt0+2) throw new Error('Grit / Toughened not applied');
+      if(treeBuy('cal',A,'r5c3') || sh.tr[A].r5c3) throw new Error('Dedication bought with no characteristic chosen');
+      if(treeBuy('cal',A,'r5c3','nonsense')) throw new Error('Dedication accepted a bad characteristic');
+      cal.attr.ag = 6; if(treeBuy('cal',A,'r5c3','agility')) throw new Error('Dedication raised a characteristic past 6'); cal.attr.ag = ag0;
+      if(!treeBuy('cal',A,'r5c3','Brawn') || cal.attr.br!==br0+1 || cal.encThresh!==cal.attr.br+5 || sh.tr[A].r5c3!=='br') throw new Error('Dedication not applied');
+      if(!treeBuy('cal',A,'r5c2') || !treeBuy('cal',A,'r5c1') || sh.fr!==fr0+1) throw new Error('Force Rating not applied');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal'); if(wire.sheet.tr[A].r5c3!=='br' || wire.sheet.tr[A].r1c3!==2 || wire.st!==st0+1) throw new Error('applied talents lost on the wire');
+      sh.tr[A].r1c3 = 1;   // a Grit bought before auto-apply existed: refunding it must not take a point away
+      for(const nid of ['r5c1','r5c2','r5c3','r4c3','r3c3','r2c3','r1c3']) if(!treeRefund('cal',A,nid)) throw new Error('could not refund '+nid);
+      if(cal.st!==st0+1 || cal.wt!==wt0 || sh.fr!==fr0 || cal.attr.br!==br0 || sh.xp!==xp0) throw new Error('refund did not undo exactly what was applied');
+      cal.st = st0; treeBuy('cal',A,'r1c3'); treeBuy('cal',A,'r2c3'); specRemove('cal',A); if(cal.st!==st0 || cal.wt!==wt0) throw new Error('removing a specialization did not undo its talents');
+      specAdd('cal',A,true); sh.tr = JSON.parse(tr0); sh.xp = 80; sh.specs = 'Healer, Arbiter'; }
     specRemove('cal','healer'); if(sh.xp!==105 || sh.tr.healer || /Healer/.test(sh.specs)) throw new Error('removing a specialization should refund it');
     print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
     S = migrate(JSON.parse(keep)); showTab('tracker');

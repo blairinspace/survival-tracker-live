@@ -2965,14 +2965,49 @@ function nodeState(cs, t, n){   // own · can (buyable now) · lock, with the re
   if(!n.root && !(o && n.to.some(x=>o[x]))) return { s:'lock', why:'Not connected to anything you own yet.' };
   return { s:'can' };
 }
-function treeBuy(id, tid, nid){
+/* Talents that change the sheet's numbers the moment they are bought, and change them back on a refund:
+   Grit +1 strain threshold · Toughened +2 wound threshold · Force Rating +1 · Dedication +1 to one
+   characteristic (the player picks; 6 is the ceiling). The owned box remembers what it did — 2 = applied,
+   or the characteristic key for Dedication — so a refund only undoes what was really applied (a box bought
+   before this existed holds 1 and is left alone). */
+const AUTO_TALENTS = { 'Grit':'+1 strain threshold', 'Toughened':'+2 wound threshold', 'Force Rating':'+1 Force rating', 'Dedication':'+1 to a characteristic of your choice (max 6)' };
+function pickAttr(cs, want){   // which characteristic Dedication raises: given, or asked
+  const open = ATTRS.filter(([k])=>cs.attr[k] < 6);
+  if(!open.length){ alert('Every characteristic is already 6 — Dedication has nothing to raise.'); return null; }
+  let v = want;
+  if(v===undefined) v = prompt(`Dedication: raise which characteristic by 1?\n${open.map(([k,n])=>`${n} (${cs.attr[k]})`).join(' · ')}`, open[0][1]);
+  if(v===null || v===undefined) return null;
+  const q = normName(v), hit = q && open.find(([k,n])=>k===q || normName(n).startsWith(q));
+  if(!hit){ alert(`“${v}” is not a characteristic that can be raised.`); return null; }
+  return hit[0];
+}
+function talentApply(cs, name, opt){   // returns the marker to store on the box, or null to cancel the purchase
+  if(name==='Grit'){ cs.st = (+cs.st||0) + 1; return 2; }
+  if(name==='Toughened'){ cs.wt = (+cs.wt||0) + 2; return 2; }
+  if(name==='Force Rating'){ if(cs.sheet.fr >= SHEET_NUM.fr[1]) return 1; cs.sheet.fr++; return 2; }
+  if(name==='Dedication'){
+    const k = pickAttr(cs, opt); if(!k) return null;
+    cs.attr[k]++; if(k==='br') cs.encThresh = cs.attr.br + 5;
+    return k;
+  }
+  return 1;
+}
+function talentUnapply(cs, name, mark){
+  if(mark===1 || mark===true || !mark) return;
+  if(name==='Grit') cs.st = Math.max(0, (+cs.st||0) - 1);
+  if(name==='Toughened') cs.wt = Math.max(0, (+cs.wt||0) - 2);
+  if(name==='Force Rating'){ cs.sheet.fr = Math.max(0, cs.sheet.fr - 1); if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs); }
+  if(name==='Dedication' && cs.attr[mark]!==undefined){ cs.attr[mark] = Math.max(1, cs.attr[mark] - 1); if(mark==='br') cs.encThresh = cs.attr.br + 5; }
+}
+function treeBuy(id, tid, nid, opt){
   const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return false;
   const stt = nodeState(cs, t, n);
   if(stt.s==='own') return false;
   if(stt.s==='lock'){ alert(stt.why); return false; }
   if(cs.sheet.xp < n.c){ alert(`${cfg(id).name} has ${cs.sheet.xp} XP available — ${n.n} costs ${n.c}.`); return false; }
+  const mark = t.k==='spec' ? talentApply(cs, n.n, opt) : 1; if(mark===null) return false;   // Dedication cancelled
   const o = cs.sheet.tr[tid] || (cs.sheet.tr[tid] = { _:1, _x:0 });
-  o[nid] = 1; cs.sheet.xp -= n.c;
+  o[nid] = mark; cs.sheet.xp -= n.c;
   render(); return true;
 }
 function treeCanRefund(cs, t, nid){   // everything else owned must still be reachable without this box
@@ -2985,6 +3020,7 @@ function treeRefund(id, tid, nid){
   const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return false;
   if(!treeCanRefund(cs, t, nid)){ alert(`Something further down the tree depends on ${n.n} — refund that first.`); return false; }
   const o = cs.sheet.tr[tid];
+  if(t.k==='spec') talentUnapply(cs, n.n, o[nid]);
   delete o[nid]; cs.sheet.xp = Math.min(SHEET_NUM.xp[1], cs.sheet.xp + n.c);
   if(t.k!=='spec' && !treeNodes(cs, tid).length) delete cs.sheet.tr[tid];
   render(); return true;
@@ -3006,6 +3042,7 @@ function specAdd(id, tid, free){
 function specRemove(id, tid){
   const cs = st(id), t = TREE_BY[tid], o = cs && treeOwned(cs, tid); if(!o || !t) return false;
   const back = treeNodes(cs, tid).reduce((a,n)=>a+n.c, 0) + (+o._x||0);
+  if(t.k==='spec') for(const n of treeNodes(cs, tid)) talentUnapply(cs, n.n, o[n.id]);
   delete cs.sheet.tr[tid]; cs.sheet.xp = Math.min(SHEET_NUM.xp[1], cs.sheet.xp + back);
   cs.sheet.specs = cs.sheet.specs.split(',').map(x=>x.trim()).filter(x=>x && normName(x)!==normName(t.n)).join(', ');
   render(); return true;
@@ -3026,8 +3063,9 @@ function nodeTip(t, n, stt){
   const kind = t.k==='spec' ? [n.t || (tal&&tal.a) || '', tal&&tal.r ? 'Ranked' : '', n.f ? 'Force talent' : ''].filter(Boolean).join(' · ')
              : n.root ? (t.k==='power' ? 'Basic power' : 'Signature ability') : 'Upgrade';
   const eff = tal ? tal.e : n.root && t.k==='power' ? t.basic : n.e || '';
+  const auto = t.k==='spec' && AUTO_TALENTS[n.n] ? `\n\nApplied to the sheet automatically: ${AUTO_TALENTS[n.n]}.` : '';
   const hint = !stt ? '' : stt.s==='own' ? 'Owned — click to refund.' : stt.s==='can' ? `Click to buy for ${n.c} XP.` : stt.why;
-  return `${n.n} — ${n.c} XP\n${kind}` + (eff ? `\n\n${eff}` : t.k==='spec' ? '' : '\n\n(Effect not written up in the vault yet — see the book.)') + (hint ? `\n\n${hint}` : '');
+  return `${n.n} — ${n.c} XP\n${kind}` + (eff ? `\n\n${eff}` : t.k==='spec' ? '' : '\n\n(Effect not written up in the vault yet — see the book.)') + auto + (hint ? `\n\n${hint}` : '');
 }
 function treeHtml(t, cs){   // cs null = read-only
   const id = cs ? cs.id : '', o = cs ? treeOwned(cs, t.id) : null, H = t.rows*TREE_ROW_H;
