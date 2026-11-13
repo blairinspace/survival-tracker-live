@@ -15,6 +15,9 @@ EFFECT_MAX characters is cut at a sentence end. To give a talent a hand-written 
 add it to tools/talent-summaries.json as {"Talent Name": "summary"}.
 
 Output (short keys, like items.js):
+  Homebrew: notes in ./homebrew use the same format (trees anywhere under it, talents in
+  homebrew/Talents.md) and come out flagged hb 1.
+
   RULES.trees[]  id · n name · k kind (spec|power|sig) · book · career · skills[] (spec) ·
                  fr Force rating needed (power) · basic text (power) · rows · nodes[]
   node           id · n name · c XP cost · x,y,w grid cell (4 columns wide; y 0 is the top row) ·
@@ -29,6 +32,7 @@ VAULT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'fad_core')
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'rules.js')
 SUMMARIES = os.path.join(ROOT, 'tools', 'talent-summaries.json')
 EFFECT_MAX = 240
+HOMEBREW = os.path.join(ROOT, 'homebrew')   # the group's own trees and talents, same note format, tracked in the repo
 SKIP_DIRS = ('_tmp_delete_me', '_tools', '.obsidian', '.trash')
 
 DICE = {'SU': '✸', 'AD': '▲', 'TR': '✪', 'FA': '✖', 'TH': '▼', 'DE': '⊗', 'LS': '○', 'DS': '●',
@@ -220,7 +224,9 @@ def talent_entries(path, start=None):
 
 def main():
     trees, seen = [], {}
-    for dirpath, dirs, files in os.walk(VAULT):
+    sources = [(VAULT, False)] + ([(HOMEBREW, True)] if os.path.isdir(HOMEBREW) else [])
+    walk = ((base, hb, w) for base, hb in sources for w in os.walk(base))
+    for base, hb, (dirpath, dirs, files) in walk:
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
         for fn in sorted(files):
             if not fn.endswith('.md'):
@@ -230,8 +236,8 @@ def main():
             if '```yaml' not in text:
                 continue
             fm = frontmatter(text)
-            rel = os.path.relpath(path, VAULT)
-            core = not rel.startswith('Talent Trees')
+            rel = os.path.relpath(path, base)
+            core = not hb and not rel.startswith('Talent Trees')
             for m in re.finditer(r'```yaml\n(.*?)```', text, re.S):
                 block = m.group(1)
                 head = block.split('\n', 1)[0]
@@ -305,6 +311,10 @@ def main():
                     print('  ! duplicate tree id', tree['id'], '-', rel, 'and', seen[tree['id']])
                     continue
                 seen[tree['id']] = rel
+                if hb:
+                    tree['hb'] = 1
+                    if kind != 'power':
+                        tree['book'] = 'Homebrew'
                 tree['rows'] = max(n['y'] for n in nodes) + 1
                 tree['nodes'] = []
                 for n in nodes:
@@ -323,6 +333,11 @@ def main():
     summaries = json.load(open(SUMMARIES, encoding='utf-8')) if os.path.exists(SUMMARIES) else {}
     core = talent_entries(os.path.join(VAULT, '04 - Talents', 'Talent Descriptions.md'), '## Talent List')
     cat = talent_entries(os.path.join(VAULT, 'Talent Trees', 'Master Talent Catalog.md'))
+    hb_path = os.path.join(HOMEBREW, 'Talents.md')   # homebrew talents: same '### Name' entries; they win over the books
+    hb_tal = talent_entries(hb_path) if os.path.exists(hb_path) else {}
+    cat.update(hb_tal)
+    for name in hb_tal:
+        core.pop(name, None)
     talents = {}
     for name in sorted(set(core) | set(cat)):
         c, k = core.get(name), cat.get(name, {})
@@ -336,6 +351,8 @@ def main():
             t['f'] = 1
         if c:
             t['core'] = 1
+        if name in hb_tal:
+            t['hb'] = 1
         talents[name] = t
 
     missing = sorted({n['n'] for t in trees if t['k'] == 'spec' for n in t['nodes'] if n['n'] not in talents})

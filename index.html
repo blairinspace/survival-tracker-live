@@ -3096,7 +3096,7 @@ function treeHtml(t, cs){   // cs null = read-only
   } else if(t.k==='power'){
     info = `<b>Needs Force rating ${t.fr}.</b> ${esc(t.basic)}`;
   } else { const root = t.nodes.find(n=>n.root); info = (root && root.e ? esc(root.e) + '<br>' : '') + `<b>Buy the ability itself first</b>, then the upgrades joined to it.`; }
-  return `<div class="thead"><h3>${esc(t.n)}</h3><span class="sub">${TREE_KINDS[t.k].replace(/s$/,'').replace(/ie$/,'y')}${t.k!=='power' ? ' · '+esc(t.book) : ''}${t.career ? ' · '+esc(t.career) : ''}</span></div>
+  return `<div class="thead"><h3>${esc(t.n)}${t.hb?' <span class="badge b-hb" title="Homebrew — not from a published book">HB</span>':''}</h3><span class="sub">${TREE_KINDS[t.k].replace(/s$/,'').replace(/ie$/,'y')}${t.k!=='power' ? ' · '+esc(t.book) : ''}${t.career ? ' · '+esc(t.career) : ''}</span></div>
     <div class="tinfo">${info}</div>
     <div class="tgrid" style="height:${H}px"><svg viewBox="0 0 4 ${t.rows}" preserveAspectRatio="none">${lines.join('')}</svg>${boxes}</div>`;
 }
@@ -3134,7 +3134,7 @@ function renderTrees(){
   listEl.innerHTML = list.map(t=>{
     const g = t.k==='power' ? '' : t.book + (t.career ? ' — ' + t.career : '');
     const head = g!==group ? `<div class="tgroup">${esc(g)}</div>` : ''; group = g;
-    return head + `<button class="${t.id===TREES_UI.id?'on':''} ${cs && treeOwned(cs,t.id)?'has':''}" onclick="treesSet('id','${t.id}')">${esc(t.n)}</button>`;
+    return head + `<button class="${t.id===TREES_UI.id?'on':''} ${cs && treeOwned(cs,t.id)?'has':''}" onclick="treesSet('id','${t.id}')">${esc(t.n)}${t.hb?' <span class="badge b-hb" title="Homebrew">HB</span>':''}</button>`;
   }).join('') || '<div class="tgroup">nothing matches</div>';
   const onBtn = listEl.querySelector && listEl.querySelector('button.on');
   if(onBtn && TREES_UI.shown!==TREES_UI.id && onBtn.scrollIntoView){ onBtn.scrollIntoView({block:'nearest'}); }
