@@ -722,45 +722,69 @@ const ACTS = {
 /* Characters. attr = default characteristics (players should correct from sheets).
    kit = starting inventory (beyond auto-tracked consumables): [name, type, qty, enc each] */
 const CHARS = [
- {id:'cal',   name:'Cal Kestis',  species:'Human', h:`5'11"`, build:'Slender/Muscular', fs:true,
-  waterOz:60, rations:1.5, mods:{}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
+ {id:'cal',   name:'Cal Kestis',  species:'Human', h:`5'11"`, build:'Athletic', fs:true,
+  mods:{}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Lightsaber','Weapon',2,0.5], ['Disruptor pistol','Weapon',1,0.5], ['Grappling hook','Tool',1,0.1],
         ['Comlink','Gear',1,0.1], ['Datapad','Gear',1,0.5], ['Water purifier','Gear',1,0.1],
         ['BD-1 battery packs','Gear',2,0.1], ['Armored clothing (worn)','Armor',1,0] ],
   trait:'Jedi — may commit Force points to sustain his body.'},
  {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true,
-  waterOz:80, rations:2.0, mods:{hungerRate:1.25}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
+  mods:{}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
   kit:[ ['Blaster pistol','Weapon',1,0.5], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
-  trait:'Force sensitive. Massive, lean frame — highest food & water demand; muscle burns hot and carries little fat, so hunger runs 25% ahead of the party.'},
+  trait:'Force sensitive. Massive, lean frame — a big man with a big appetite.'},
  {id:'tann',  name:'Tann',        species:"Twi'lek", h:`6'1"`, build:'Average', fs:false,
-  waterOz:60, rations:1.5, mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
+  mods:{heatAdapt:0.4}, attr:{br:2,ag:3,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster carbine','Weapon',1,1], ['Toolkit','Tool',1,1], ['Comlink','Gear',1,0.1] ],
   trait:'Ryloth heritage — heat costs her only ~40% of the extra water, fatigue and exposure risk it costs anyone else.'},
  {id:'gibbs', name:'Gibbs',       species:'Human', h:`5'5"`,  build:'Muscular', fs:false,
-  waterOz:60, rations:1.5, mods:{hungerRate:1.15}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
+  mods:{}, attr:{br:3,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Blaster rifle','Weapon',1,2], ['Vibroknife','Weapon',1,0.25], ['Comlink','Gear',1,0.1] ],
-  trait:'Compact and dense — burns fuel like a much bigger man; hunger runs 15% ahead of the party.'},
- {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Slender', fs:true,
-  waterOz:40, rations:1.0, mods:{hungerRate:1.35, restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
+  trait:'Compact and dense — burns fuel like a much bigger man.'},
+ {id:'pike',  name:'Pike',        species:'Squib', h:`4'0"`,  build:'Small', sil:0, fs:true,
+  mods:{restRate:0.85}, attr:{br:1,ag:3,int:2,cun:3,wil:2,pr:2},
   kit:[ ['Multitool','Tool',1,0.5], ['Salvaged parts','Gear',1,1], ['Sling bag (worn)','Bag',1,2] ],
-  trait:'Force sensitive. Small racing metabolism — least food per meal, yet the hungriest of the party: a small body has the fastest burn and the thinnest reserves (+35%); tireless (fatigues 15% slower).'},
- {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Slender', fs:true,
-  waterOz:50, rations:1.25, mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
+  trait:'Force sensitive. Small racing metabolism — a small body has a fast burn and thin reserves; tireless (fatigues 15% slower).'},
+ {id:'merrin',name:'Merrin',      species:'Dathomirian Zabrak', h:`5'8"`, build:'Average', fs:true,
+  mods:{restRate:0.85, coldAdapt:0.6}, attr:{br:2,ag:2,int:2,cun:2,wil:3,pr:2},
   kit:[ ['Ritual dagger','Weapon',1,0.5], ['Nightsister charms','Gear',1,0.1] ],
   trait:'Nightsister — magick sustains her (commit Force points). Zabrak resilience: fatigue accrues 15% slower; cold bites 40% less (extra calories, fatigue, Chilled and its onset).'},
- {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Slender', fs:false,
-  waterOz:40, rations:1.0, mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1, hungerRate:1.15}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
+ {id:'kata',  name:'Kata Akuna',  species:'Human (child)', h:`4'2"`, build:'Small', fs:false,
+  mods:{sleepRate:1.25, sleepNeed:10, restRate:1.1, waterRate:1.1}, attr:{br:1,ag:2,int:2,cun:2,wil:2,pr:2},
   kit:[ ['Doll','Gear',1,0.1], ['Comlink','Gear',1,0.1] ],
-  trait:'Child — needs ~10 hrs sleep and tires into sleep debt 25% faster; dehydrates 10% faster, fatigues 10% faster; a growing body with thin reserves starves 15% faster.'},
- {id:'bd1',   name:'BD-1',        species:'BD-unit explorer droid', h:`1'8"`, build:'Compact', droid:true,
-  packHrs:40, mods:{maintRate:0.9}, attr:{br:1,ag:2,int:3,cun:2,wil:1,pr:1},
+  trait:'Child — needs ~10 hrs sleep and tires into sleep debt 25% faster; dehydrates 10% faster, fatigues 10% faster.'},
+ {id:'bd1',   name:'BD-1',        species:'BD-unit explorer droid', h:`1'8"`, build:'Compact', sil:0, droid:true,
+  mods:{maintRate:0.9}, attr:{br:1,ag:2,int:3,cun:2,wil:1,pr:1},
   kit:[ ['Tool attachments','Tool',1,0] ],
-  trait:'Small and power-thrifty — one pack lasts ~40 hrs of light operation. Well-loved and well-kept (wears 10% slower).'},
- {id:'alpha', name:'Alpha',       species:'KX-series security droid', h:`7'1"`, build:'Heavy chassis', droid:true,
-  packHrs:20, mods:{maintAdapt:0.75}, attr:{br:4,ag:2,int:3,cun:2,wil:1,pr:1},
+  trait:'Small and power-thrifty. Well-loved and well-kept (wears 10% slower).'},
+ {id:'alpha', name:'Alpha',       species:'KX-series security droid', h:`7'1"`, build:'Heavy', droid:true,
+  mods:{maintAdapt:0.75}, attr:{br:4,ag:2,int:3,cun:2,wil:1,pr:1},
   kit:[ ['Integrated systems','Gear',1,0] ],
-  trait:'Big military frame — burns a pack in ~20 hrs of light operation. Sealed mil-spec chassis shrinks environmental wear 25%.'}
+  trait:'Big military frame — power-hungry. Sealed mil-spec chassis shrinks environmental wear 25%.'}
 ];
+/* BUILD — the one place body size turns into needs. An organic's build sets the water a day of light
+   activity costs and how fast hunger runs; a droid's sets how long a power pack lasts. The build is
+   chosen on the sheet (cs.sheet.bio.build) and written onto the roster entry by setBuild(), so the
+   simulation keeps reading c.waterOz / c.mods.hungerRate / c.packHrs as before. Traits that are not
+   about size (heat or cold adaptation, a child's sleep, tirelessness) stay in the roster's mods. */
+const BUILDS = {
+  Athletic: { waterOz:65, hunger:1.10, tip:'Lean and active: a little more water and food than average.' },
+  Muscular: { waterOz:75, hunger:1.20, tip:'Heavy muscle burns hot: the most water, and hunger runs 20% fast.' },
+  Average:  { waterOz:60, hunger:1.00, tip:'The baseline: 60 oz of water a day, hunger at the normal rate.' },
+  Small:    { waterOz:40, hunger:1.25, tip:'Small frame: least water, but a fast burn and thin reserves — hunger runs 25% fast.' },
+  Compact:  { droid:true, packHrs:40, tip:'Small, power-thrifty chassis: a pack lasts about 40 hours of light operation.' },
+  Heavy:    { droid:true, packHrs:20, tip:'Large, power-hungry chassis: a pack lasts about 20 hours of light operation.' },
+};
+const buildsFor = c => Object.keys(BUILDS).filter(k=>!!BUILDS[k].droid===!!c.droid);
+function setBuild(c, name){
+  const b = BUILDS[name]; if(!b || !!b.droid!==!!c.droid) return false;
+  c.build = name;
+  if(b.droid) c.packHrs = b.packHrs;
+  else { c.waterOz = b.waterOz; if(b.hunger!==1) c.mods.hungerRate = b.hunger; else delete c.mods.hungerRate; }
+  return true;
+}
+for(const c of CHARS){ c.build0 = c.build; setBuild(c, c.build); }
+const SILHOUETTES = ['0 — Jawa, astromech','1 — most humanoids','2 — wampa, tauntaun','3 — rancor','4 — larger still'];
+
 const ATTRS = [['br','Brawn'],['ag','Agility'],['int','Intellect'],['cun','Cunning'],['wil','Willpower'],['pr','Presence']];
 
 /* Per-need condition ladders (organics). Each need has its own tier ladder; the
@@ -2571,13 +2595,20 @@ const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:tru
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
-const BIO_FIELDS = [['age','Age','e.g. 23'],['gender','Gender',''],['h','Height',`e.g. 5'11"`],['build','Build','e.g. Slender, Stocky'],['hair','Hair',''],['eyes','Eyes',''],['home','Homeworld',''],['feat','Notable features','scars, markings, cybernetics']];
-function sheetBio(id, k, v){ const sh = st(id).sheet; if(BIO_FIELDS.some(f=>f[0]===k)){ sh.bio[k] = String(v).slice(0,60); render(); } }
+const BIO_FIELDS = [['age','Age','e.g. 23'],['gender','Gender',''],['h','Height',`e.g. 5'11"`],['build','Build',''],['hair','Hair',''],['eyes','Eyes',''],['home','Homeworld',''],['feat','Notable features','scars, markings, cybernetics']];
+function sheetBio(id, k, v){
+  const sh = st(id).sheet; if(!BIO_FIELDS.some(f=>f[0]===k)) return;
+  if(k==='build'){ if(!setBuild(cfg(id), v)) return; sh.bio.build = v; logMsg(`🧍 ${cfg(id).name}'s build set to ${v} — ${BUILDS[v].tip}`); }
+  else sh.bio[k] = String(v).slice(0,60);
+  render();
+}
+function sheetSil(id, v){ st(id).sheet.sil = clamp(parseInt(v)||0, 0, 4); render(); }
 function sheetFS(id, v){ const cs = st(id); cs.sheet.fs = +v ? 1 : 0; if(!cs.sheet.fs && cs.force) cs.force = 0; render(); }
 function newSheet(c){
+  setBuild(c, c.build0);
   return { species:c.species||'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, obl:[], duty:[], soakMod:0, defRMod:0, defMMod:0,
            fr:c.fs?1:0, xp:0, xpTotal:0, credits:0, sk:{}, cust:[], tr:{},
-           bio:Object.fromEntries(BIO_FIELDS.map(([k])=>[k, k==='h' ? String(c.h||'') : k==='build' ? String(c.build||'') : ''])) };
+           bio:Object.fromEntries(BIO_FIELDS.map(([k])=>[k, k==='h' ? String(c.h||'') : k==='build' ? c.build0 : ''])), sil:c.sil===undefined ? 1 : c.sil };
 }
 function normSheet(cs, c){   // every field well-formed, whatever an old save or the room handed us
   const def = newSheet(c), sh = (cs.sheet && typeof cs.sheet==='object') ? cs.sheet : (cs.sheet = {});
@@ -2600,7 +2631,9 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
   }
   sh.dark = sh.dark ? 1 : 0; if(sh.mor < 30) sh.dark = 1;
   if(!sh.bio || typeof sh.bio!=='object' || Array.isArray(sh.bio)) sh.bio = {};   // the short bio from guided creation
-  for(const [k] of BIO_FIELDS) if(typeof sh.bio[k]!=='string') sh.bio[k] = k==='h' ? String(c.h||'') : k==='build' ? String(c.build||'') : '';
+  for(const [k] of BIO_FIELDS) if(typeof sh.bio[k]!=='string') sh.bio[k] = k==='h' ? String(c.h||'') : '';
+  if(!setBuild(c, sh.bio.build)){ sh.bio.build = c.build0; setBuild(c, c.build0); }   // the build drives water, hunger and pack life
+  sh.sil = Number.isFinite(+sh.sil) && sh.sil!==undefined && sh.sil!==null ? clamp(Math.round(+sh.sil), 0, 4) : (c.sil===undefined ? 1 : c.sil);
   if(sh.fs!==undefined) sh.fs = +sh.fs ? 1 : 0;
   if(sh.cc && (typeof sh.cc!=='object' || Array.isArray(sh.cc))) delete sh.cc;   // guided creation in progress
   if(sh.cc) for(const g of ['fc','fs','fp']) if(!sh.cc[g] || typeof sh.cc[g]!=='object') sh.cc[g] = {};
@@ -2942,7 +2975,8 @@ function renderSheet(){
       ${ro('Career', sh.career, 'Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
       ${c.droid ? '' : ro('Force sensitive', isFS(cs) ? 'Yes' : 'No', 'Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.')}
-      ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], 'Set in guided creation, step 1.')).join('')}
+      ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], k==='build' ? 'Build sets food, water or power needs. ' + BUILDS[sh.bio.build].tip : 'Set in guided creation, step 1.')).join('')}
+      ${ro('Silhouette', String(sh.sil), 'Size in the rules: attacks against a target 2+ sizes larger are one step easier, 2+ smaller one step harder. Most characters are 1.')}
     </div>
     ${creationHtml(cs)}
     <div class="sdesc"><b>${[sh.bio.h, sh.bio.build].filter(Boolean).map(esc).join(' · ')}${sh.bio.h || sh.bio.build ? ' · ' : ''}${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day`}</b><br>${c.trait}</div>
@@ -3456,8 +3490,10 @@ function creationHtml(cs){
   let body = '';
   if(step===1) body = `<p>This walks through making a <b>Force and Destiny</b> character and fills in ${esc(cfg(id).name)}'s sheet as you go. Start with a concept: where did they grow up, how did they first feel the Force, and why are they out in the galaxy now instead of hiding?</p>
     <p><b>Short bio</b> — these appear beside the character's name at the top of the sheet. Leave any blank to hide it.</p>
-    <div class="shead bio">${BIO_FIELDS.map(([k,lab,ph])=>`<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
-      ${cfg(id).droid ? '' : `<label title="Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.">Force sensitive<select onchange="sheetFS('${id}',this.value)"><option value="1" ${isFS(cs)?'selected':''}>Yes</option><option value="0" ${isFS(cs)?'':'selected'}>No</option></select></label>`}</div>
+    <div class="shead bio"> ${BIO_FIELDS.map(([k,lab,ph])=>k==='build' ? `<label title="Build sets this character's needs on the Tracker tab. ${esc(BUILDS[sh.bio.build].tip)}">Build<select onchange="sheetBio('${id}','build',this.value)">${buildsFor(cfg(id)).map(b=>`<option ${b===sh.bio.build?'selected':''} title="${esc(BUILDS[b].tip)}">${b}</option>`).join('')}</select></label>` : `<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
+      ${cfg(id).droid ? '' : `<label title="Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.">Force sensitive<select onchange="sheetFS('${id}',this.value)"><option value="1" ${isFS(cs)?'selected':''}>Yes</option><option value="0" ${isFS(cs)?'':'selected'}>No</option></select></label>`}
+      <label title="Size in the rules. Most characters are 1; Jawa-sized characters and small droids are 0.">Silhouette<select onchange="sheetSil('${id}',this.value)">${SILHOUETTES.map((t,i)=>`<option value="${i}" ${i===sh.sil?'selected':''}>${t}</option>`).join('')}</select></label></div>
+    <p class="tinfo"><b>Build: ${esc(sh.bio.build)}.</b> ${esc(BUILDS[sh.bio.build].tip)} Changing it changes this character's needs on the Tracker tab from now on.</p>
     <p>The species, career and specializations shown beside the name are set by the steps below. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
     <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
@@ -4092,7 +4128,7 @@ function buildRules(){
 
   <h2>🍞 Hunger ladder</h2>
   <p>Reaches Collapse in <b>~${hungerDays} days</b> for a default frame walking in a temperate climate — roughly a month, the realistic low end for a lean, active adult with water. Appetite hits fast (Hungry within a workday, Gnawing after a day, Famished by day ${Math.round(tierAt('hunger','Famished')/24)}) to encourage daily eating, then a long slow burn as the body rations reserves: Starving around day ${Math.round(tierAt('hunger','Starving')/24)}, Emaciated around day ${Math.round(tierAt('hunger','Emaciated')/24)}. One ration a day holds the line at Hungry or below.</p>
-  <p><b>Metabolism matters:</b> metabolic rate is a multiplier on the whole ladder. Pike's small racing frame (+${Math.round((pike.mods.hungerRate-1)*100)}%) and Bode's lean muscle mass (+${Math.round((cfg('bode').mods.hungerRate-1)*100)}%) burn reserves fastest — Pike reaches Collapse in ~${days(ladderHours('hunger', pike.mods.hungerRate))} days — with Gibbs and the child Kata (+${Math.round((kata.mods.hungerRate-1)*100)}%) a step behind.</p>
+  <p><b>Build matters:</b> a character's build (set on the sheet) is a multiplier on the whole ladder — ${Object.keys(BUILDS).filter(k=>!BUILDS[k].droid).map(k=>`<b>${k}</b> ×${BUILDS[k].hunger}`).join(', ')}. A Small frame reaches Collapse in ~${days(ladderHours('hunger', BUILDS.Small.hunger))} days without food.</p>
   ${ladderTable('hunger')}
   <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration removes ~${-STATUSES.ration.deltas.hunger} pts (one tier), a snack ~${SNACK_HUNGER}. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
 
