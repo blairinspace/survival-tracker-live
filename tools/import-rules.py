@@ -6,7 +6,7 @@ Obsidian vault in fad_core/.
     python3 tools/import-rules.py VAULT OUT
 
 Every tree note carries a fenced ```yaml block whose first key is `specialization:`, `power:` or
-`signature_ability:`, followed by one `- {id: ..., name: ..., cost: ..., connects: [...]}` line per
+`signature_ability:`, followed by one `- {id: ..., name: ..., cost: ..., connects: [...], effect: "..."}` line per
 node. Talent effects come from "Talent Trees/Master Talent Catalog.md" and, for Core Rulebook
 talents, "04 - Talents/Talent Descriptions.md".
 
@@ -92,6 +92,7 @@ def parse_nodes(block):
             'f': field(line, 'force_talent') == 'true',
             'r': field(line, 'ranked'),
             'c': int(field(line, 'cost') or 0),
+            'e': field(line, 'effect') or '',
             'to': [x.strip() for x in conn.strip('[]').split(',') if x.strip()],
         })
     return nodes
@@ -262,7 +263,7 @@ def main():
                         basic = basic.group(1)
                     elif '## Basic Power' in text:
                         basic = text.split('## Basic Power', 1)[1].split('\n## ', 1)[0].replace('\n- ', ' ')
-                    tree['basic'] = short(basic, 320) if basic else ''
+                    tree['basic'] = short(by['basic'].get('e') or basic or '', 760)
                     if all(RC.match(n['id']) for n in nodes if n['id'] != 'basic'):
                         layout_grid(nodes, by, 'basic')
                     else:
@@ -274,6 +275,10 @@ def main():
                     for n in nodes:
                         nm = n['n'].lower()
                         if n['id'] == 'basic':
+                            n['e'] = ''
+                            continue
+                        if n['e']:   # the node's own effect: wins over the prose bullets
+                            n['e'] = short(n['e'], 460)
                             continue
                         hit = ups.get(nm)
                         if not hit:
@@ -292,6 +297,8 @@ def main():
                     top = next(n['id'] for n in nodes if not RC.match(n['id']))
                     layout_grid(nodes, by, top)
                     by[top]['root'] = 1
+                    for n in nodes:
+                        n['e'] = short(n['e'], 460) if n['e'] else ''
                 tree['id'] = slug(('sig ' if kind == 'sig' else 'fp ' if kind == 'power' else '') + tree['n'] +
                                   (' ' + tree['career'] if kind == 'spec' and not core else ''))
                 if tree['id'] in seen:
