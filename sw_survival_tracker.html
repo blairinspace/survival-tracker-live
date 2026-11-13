@@ -1917,9 +1917,9 @@ function talliesRow(cs){
   const effTag = mods.length && cs.st>0
     ? ` <span class="steff" title="${esc(mods.map(([n,m])=>`${n} ${m>0?'+':''}${m}`).join(' · '))}">${sum>0?'+':''}${sum} → <b>${eff}</b></span>` : '';
   return `<div class="tallies">
-      <span class="strain">Strain <b>${cs.strain}</b>/<input type="number" value="${cs.st}" style="width:46px" onchange="setThresh('${cs.id}','st',this.value)" title="Strain threshold (base)">${effTag}</span>
+      <span class="strain">Strain <b>${cs.strain}</b> / <span title="Strain threshold (base) — edit it on the Sheets tab">${cs.st}</span>${effTag}</span>
       <button class="mini" onclick="adj('${cs.id}','strain',-1)">−</button><button class="mini" onclick="adj('${cs.id}','strain',1)">+</button>
-      <span class="wounds">Wounds <b>${cs.wounds}</b>/<input type="number" value="${cs.wt}" style="width:46px" onchange="setThresh('${cs.id}','wt',this.value)" title="Wound threshold"></span>
+      <span class="wounds">Wounds <b>${cs.wounds}</b> / <span title="Wound threshold — edit it on the Sheets tab">${cs.wt}</span></span>
       <button class="mini" onclick="adj('${cs.id}','wounds',-1)">−</button><button class="mini" onclick="adj('${cs.id}','wounds',1)">+</button>
     </div>`;
 }
