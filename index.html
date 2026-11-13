@@ -292,6 +292,18 @@
   /* ---- Items tab (catalog + homebrew) ---- */
   #items{display:none}
   #trees{display:none}
+  #core{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 18px;line-height:1.55}
+  #core details.csec{border:1px solid var(--border);border-radius:8px;background:var(--panel2);margin-bottom:8px;padding:6px 12px}
+  #core details.csec > summary{cursor:pointer;color:var(--gold);font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:3px 0}
+  #core details.csec > summary small{color:var(--dim);text-transform:none;letter-spacing:0;font-size:11.5px}
+  #core h4{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:12px 0 4px}
+  #core p, #core li{font-size:12.5px;color:#c4ccd6} #core ul{margin:2px 0 8px 18px;padding:0} #core b{color:var(--text)}
+  #core table{border-collapse:collapse;width:100%;margin:4px 0 10px;font-size:12px} #core th,#core td{border:1px solid var(--border);padding:3px 7px;text-align:left;vertical-align:top}
+  #core th{background:var(--panel);color:var(--accent);font-size:10.5px;text-transform:uppercase;letter-spacing:1px}
+  #core .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0 22px}
+  #core .die.sm{margin:0 1px;vertical-align:-3px} #core .sy{font-weight:700;color:var(--text)}
+  #core .gmlist label{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:#c4ccd6;padding:3px 0} #core .gmlist input{margin-top:3px} #core .gmlist label.done{opacity:.5;text-decoration:line-through}
+  #core mark{background:#5a4a12;color:#fff;border-radius:2px}
   .treecols{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
   .treelist{flex:0 0 230px;max-height:74vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:4px}
   .treelist .tgroup{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;padding:6px 6px 2px}
@@ -349,7 +361,7 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -431,6 +443,7 @@
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabTr" onclick="showTab('trees')">Trees</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
+  <button id="tabK" onclick="showTab('core')">Core Rules</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Reference</button>
   <span id="destinyChip"></span>
 </div>
@@ -516,6 +529,12 @@
     <div id="diceFeed"></div>
   </div>
 </div></div>
+
+<div id="core"><div class="itembar">
+    <input type="text" id="coreQ" placeholder="search the rules… (e.g. prone, stimpack, fear)" oninput="coreFilter(this.value)">
+    <button class="mini" onclick="coreOpenAll(true)">open all</button><button class="mini" onclick="coreOpenAll(false)">close all</button>
+    <span class="tinfo" style="margin:0">Ordered the way a session runs. Quick reference, not the full rules — the book wins any argument.</span>
+  </div><div id="coreBody"></div></div>
 
 <div id="rules"></div>
 
@@ -2528,12 +2547,13 @@ function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry ke
 let TAB = 'tracker';
 function showTab(t){
   TAB = t;
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['core','tabK'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
   if(t==='dice'){ renderDice(); renderFeed(); }
   if(t==='trees') renderTrees();
+  if(t==='core') renderCore();
 }
 
 /* ================================================================
@@ -3809,6 +3829,254 @@ function importState(inp){
   r.onload = e => { try{ S = migrate(JSON.parse(e.target.result)); rebuildLog(); render(); }catch(err){ alert('Invalid save file.'); } };
   r.readAsText(f);
   inp.value='';
+}
+
+/* ================================================================
+   CORE RULES — a quick reference for the table, ordered the way a
+   session runs, with the GM's start-of-session checklist on top.
+   Written for this tracker (wording is our own); the published books
+   are the authority. Dice are drawn with the same shapes as the Dice tab:
+   D('pa') → proficiency + ability …  codes: p a b(oost) k(setback) d c F
+   ================================================================ */
+const CORE_DIE = { p:'d12 t-p', a:'d8 t-a', b:'d6 t-b', k:'d6 t-k', d:'d8 t-d', c:'d12 t-c', F:'d12 t-F' };
+const D = codes => [...codes].map(ch=>`<span class="die sm ${CORE_DIE[ch]}" title="${DICE[ch].name}"></span>`).join('');
+const Y = Object.fromEntries(Object.keys(SYM).map(k=>[k, `<span class="sy" title="${SYM[k][1]}">${SYM[k][0]}</span>`]));
+const CT = (head, rows) => `<table><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+const CL = items => `<ul>${items.map(i=>`<li>${i}</li>`).join('')}</ul>`;
+const GM_STEPS = [
+  ['recap',   'Recap last session and where everyone is. Check the clock, location and environment on the Tracker tab.'],
+  ['xp',      'Hand out any XP still owed from last session (type it into XP on each sheet).'],
+  ['destiny', `Build the Destiny pool: empty it, then every player rolls one Force die. <button class="mini" onclick="showTab('dice')">open Dice tab →</button>`],
+  ['paragon', 'Adjust the pool: add 1 Light point for each light side paragon (Morality above 70); flip 1 Light to Dark for each dark side Force user.'],
+  ['mortrig', `Roll for a triggered Morality (optional). <button class="mini atk" onclick="moralTrigger()">🎲 roll Morality trigger</button>`],
+  ['obl',     `Roll the Obligation check, if your table uses it. <button class="mini atk" onclick="tallyRoll('obl')">🎲 roll Obligation</button>`],
+  ['duty',    `Roll the Duty check, if your table uses it. <button class="mini atk" onclick="tallyRoll('duty')">🎲 roll Duty</button>`],
+  ['thresh',  'Apply session-long threshold changes from those rolls (Obligation: strain threshold down; Duty: wound threshold up) and tell the players.'],
+  ['conflict','Confirm every character\'s Conflict is back at 0 from last session.'],
+  ['scene',   'Set the opening scene. Decide who is aware of what before anyone rolls.'],
+];
+const GM_END = [
+  ['e_conf', 'Each Force user resolves Conflict: 1d10 − Conflict is added to Morality (×2 if their Morality was triggered and they engaged). Use the button on each sheet.'],
+  ['e_xp',   'Award XP: about 5 per hour played is a common pace, plus bonuses for goals, good roleplay and playing to Motivation.'],
+  ['e_obl',  'Adjust Obligation and Duty for what happened: debts paid, favours taken, missions completed.'],
+  ['e_rest', 'Note recovery owed before next session: a night of rest heals 1 wound and all strain.'],
+  ['e_save', 'Save the session (⚙ Session → 💾 Save) so there is a backup.'],
+];
+let GM_DONE = {}; try{ GM_DONE = JSON.parse(localStorage.getItem('st_gm_check')||'{}') || {}; }catch(e){}
+function gmCheck(k, on){ if(on) GM_DONE[k] = 1; else delete GM_DONE[k]; try{ localStorage.setItem('st_gm_check', JSON.stringify(GM_DONE)); }catch(e){} renderCore(true); }
+function gmReset(){ GM_DONE = {}; try{ localStorage.setItem('st_gm_check','{}'); }catch(e){} renderCore(true); }
+function moralTrigger(forced){   // d100: the character whose Morality is closest has it triggered this session
+  const pcs = S.chars.filter(cs=>!cfg(cs.id).droid && S.visible[cs.id]!==false); if(!pcs.length) return null;
+  const roll = forced || rollInt(100)+1, best = pcs.reduce((a,b)=>Math.abs(b.sheet.mor-roll) < Math.abs(a.sheet.mor-roll) ? b : a);
+  postFeed({ k:'p', h:'Morality trigger', m:`Rolled ${roll}. Closest is ${cfg(best.id).name} (Morality ${best.sheet.mor}): their emotional strength${best.sheet.morS?` (${best.sheet.morS})`:''} and weakness${best.sheet.morW?` (${best.sheet.morW})`:''} are in play this session. If they engage with it, the end-of-session Morality change is doubled.` });
+  return best.id;
+}
+function coreSections(){
+  const gm = (list) => `<div class="gmlist">${list.map(([k,t],i)=>`<label class="${GM_DONE[k]?'done':''}"><input type="checkbox" ${GM_DONE[k]?'checked':''} onchange="gmCheck('${k}',this.checked)"><span><b>${i+1}.</b> ${t}</span></label>`).join('')}</div>`;
+  return [
+  ['start', '1 · Start of session', 'GM checklist', `${gm(GM_STEPS)}<p><button class="mini" onclick="gmReset()">⟲ clear the ticks (both checklists)</button> <span class="tinfo">Ticks are remembered on this device only.</span></p>
+    <h4>Destiny points</h4>${CL([`Pool: each player rolls ${D('F')}. Each ${Y.l} adds a Light point, each ${Y.n} a Dark point.`,
+      `Players spend Light, the GM spends Dark; a spent point flips to the other side. One per side per check.`,
+      `Spend one to <b>upgrade</b> a die in your pool (${D('a')} → ${D('p')}), or to upgrade the difficulty of someone else's check (${D('d')} → ${D('c')}).`,
+      `Players may also spend one for a lucky break in the story ("there happens to be a spare breath mask in the locker"), if the GM agrees.`,
+      `Some talents and using Dark side results on a Force die also cost a Destiny point.`])}`],
+
+  ['checks', '2 · Making a check', 'dice pools, difficulty, reading the result', `<div class="cols"><div>
+    <h4>Build the pool</h4>${CL([`Take ${D('a')} equal to the <b>higher</b> of characteristic and skill rank; upgrade as many as the <b>lower</b> to ${D('p')}.`,
+      `Add ${D('d')} for the difficulty. Add ${D('b')} for each advantage in the situation and ${D('k')} for each hindrance.`,
+      `<b>Upgrade:</b> turn ${D('a')} into ${D('p')} (or ${D('d')} into ${D('c')}). With none left to turn, add one more ${D('a')} (or ${D('d')}) instead.`,
+      `<b>Downgrade:</b> the reverse; ignored if there is no ${D('p')} or ${D('c')} to turn back.`])}
+    <h4>Read the result</h4>${CL([`${Y.s} and ${Y.f} cancel. At least one ${Y.s} left = success.`,
+      `${Y.a} and ${Y.t} cancel. Leftovers are side effects, good or bad, <b>whether or not</b> the check succeeded.`,
+      `${Y.x} Triumph counts as a success <b>and</b> a major boon. ${Y.y} Despair counts as a failure <b>and</b> a major setback. Neither is cancelled by the other's special effect.`])}
+    <h4>Characteristics</h4><p>1 weak · 2 average · 3–4 above average · 5–6 exceptional.</p></div><div>
+    <h4>Difficulty</h4>${CT(['Level','Dice','Think of'],[['Simple','—','Routine; only roll if the margin matters'],['Easy',D('d'),'A primitive lock, a minor cut, food on a lush world'],['Average',D('dd'),'A typical lock, stitching a wound, food on a temperate world'],
+      ['Hard',D('ddd'),'A complicated lock, setting bones, food on a rugged world'],['Daunting',D('dddd'),'A sophisticated lock, surgery, food on a barren world'],['Formidable',D('ddddd'),'A lock with no visible mechanism, cloning a body'],
+      ['Impossible',D('ddddd')+' + 1 Destiny','Only if the GM allows it; no Destiny points may be spent on it']])}
+    <h4>Other kinds of check</h4>${CL([`<b>Opposed:</b> the difficulty is the opponent's pool: ${D('d')} for the higher of their characteristic and skill, upgraded to ${D('c')} for the lower.`,
+      `<b>Competitive:</b> everyone rolls; most ${Y.s} wins. Ties go to most ${Y.x}, then most ${Y.a}; still tied, the GM calls it or you roll again.`,
+      `<b>Assisted</b> (usually one helper): a skilled helper lets you use the better characteristic and the better skill of the two. An unskilled helper adds ${D('b')}.`])}</div></div>`],
+
+  ['social', '3 · Talking and skills', 'social checks and what to spend results on', `<div class="cols"><div>
+    <h4>Social checks are opposed</h4>${CT(['You roll','They resist with'],[['Coercion, Deception, Leadership','Discipline'],['Charm','Cool'],['Negotiation','Negotiation or Cool']])}
+    <p>An existing relationship adds ${D('b')} or ${D('k')}. Asking for something against the target's interests adds difficulty. Crowds are not opposed: the GM sets a difficulty.</p>
+    <h4>Knowledge skills</h4><p>${Y.s} how much you know and how fast · ${Y.a} an especially useful detail · ${Y.x} a weakness or key fact · ${Y.t} a vital detail is missing · ${Y.y} you are confidently wrong.</p></div><div>
+    <h4>Skill list</h4><p><b>Brawn:</b> Athletics, Brawl, Lightsaber, Melee, Resilience. <b>Agility:</b> Coordination, Gunnery, Piloting (Planetary, Space), Ranged (Light, Heavy), Stealth. <b>Intellect:</b> Astrogation, Computers, Mechanics, Medicine, all Knowledge skills. <b>Cunning:</b> Deception, Perception, Skulduggery, Streetwise, Survival. <b>Willpower:</b> Coercion, Discipline, Vigilance. <b>Presence:</b> Charm, Cool, Leadership, Negotiation.</p></div></div>
+    <h4>Ideas for spending results, by skill</h4>${CT(['Skill',`${Y.s} / ${Y.a} / ${Y.x}`,`${Y.t} / ${Y.y}`],[
+      ['Athletics',`${Y.s} faster or farther · ${Y.a} ${D('b')} on the next physical check · ${Y.a}${Y.a} an extra movement maneuver`,`${Y.t} 1 strain · ${Y.t}${Y.t} fall prone · ${Y.t}${Y.t}${Y.t} 1 wound · ${Y.y} Critical Injury`],
+      ['Charm',`${Y.s} support lasts another scene · ${Y.a} sways bystanders too · ${Y.x} a recurring ally`,`${Y.t} fewer people swayed, or others turn against you · ${Y.y} a recurring enemy`],
+      ['Coercion',`${Y.s}${Y.s} target suffers strain · ${Y.a}${Y.a} cows bystanders too · ${Y.x} a cowed, recurring underling`,`${Y.t} resentment builds · ${Y.y} you give away your real intentions`],
+      ['Computers',`${Y.s} faster · ${Y.a} extra finds (hidden files, defences) · ${Y.x} the slice goes unnoticed`,`${Y.t} security is alerted · ${Y.y} you are traced or identified`],
+      ['Cool',`${Y.a} extra insight into the situation · ${Y.x} recover 3 strain`,`${Y.t} miss a vital detail · ${Y.y} staggered for a round`],
+      ['Coordination',`${Y.s} farther or faster · ${Y.a}${Y.a} an extra maneuver`,`${Y.t} lose your free maneuver for a turn · ${Y.y} 1 wound or lose a piece of gear`],
+      ['Deception',`${Y.s} the lie holds longer · ${Y.a} more value gained · ${Y.x} the target trusts you from now on`,`${Y.t} they see through part of it · ${Y.y} word spreads, or they turn the lie on you`],
+      ['Discipline',`${Y.s} downgrade the difficulty of your next action · ${Y.a} extra insight · ${Y.x} ${D('b')} to allies' Discipline for a round`,`${Y.t} resolve shaken: harder next action · ${Y.y} lose your action, or only one maneuver next round`],
+      ['Leadership',`${Y.s} support lasts longer · ${Y.a} more people follow · ${Y.x} a faithful recurring follower`,`${Y.t} orders done slowly or badly · ${Y.y} your standing suffers until repaired`],
+      ['Mechanics',`${Y.s} 10–20% faster · ${Y.a} superior repair: ${D('b')} with the item for a session · ${Y.x} a one-off new function`,`${Y.t} it will malfunction soon · ${Y.y} extra damage, or related parts start to fail`],
+      ['Negotiation',`${Y.s} better profit or longer contract · ${Y.a} a perk or concession · ${Y.x} a regular client or vendor`,`${Y.t} worse price or terms · ${Y.y} a serious loophole in the deal`],
+      ['Perception',`${Y.s} more detail · ${Y.a} recall something about what you noticed · ${Y.x} a useful detail: ${D('b')} later`,`${Y.t} a vital detail stays hidden · ${Y.y} false information`],
+      ['Piloting',`${Y.a} ${D('b')} against this opponent's flying · ${Y.x} an extra vehicle maneuver`,`${Y.t}${Y.t} the opponent gains ${D('b')} against you · ${Y.y} damage the vehicle`],
+      ['Resilience',`${Y.s} longer before the next check · ${Y.a} find a way to gain ${D('b')} on later checks · ${Y.x} recover 3 strain`,`${Y.t} ${D('k')} on the next Resilience check · ${Y.y} 1 wound or a minor Critical Injury`],
+      ['Skulduggery',`${Y.a} extra items or another target spotted · ${Y.x} a permanent bypass, or extra value`,`${Y.t} someone has a chance to catch you after · ${Y.y} evidence or gear left behind`],
+      ['Stealth',`${Y.s} lend a ${Y.s} to an ally · ${Y.a} faster · ${Y.x} a way to distract the opposition all scene`,`${Y.t} takes 25% longer · ${Y.y} evidence or gear left behind`],
+      ['Streetwise',`${Y.s} less time or cost · ${Y.a} an extra rumour or source · ${Y.x} a lasting contact`,`${Y.t} the information includes a falsehood · ${Y.y} your questions are noticed`],
+      ['Survival',`${Y.s} lend a ${Y.s} to an ally, or extra supplies · ${Y.a} ${D('b')} on later checks; a tracking detail · ${Y.x} an animal becomes a companion; where the quarry is headed`,`${Y.t} / ${Y.y} lost time, spoiled supplies, the trail goes cold`],
+      ['Vigilance',`${Y.s} a needed item is at hand · ${Y.a} spot cover, an exit or an edge`,`${Y.t} miss something about the situation`],
+    ])}`],
+
+  ['fear', '4 · Fear', 'when to call for a fear check and what happens', `<div class="cols"><div>
+    <p>Roll <b>Discipline</b>, or <b>Cool</b> if the character saw it coming.</p>
+    ${CT(['How frightening','Difficulty','Examples'],[['Minimal',D('d'),'Somewhat overmatched; a minor threat to safety'],['Moderate',D('dd'),'Clearly overmatched; an aggressive creature; a credible threat'],['Very afraid',D('ddd'),'Battlefield combat; a pack of predators; some threat to life'],
+      ['Mortally afraid',D('dddd'),'Terrifyingly intense combat; a huge predator; fearing for your life'],['Utterly terrified',D('ddddd'),'A hopeless situation; enemies beyond understanding']])}
+    <p>Upgrade the difficulty once for something with a dangerous reputation, twice for something known to be deadly and rare, three times for something unique and terrible (an Inquisitor, a Sith).</p></div><div>
+    <h4>Results</h4>${CL([`${Y.f} Failed: ${D('k')} on every action until the encounter ends.`,`${Y.t} Suffer strain equal to the ${Y.f} rolled. ${Y.t}${Y.t}${Y.t}: staggered for a turn.`,`${Y.y} Difficulty of every check is one higher until the encounter ends.`,
+      `${Y.a} ${D('b')} to an ally's next fear check.`,`${Y.x} Cancel earlier fear penalties, or need no more fear checks this encounter.`])}
+    <h4>Fear and Morality (GM option)</h4><p>On a failure the GM may give Conflict equal to the difficulty <b>instead of</b> the penalties. On a ${Y.y}, Conflict equal to the difficulty <b>as well as</b> the penalties. A ${Y.x} cannot remove that Conflict.</p></div></div>`],
+
+  ['combat', '5 · Combat', 'initiative, turns, maneuvers, attacks, damage', `<div class="cols"><div>
+    <h4>Initiative</h4>${CL([`Roll <b>Cool</b> if you were ready, <b>Vigilance</b> if surprised. No difficulty dice: count ${Y.s}, ties broken by ${Y.a}, then PCs before NPCs.`,
+      `The results make <b>slots</b>, PC or NPC. Each round the players choose which PC takes each PC slot.`,`${Y.x} an extra maneuver in round one. ${Y.y} one fewer.`])}
+    <h4>Your turn</h4>${CL([`<b>Incidentals</b>, any number: speak, drop something, let go, peek round a corner.`,`<b>One maneuver</b> free. A second costs 2 strain, or your action. Never more than two.`,
+      `<b>One action:</b> a combat check, a skill check, activating an ability or Force power, or trading it for a maneuver.`])}
+    <h4>Range bands</h4><p><b>Engaged:</b> close enough to strike or grab. <b>Short:</b> several metres. <b>Medium:</b> several dozen metres. <b>Long:</b> farther than that. <b>Extreme:</b> the limit of interaction.</p>
+    <h4>Maneuvers</h4>${CL([`<b>Aim:</b> ${D('b')} on your next attack (aim twice for ${D('bb')}). Or call a shot at a specific item or location: ${D('kk')} (aim twice: ${D('k')}).`,
+      `<b>Assist:</b> ${D('b')} to an engaged ally's next check.`,`<b>Guarded stance:</b> +1 melee defense, but ${D('k')} on your own combat checks, until the end of your next turn.`,
+      `<b>Interact with the environment:</b> open a door, flip a table, hit a switch.`,`<b>Manage gear:</b> draw, holster, reload, stow, fetch from a pack.`,
+      `<b>Move:</b> within short range; engaged ↔ short; or short ↔ medium. Two maneuvers for medium ↔ long, and for long ↔ extreme.`,`<b>Mount / dismount.</b> An untrained animal needs a ${D('dd')} Survival check.`,
+      `<b>Drop prone / stand up.</b> Prone: ${D('k')} on your melee attacks; ranged attacks against you add ${D('k')}; melee attacks against you add ${D('b')}.`,`<b>Take cover:</b> +1 ranged defense.`,`<b>Preparation:</b> needed by some weapons and abilities.`])}</div><div>
+    <h4>Attack difficulty</h4>${CT(['Attack','Difficulty'],[['Brawl, Melee, Lightsaber (engaged)',D('dd')],['Ranged, short',D('d')],['Ranged, medium',D('dd')],['Ranged, long',D('ddd')],['Ranged, extreme',D('dddd')],
+      ['Ranged (Light) while engaged',D('dd')],['Ranged (Heavy) while engaged',D('ddd')],['Gunnery while engaged','not possible']])}
+    <p>Add ${D('k')} per point of the target's melee or ranged <b>defense</b>. Firing a ranged weapon while engaged hands that opponent ${D('b')} on their next melee attack against you.</p>
+    <h4>Damage</h4>${CL([`A hit deals the weapon's damage <b>+1 per ${Y.s}</b>, minus the target's <b>soak</b>.`,`Wounds above the wound threshold: <b>incapacitated</b> and suffers a Critical Injury. Wounds stop at twice the threshold.`,
+      `Strain above the strain threshold: <b>incapacitated</b> (unconscious).`,`<b>Critical Injury:</b> roll d100, +10 for each one the target already has. It stays until healed, even after its short-term effect ends.`])}
+    <h4>Size and concealment</h4><p>Target 2+ silhouettes larger: difficulty −1. Target 2+ smaller: difficulty +1.</p>
+    ${CT(['Concealment','Ranged attacks and Perception'],[['Mist, shadow, waist-high grass',D('k')],['Fog, dawn or dusk, shoulder-high grass',D('kk')],['Heavy fog, thick smoke, night, dense undergrowth',D('kkk')]])}
+    <h4>Conditions</h4><p><b>Staggered:</b> no actions. <b>Immobilized:</b> no maneuvers. <b>Disoriented:</b> ${D('k')} on all checks. Durations from several sources add together.</p></div></div>
+    <div class="cols"><div><h4>Spending ${Y.a} and ${Y.x} in a fight</h4>${CT(['Cost','Effect'],[[`${Y.a} or ${Y.x}`,'Recover 1 strain · ' + D('b') + ' to the next ally to act · notice one useful detail'],[`${Y.a} per crit rating, or ${Y.x}`,'Inflict a Critical Injury (the attack must hit and deal damage)'],
+      [`${Y.a}${Y.a} or ${Y.x}`,'Trigger a weapon quality · a free maneuver now · ' + D('k') + ' on the target\'s next check · ' + D('b') + ' to any ally\'s next check'],
+      [`${Y.a}${Y.a}${Y.a} or ${Y.x}`,'Ignore the target\'s defense bonuses this round · ignore an environmental penalty until your next turn ends · disable instead of wound · +1 defense until your next turn ends · the target drops its weapon'],
+      [`${Y.x}`,'Upgrade the difficulty of the target\'s next check, or the ability of any ally\'s next check · something dramatic'],[`${Y.x}${Y.x}`,'Destroy a piece of the target\'s equipment']])}</div>
+    <div><h4>Spending ${Y.t} and ${Y.y}</h4>${CT(['Cost','Effect'],[[`${Y.t} or ${Y.y}`,'Suffer 1 strain · lose the benefit of your last maneuver (aim, cover)'],[`${Y.t}${Y.t} or ${Y.y}`,'An opponent takes a free maneuver · ' + D('b') + ' on the target\'s next check · ' + D('k') + ' on your or an ally\'s next check'],
+      [`${Y.t}${Y.t}${Y.t} or ${Y.y}`,'Fall prone · your side\'s initiative slot drops to last'],[`${Y.y}`,'Ranged weapon out of ammo · upgrade the difficulty of an ally\'s next check · the tool or weapon is damaged · a ranged shot hits someone engaged with the target']])}</div></div>
+    <div class="cols"><div><h4>Special attacks</h4>${CL([`<b>Two weapons:</b> one combined check using the lower skill and lower characteristic against the harder difficulty, +1 difficulty. A hit lands the first weapon; ${Y.a}${Y.a} or ${Y.x} lands the second.`,
+      `<b>Unarmed:</b> Brawl; damage = Brawn; crit 5; Disorient 1, Knockdown. May deal strain instead of wounds.`,`<b>Improvised weapon:</b> Melee, with an automatic ${Y.t}; crit 5. Small: Brawn+1. Medium: Brawn+2, Cumbersome 2. Large: Brawn+3, Cumbersome 4. ${Y.t}${Y.t} or ${Y.y}: it breaks.`])}</div>
+    <div><h4>Adversaries</h4>${CL([`<b>Minions</b> fight as a group: one wound track (threshold × number); each threshold of damage drops one. No strain (it becomes wounds); no skill ranks alone, but +1 rank per minion beyond the first; any Critical Injury kills one.`,
+      `<b>Rivals</b> work like PCs but have no strain (it becomes wounds) and are out once past their wound threshold.`,`<b>Nemeses</b> use all the PC rules, strain and Critical Injuries included.`])}</div></div>`],
+
+  ['crits', '6 · Critical Injuries', 'the d100 table', `<p>Roll d100, +10 per Critical Injury already suffered, + the weapon's Vicious rating × 10. Healing one takes a Medicine check at its severity.</p>
+    ${CT(['d100','Severity','Result'],[['01–05',D('d'),'<b>Minor Nick:</b> 1 strain.'],['06–10',D('d'),'<b>Slowed Down:</b> may only act in the last allied initiative slot next turn.'],['11–15',D('d'),'<b>Sudden Jolt:</b> drops whatever is in hand.'],
+      ['16–20',D('d'),'<b>Distracted:</b> no free maneuver next turn.'],['21–25',D('d'),'<b>Off-Balance:</b> ' + D('k') + ' on the next check.'],['26–30',D('d'),'<b>Discouraging Wound:</b> flip one Light Destiny point to Dark (reverse for an NPC).'],
+      ['31–35',D('d'),'<b>Stunned:</b> staggered until the end of the next turn.'],['36–40',D('d'),'<b>Stinger:</b> next check is one step harder.'],['41–45',D('dd'),'<b>Bowled Over:</b> knocked prone, 1 strain.'],
+      ['46–50',D('dd'),'<b>Head Ringer:</b> Intellect and Cunning checks one step harder this encounter.'],['51–55',D('dd'),'<b>Fearsome Wound:</b> Presence and Willpower checks one step harder this encounter.'],['56–60',D('dd'),'<b>Agonizing Wound:</b> Brawn and Agility checks one step harder this encounter.'],
+      ['61–65',D('dd'),'<b>Slightly Dazed:</b> disoriented this encounter.'],['66–70',D('dd'),'<b>Scattered Senses:</b> gains no ' + D('b') + ' this encounter.'],['71–75',D('dd'),'<b>Hamstrung:</b> no free maneuver this encounter.'],
+      ['76–80',D('dd'),'<b>Overpowered:</b> the attacker may attack again at once, with the same pool.'],['81–85',D('dd'),'<b>Winded:</b> cannot choose to suffer strain this encounter.'],['86–90',D('dd'),'<b>Compromised:</b> all checks one step harder this encounter.'],
+      ['91–95',D('ddd'),'<b>At the Brink:</b> 1 strain every time an action is taken.'],['96–100',D('ddd'),'<b>Crippled:</b> a limb is impaired until healed; checks using it are one step harder.'],['101–105',D('ddd'),'<b>Maimed:</b> a limb is lost for good; ' + D('k') + ' on everything else.'],
+      ['106–110',D('ddd'),'<b>Horrific Injury:</b> −1 to a random characteristic until healed.'],['111–115',D('ddd'),'<b>Temporarily Lame:</b> one maneuver per turn until healed.'],['116–120',D('ddd'),'<b>Blinded:</b> upgrade all checks twice; Perception and Vigilance three times.'],
+      ['121–125',D('ddd'),'<b>Knocked Senseless:</b> staggered this encounter.'],['126–130',D('dddd'),'<b>Gruesome Injury:</b> −1 to a random characteristic, permanently.'],['131–140',D('dddd'),'<b>Bleeding Out:</b> 1 wound and 1 strain each turn until healed; past the wound threshold, another Critical Injury per 5 wounds.'],
+      ['141–150',D('dddd'),'<b>The End is Nigh:</b> dies after the last initiative slot of the next round.'],['151+','—','<b>Dead.</b>']])}
+    <p><b>Random characteristic (d10):</b> 1–3 Brawn · 4–6 Agility · 7 Intellect · 8 Cunning · 9 Presence · 10 Willpower.</p>`],
+
+  ['quals', '7 · Weapon and item qualities', 'what each quality does', `<p>Active qualities cost ${Y.a}${Y.a} to trigger unless noted; a rated quality lasts or counts as many rounds or points as its rating.</p><div class="cols"><div>
+    ${CL([`<b>Accurate:</b> ${D('b')} per rating.`,`<b>Auto-fire:</b> attack at +1 difficulty; ${Y.a}${Y.a} per extra hit, on the same or another target.`,`<b>Blast:</b> ${Y.a}${Y.a}: everyone engaged with the target takes the rating in damage. On a miss, ${Y.a}${Y.a}${Y.a} still catches the target and those engaged.`,
+      `<b>Breach:</b> ignore 1 armor (10 soak) per rating.`,`<b>Burn:</b> the target takes the weapon's base damage each round for the rating.`,`<b>Concussive:</b> the target is staggered for the rating.`,
+      `<b>Cortosis:</b> a weapon is immune to Sunder; armor is immune to Pierce and Breach.`,`<b>Cumbersome:</b> needs Brawn equal to the rating, or +1 difficulty per point short.`,`<b>Defensive:</b> +rating melee defense. <b>Deflection:</b> +rating ranged defense.`,
+      `<b>Disorient:</b> the target is disoriented for the rating.`,`<b>Ensnare:</b> the target is immobilized for the rating; a ${D('ddd')} Athletics check breaks free.`,`<b>Guided:</b> ${Y.a}${Y.a}${Y.a} on a miss: attack again at the end of the round with ability dice equal to the rating.`,
+      `<b>Inaccurate:</b> ${D('k')} per rating.`])}</div><div>
+    ${CL([`<b>Inferior:</b> an automatic ${Y.t}; weapons −1 damage; armor −1 defense and +1 encumbrance.`,`<b>Ion:</b> damage is dealt as system strain (or strain to droids).`,`<b>Knockdown:</b> ${Y.a}${Y.a}, +1 ${Y.a} per silhouette above 1: the target is prone.`,
+      `<b>Limited Ammo:</b> that many shots, then a maneuver to reload with fresh ammunition.`,`<b>Linked:</b> ${Y.a}${Y.a} per extra hit on the same target, up to the rating.`,`<b>Pierce:</b> ignore 1 soak per rating.`,
+      `<b>Prepare:</b> that many preparation maneuvers before firing.`,`<b>Slow-Firing:</b> wait that many rounds between shots.`,`<b>Stun:</b> also inflicts the rating in strain. <b>Stun Damage:</b> deals strain only.`,
+      `<b>Sunder:</b> ${Y.a}: damage the target's item one step (minor → moderate → major → destroyed).`,`<b>Superior:</b> an automatic ${Y.a}; weapons +1 damage; armor +1 soak and −1 encumbrance.`,`<b>Tractor:</b> the target cannot move; a Piloting check at the rating breaks free.`,
+      `<b>Unwieldy:</b> needs Agility equal to the rating, or +1 difficulty per point short.`,`<b>Vicious:</b> +10 × rating on the Critical Injury roll.`])}</div></div>`],
+
+  ['force', '8 · The Force', 'power checks, the dark side, Morality and Conflict', `<div class="cols"><div>
+    <h4>Using a power</h4>${CL([`<b>Power check:</b> roll ${D('F')} equal to your Force rating, minus any committed dice. Each ${Y.l} is a Force point to spend on the power's effects.`,
+      `<b>Using the dark side:</b> you may also spend ${Y.n} results, but only by flipping a Light Destiny point, suffering strain equal to the ${Y.n} used, and taking that much Conflict.`,
+      `<b>Dark side Force users</b> (Morality below 30) work the other way round: ${Y.n} is free, ${Y.l} costs the Destiny flip and strain.`,
+      `<b>Committing dice:</b> some effects need Force dice set aside while they last. Your Force rating counts as that much lower meanwhile.`,
+      `<b>Combined check:</b> roll the Force dice with a skill check. The skill check must succeed <b>and</b> you must make enough Force points.`,`<b>Resisted:</b> against an unwilling important target the power becomes a combined check opposed by them, usually Discipline.`])}</div><div>
+    <h4>Morality and Conflict</h4>${CL([`Conflict comes from spending ${Y.n} on a power, from dark deeds, and from some failed fear checks.`,`End of session: Morality changes by <b>1d10 − Conflict</b>.`,
+      `<b>Below 30: dark side.</b> Stays so until Morality passes 70. Below 20: strain threshold −1, wound threshold +1. Below 10: −2 and +2.`,`<b>Above 70: light side paragon.</b> Above 80: strain threshold +1. Above 90: +2.`,
+      `<b>Triggered Morality:</b> at session start roll d100; the character whose Morality is closest is tempted this session through their emotional strength and weakness, and their end-of-session change is doubled.`])}
+    ${CT(['Conflict','For'],[['1','Knowing inaction · lying for gain · reaching for violence first'],['2','Threats of violence · deliberate cruelty with words'],['2–3','Theft (less from the corrupt, more from those who cannot afford it)'],['3–4','Needless destruction'],
+      ['4–5','Unprovoked violence'],['6–7','Needless cruelty to animals or simple droids'],['10','Torture'],['10+','Murder of the helpless']])}</div></div>`],
+
+  ['hazards', '9 · Environment and hazards', 'falling, fire, vacuum, encumbrance, terrain', `<div class="cols"><div>
+    <h4>Falling</h4>${CT(['Distance','Damage','Strain'],[['Short','10','10'],['Medium','30','20'],['Long','Incapacitated, Critical Injury at +50','30'],['Extreme','Incapacitated, Critical Injury at +75','40']])}
+    <p>A ${D('dd')} Athletics or Coordination check softens it: ${Y.s} −1 damage each, ${Y.a} −1 strain each, ${Y.x} treat the fall as one band shorter.</p>
+    <h4>Fire, acid and corrosive air</h4><p>Deals its rating in damage every round. Putting a fire out: Athletics, ${D('d')} on soft ground, ${D('dd')} on hard.</p>
+    ${CT(['Rating','Examples'],[['1–2','Campfire, mild caustic, ash-choked air'],['3–5','Flammable liquid, industrial acid, chemical leak'],['6–9','Welding torch, weaponized acid, ammonia or chlorine atmosphere'],['10+','Lava, a blast furnace, wholly toxic atmosphere']])}
+    <h4>Air and space</h4>${CL([`<b>Holding breath:</b> rounds equal to Brawn. <b>Suffocating:</b> 3 strain a round; once incapacitated, a Critical Injury every round.`,`<b>Vacuum:</b> as suffocation, plus 3 wounds a round.`,
+      `<b>Gravity:</b> heavy adds up to ${D('kkk')} to Brawn and Coordination checks; light adds up to ${D('bbb')}. Zero-g: all movement is difficult terrain.`,`<b>Swimming</b> is difficult terrain; a swift current needs an Athletics check.`])}</div><div>
+    <h4>Terrain and movement</h4><p><b>Difficult terrain</b> doubles the maneuvers needed to move. <b>Impassable terrain</b> needs a check, a tool or another way round.</p>
+    <h4>Encumbrance</h4>${CL([`Threshold: <b>5 + Brawn</b>, plus bags.`,`Over it: ${D('k')} per point over on Brawn and Agility checks.`,`Over by Brawn or more: you lose your free maneuver (2 strain still buys one).`,
+      `<b>Lifting:</b> Athletics, +1 difficulty per point the object is over your threshold; not possible at 5+ over. Helpers add their Brawn to the threshold.`,`<b>Hidden items:</b> the searcher adds ${D('b')} for each point of encumbrance above 1 on the largest hidden object.`,
+      `<b>The right tool:</b> if the job can be done without it, having it adds ${D('b')}.`])}
+    <h4>Flying creatures</h4><p><b>Hover:</b> ignores difficult and impassable ground; stays within medium range of it. <b>Winged flight:</b> must spend a maneuver each turn to stay up; can cross long to short in one maneuver.</p></div></div>`],
+
+  ['healing', '10 · Recovery and healing', 'rest, medicine, stimpacks, bacta', `<div class="cols"><div>
+    <h4>Getting it back</h4>${CL([`<b>End of an encounter:</b> a Simple Discipline or Cool check; recover 1 strain per ${Y.s}.`,`<b>A night's rest:</b> heal 1 wound and all strain.`,`<b>A week:</b> one Resilience check against a Critical Injury's severity to shake it off.`,
+      `<b>Stimpack:</b> heals 5 wounds, then 4, 3 … each further one that day is one weaker. A night's rest resets it.`,`<b>Emergency repair patch:</b> heals a droid 3 wounds, with the same diminishing return.`,
+      `<b>Bacta tank:</b> 1 wound per hour (per 6 hours if incapacitated); once a day a Resilience check against a Critical Injury. <b>Oil bath:</b> the same for droids, but cannot fix Critical Injuries.`])}</div><div>
+    <h4>Medicine (Mechanics for droids)</h4>${CT(['Patient','Difficulty'],[['Wounds at half the threshold or less',D('d')],['Wounds above half the threshold',D('dd')],['Wounds above the threshold',D('ddd')],['A Critical Injury','its severity; one try per week']])}
+    <p>Heals 1 wound per ${Y.s} and 1 strain per ${Y.a}. ${Y.x} an extra wound or a Critical Injury. ${Y.t} the patient takes 1 strain; ${Y.y} 1 wound. Treating yourself: +2 difficulty. One Medicine check per patient per encounter.</p></div></div>`],
+
+  ['gear', '11 · Buying, selling and repairs', 'rarity, haggling, fixing gear', `<div class="cols"><div>
+    <h4>Finding an item</h4><p><b>Negotiation</b> for legal goods, <b>Streetwise</b> for the black market.</p>
+    ${CT(['Rarity','Difficulty','Example'],[['0–1','Simple','Glow rod, comlink'],['2–3',D('d'),'Medpac, scanner goggles'],['4–5',D('dd'),'Blaster pistol, blaster rifle'],['6–7',D('ddd'),'Cybernetic limb, cortosis gauntlets'],['8–9',D('dddd'),'Thermal detonator, rare crystal'],['10',D('ddddd'),'Lightsaber']])}
+    ${CT(['Where you are','Rarity'],[['A primary Core World','−2'],['Other Core World · on a major trade lane','−1'],['Colony, Inner Rim or other civilized world','+0'],['Mid Rim · recently settled or out of the way','+1'],['Outer Rim · frontier','+2'],['Wild Space','+3'],['Uncivilized world','+4']])}</div><div>
+    <h4>Selling</h4><p>Same skills. ${Y.s} a quarter of its value · ${Y.s}${Y.s} half · ${Y.s}${Y.s}${Y.s} three quarters. ${Y.t}${Y.t}${Y.t} or ${Y.y}: the deal goes sour.</p>
+    <h4>Trading between worlds</h4><p>Multiply the price by the difference in the item's rarity between where it was bought and where it is sold, then make the selling check.</p>
+    <h4>Repairing gear (Mechanics)</h4>${CT(['Damage','Cost','Difficulty','Until fixed'],[['Minor','25% of price',D('d'),D('k') + ' when used'],['Moderate','50%',D('dd'),'+1 difficulty when used'],['Major','100%',D('ddd'),'Unusable']])}
+    <p>Each ${Y.a} takes 10% off the cost. The tracker's own wear, tune-up and overhaul rules are on the Tracker Reference tab.</p></div></div>`],
+
+  ['ships', '12 · Starships and vehicles', 'maneuvers, actions, damage, travel', `<div class="cols"><div>
+    <h4>Basics</h4>${CL([`One free pilot maneuver a round; a second costs 2 system strain (silhouette 5+ ships get only one).`,`Defense zones: fore and aft; silhouette 5+ adds port and starboard. Weapons have fire arcs.`,`Vehicle weapons and armor are on a scale <b>ten times</b> personal scale.`,
+      `Ship ammunition cannot be reloaded in flight.`])}
+    <h4>Pilot maneuvers</h4>${CL([`<b>Accelerate / decelerate:</b> speed ±1.`,`<b>Fly / drive:</b> speed 1: one maneuver within close, two for close ↔ short. Speed 2–4: one for close ↔ short, two for close ↔ medium. Speed 5–6: one for close ↔ medium, two for close ↔ long.`,
+      `<b>Evasive maneuvers</b> (silhouette 1–4, speed 3+): upgrade the difficulty of attacks against you <b>and</b> of your own, until your next turn ends.`,`<b>Stay on target</b> (silhouette 1–4, speed 3+): upgrade the ability of your attacks <b>and</b> of attacks against you.`,
+      `<b>Punch it</b> (silhouette 1–4): jump to top speed; 1 system strain per point gained.`,`<b>Angle deflector shields</b> (anyone): move one point of defense between zones.`])}
+    <h4>Attacks</h4>${CT(['Target is','Difficulty'],[['2+ silhouettes larger',D('d')],['Within 1 silhouette',D('dd')],['2 smaller',D('ddd')],['3 smaller',D('dddd')],['4+ smaller',D('ddddd')]])}
+    ${CL([`Damage + ${Y.s} − armor = hull trauma.`,`Hull trauma over the threshold: a Critical Hit and the ship is disabled. System strain over the threshold: speed 0, defense 0, weapons dead.`,`Critical Hit: d100, +10 per one already suffered.`])}</div><div>
+    <h4>Crew actions</h4>${CT(['Action','Check','Result'],[['Damage control','Mechanics; ' + D('d') + ' under half strain or trauma, ' + D('dd') + ' at half or more, ' + D('ddd') + ' over the threshold','Recover 1 system strain per ' + Y.s + ', or 1 hull trauma (once per encounter)'],
+      ['Gain the advantage','Piloting; ' + D('dd') + ' at equal speed, ' + D('d') + ' if faster, ' + D('ddd') + ' if 1 slower, ' + D('dddd') + ' if 2+ slower','Ignore evasive penalties and pick the defense zone you hit'],
+      ['Boost shields','Mechanics ' + D('ddd'),'1 system strain; +1 defense in a zone for a round per ' + Y.s],['Co-pilot','Piloting ' + D('dd'),'Each ' + Y.s + ' downgrades the pilot\'s next check'],
+      ['Fire discipline','Leadership or Discipline ' + D('ddd'),D('b') + ' to the next gunner; more ' + Y.s + ' covers more gunners'],['Jamming','Computers ' + D('dd'),'The target needs a ' + D('dd') + ' Computers check to use comms'],
+      ['Manual repairs','Athletics ' + D('ddd'),'Repair 1 hull trauma, +1 per extra ' + Y.s + Y.s + ' (once per encounter)'],['Plot course','Astrogation ' + D('dd') + ' or Perception ' + D('ddd'),'Each ' + Y.s + ' cancels a ' + D('k') + ' from terrain'],
+      ['Scan the enemy','Perception ' + D('ddd'),'Learn its weapons, modifications and thresholds'],['Slice enemy systems','Computers ' + D('ddd'),'−1 defense in a zone; ' + Y.x + ' knocks out a weapon for a round'],
+      ['Spoof missiles','Computers ' + D('dd') + ' or Vigilance ' + D('ddd'),'Guided attacks against you are upgraded']])}
+    <h4>Chases</h4><p>Competitive Piloting checks. The winner opens or closes by one range band, plus one per point of speed difference. It ends at close range or when the quarry is out of sight. On foot, use Athletics.</p></div></div>
+    <div class="cols"><div><h4>Hazards and navigation</h4><p>Piloting check: difficulty dice equal to the higher of speed and half silhouette, upgraded by the lower. Terrain adds ${D('k')}: none for open ground or light traffic, ${D('k')} for mud, trees or a loose asteroid field, ${D('kk')} for forest, storms or a thick field, ${D('kkk')} for canyons, cliffs or a dense tumbling field. Failure: lose a point of speed and do not get through.</p>
+    <h4>Sublight travel</h4><p>Orbit to a safe jump point: 5–15 minutes · surface to a moon: 30–90 minutes · planet to planet in-system: 6–12 hours · centre of a system to its edge: 12–72 hours.</p></div>
+    <div><h4>Hyperspace</h4><p><b>Astrogation</b>, ${D('d')} for a well-known route. +3 difficulty with no astromech or navicomputer · +1 for rushed calculations · +1 lightly damaged, +2 heavily damaged · +1 for bad charts.</p>
+    <p>${Y.s} a better exit point or less time calculating · ${Y.a} a shorter trip · ${Y.x} the minimum time · ${Y.t} off target or slower · ${Y.y} something goes badly wrong.</p>
+    <p><b>Travel time</b> (class 1 hyperdrive; multiply by the drive's class): within a sector 10–24 hours · within a region 10–72 hours · between regions 3–7 days · across the galaxy 1–3 weeks.</p></div></div>`],
+
+  ['shipcrits', '13 · Vehicle Critical Hits', 'the d100 table', `${CT(['d100','Severity','Result'],[['01–09',D('d'),'<b>Mechanical Stress:</b> 1 system strain.'],['10–18',D('d'),'<b>Jostled:</b> the crew take 1 strain and are disoriented for a round.'],['19–27',D('d'),'<b>Losing Power to Shields:</b> −1 defense in one zone until repaired (no defense: 1 system strain).'],
+      ['28–36',D('d'),'<b>Knocked Off Course:</b> no maneuvers next turn; a Piloting check to regain control.'],['37–45',D('d'),'<b>Tailspin:</b> the ship\'s attacks suffer ' + D('kk') + ' and the crew are immobilized until the pilot\'s next turn ends.'],['46–54',D('d'),'<b>Component Hit:</b> one component is out until the end of next round.'],
+      ['55–63',D('dd'),'<b>Shields Failing:</b> −1 defense in every zone until repaired (no defense: 2 system strain).'],['64–72',D('dd'),'<b>Navicomputer Failure:</b> no hyperspace jumps until repaired.'],['73–81',D('dd'),'<b>Power Fluctuations:</b> the pilot cannot voluntarily take system strain.'],
+      ['82–90',D('ddd'),'<b>Shields Down:</b> one zone drops to 0 and the rest lose 1 (no defense: 4 system strain).'],['91–99',D('ddd'),'<b>Engine Damaged:</b> −1 speed (minimum 1) until repaired.'],['100–108',D('ddd'),'<b>Shield Overload:</b> 2 system strain; all defense 0 until the encounter ends (no defense: −1 armor).'],
+      ['109–117',D('ddd'),'<b>Engines Down:</b> speed 0 and no maneuvers until repaired; the ship drifts on.'],['118–126',D('ddd'),'<b>Major System Failure:</b> one component is out until repaired.'],['127–133',D('dddd'),'<b>Major Hull Breach:</b> the ship vents; small craft are open to vacuum.'],
+      ['134–138',D('dddd'),'<b>Destabilized:</b> hull trauma and system strain thresholds are halved until repaired.'],['139–144',D('dddd'),'<b>Fire!</b> 2 system strain; crew may be caught in it. Takes a round per 2 silhouette to put out.'],['145–153',D('dddd'),'<b>Breaking Up:</b> the ship is destroyed at the end of next round.'],['154+','—','<b>Vaporized.</b>']])}
+    <p><b>Components that can be hit:</b> support droid, ejection system or landing gear, a weapon system, sensors (−1 range band), comms, sublight engines (−1 speed), hyperdrive, shields (−1 defense everywhere); on large ships also a landing bay, the cargo hold or the bridge.</p>
+    <p><b>Emergency repairs</b> on a disabled ship: Mechanics ${D('ddd')} gets it limping (speed and handling reduced, weapons dead); any further hull trauma is a Critical Hit at +30. Proper hull repair costs about 500 credits per point in dock.</p>`],
+
+  ['end', '14 · End of session', 'GM checklist', `${gm(GM_END)}`],
+  ];
+}
+let CORE_DRAWN = false;
+function renderCore(force){
+  const el = document.getElementById('coreBody'); if(!el || (CORE_DRAWN && !force)) return;
+  const open = {}; if(el.querySelectorAll) for(const d of el.querySelectorAll('details.csec')) open[d.id] = d.open;
+  el.innerHTML = coreSections().map(([id, title, sub, html], i)=>`<details class="csec" id="core_${id}" ${(open['core_'+id]===undefined ? i===0 : open['core_'+id]) ? 'open' : ''}><summary>${title} <small>· ${sub}</small></summary>${html}</details>`).join('');
+  CORE_DRAWN = true;
+}
+function coreOpenAll(on){ for(const d of document.querySelectorAll('#coreBody details.csec')){ d.open = on; d.style.display = ''; } document.getElementById('coreQ').value = ''; }
+function coreFilter(q){
+  q = normName(q);
+  for(const d of document.querySelectorAll('#coreBody details.csec')){
+    const hit = !q || normName(d.textContent).includes(q);
+    d.style.display = hit ? '' : 'none'; if(q && hit) d.open = true;
+  }
 }
 
 /* ================================================================

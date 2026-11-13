@@ -409,6 +409,15 @@ print('\n=== SMOKE TEST — UI code paths ===');
     print(`  creation: ${RULES_DB.species.length} species and ${RULES_DB.careers.length} careers; species, career, specialization, free ranks and characteristic purchases apply and undo cleanly`);
     S = migrate(JSON.parse(keep));
   })();
+  // core rules quick reference: every section renders, the GM checklist ticks, the Morality trigger picks the closest character
+  (()=>{
+    const secs = coreSections(), html = secs.map(x=>x[3]).join('');
+    const cBad = (html.match(/undefined|NaN|\[object/g)||[]).length;
+    if(secs.length<12 || cBad || !/die sm d12 t-p/.test(html) || !/Bleeding Out/.test(html)) throw new Error('core rules broken: '+cBad);
+    showTab('core'); gmCheck('destiny', true); if(!/class="done"/.test(coreSections()[0][3])) throw new Error('GM checklist tick not shown'); gmReset();
+    for(const x of S.chars) x.sheet.mor = 50; st('bode').sheet.mor = 88; if(moralTrigger(90)!=='bode') throw new Error('Morality trigger wrong'); st('bode').sheet.mor = 50;
+    print(`  core rules: ${secs.length} sections, ${Math.round(html.length/1000)}k of reference, 0 broken interpolations`); showTab('tracker');
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
