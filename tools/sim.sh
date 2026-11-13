@@ -195,7 +195,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   invSet('pike',mw,'carry',false); if(isCarried(dp) || dp.eq || Math.abs(invWeight(pk)-(wBefore-1))>1e-9) throw new Error('stowing did not unequip / unweigh');
   invSet('pike',mw,'eq',1); if(dp.eq) throw new Error('equipped a stowed item');
   const rr = stockRows(pk,'Ration')[0], rN = stockOf(pk,'Ration'); invSet('pike',pk.inv.indexOf(rr),'carry',false); if(stockOf(pk,'Ration')!==0) throw new Error('stowed rations still edible'); invSet('pike',pk.inv.indexOf(rr),'carry',true); if(stockOf(pk,'Ration')!==rN) throw new Error('carry toggle lost rations');
-  render(); if(/Datapad/.test(invSection(pk)) || !/1 stowed/.test(invSection(pk)) || !/Multitool/.test(invSection(pk))) throw new Error('card inventory should list carried items only');
+  render(); if(/Datapad/.test(invSection(pk)) || /stowed|edit on sheet/.test(invSection(pk)) || !/Multitool/.test(invSection(pk))) throw new Error('card inventory should list carried items only');
   const wornOld = migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Goggles',type:'Gear (worn)',qty:1,wt:0.2,wear:30}]}], ship:S.ship, log:[], homebrew:[]}).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Goggles');
   if(wornOld.type!=='Gear' || isEquipped(wornOld) || wornOld.wear!==30) throw new Error('Gear (worn) not converted to an equipped item');
   const wi = st('cal').inv.findIndex(isWeapon), wv = st('cal').inv[wi]; invSet('cal',wi,'carry',true); invSet('cal',wi,'eq',1); wv.wear = 42; invSet('cal',wi,'eq',0); tick(st('cal'),24); invSet('cal',wi,'carry',false); invSet('cal',wi,'carry',true); invSet('cal',wi,'eq',1);
