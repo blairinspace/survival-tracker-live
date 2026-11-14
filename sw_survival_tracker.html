@@ -460,7 +460,7 @@
   #mapFrame.tooling{touch-action:none;cursor:crosshair}
   #mapFrame img.mapimg{width:100%;height:auto;display:block;pointer-events:none}
   #mapSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  .mtok{position:absolute;width:5%;min-width:26px;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;border:2px solid var(--good);background:#1c2330 center/cover no-repeat;cursor:grab;touch-action:none;box-shadow:0 1px 4px #000a;line-height:1}
+  .mtok{position:absolute;width:5%;min-width:12px;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;border:2px solid var(--good);background:#1c2330 center/cover no-repeat;cursor:grab;touch-action:none;box-shadow:0 1px 4px #000a;line-height:1}
   .mtok.npc{border-color:var(--bad);background-size:contain} .mtok.cur{box-shadow:0 0 0 3px var(--gold),0 1px 4px #000a} .mtok.sel{box-shadow:0 0 0 3px #fff,0 1px 4px #000a} .mtok.down{filter:grayscale(1) brightness(.6)} .mtok.hid{opacity:.55;border-style:dashed}
   .mtok span{position:absolute;left:50%;top:100%;transform:translateX(-50%);font-size:10px;font-weight:700;white-space:nowrap;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none;padding-top:1px}
   .mtok i{position:absolute;right:-6px;top:-6px;background:var(--bad);color:#fff;font-style:normal;font-size:10px;font-weight:700;border-radius:8px;padding:0 4px;line-height:14px;pointer-events:none}
@@ -922,7 +922,7 @@ const CHARS = [
         ['Comlink','Gear',1,0.1], ['Datapad','Gear',1,0.5], ['Water purifier','Gear',1,0.1],
         ['BD-1 battery packs','Gear',2,0.1], ['Armored clothing (worn)','Armor',1,0] ],
   trait:'Jedi — may commit Force points to sustain his body.'},
- {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true,
+ {id:'bode',  name:'Bode Akuna',  species:'Human', h:`6'8"`,  build:'Muscular', fs:true, face:'0% 50%',   // face: where the face sits in img/<id> (CSS position), for round tokens and small portraits
   mods:{}, attr:{br:3,ag:3,int:2,cun:3,wil:2,pr:2},
   kit:[ ['Blaster pistol','Weapon',1,0.5], ['Ascension gun','Tool',1,1], ['Comlink','Gear',1,0.1], ['Flight jacket (worn)','Armor',1,0] ],
   trait:'Force sensitive. Massive, lean frame — a big man with a big appetite.'},
@@ -5944,7 +5944,7 @@ function encCond(e){   // what the players are told about an NPC's health
   return e.w===0 ? ['Unhurt', 0] : e.w*2 <= e.d.wt ? ['Hurt', 1] : ['Badly hurt', 2];
 }
 const encFace = k => k.startsWith('c_')
-  ? `<img src="img/${k.slice(2)}.png" alt="" onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/${k.slice(2)}.jpg'}else{this.style.visibility='hidden'}">`
+  ? `<img src="img/${k.slice(2)}.png" alt="" style="object-position:${cfg(k.slice(2)).face || 'center'}" onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/${k.slice(2)}.jpg'}else{this.style.visibility='hidden'}">`
   : (S.enc[k].d.k ? `<img class="sp" src="img/species/${esc(S.enc[k].d.k)}.png" alt="" onerror="this.style.visibility='hidden'">` : `<img class="sp" alt="" style="visibility:hidden">`);
 const encRes = e => `${SYM.s[0]} ${e.s} ${SYM.a[0]} ${e.a}`;
 function encPcLine(id){
@@ -6202,6 +6202,7 @@ function encForce(id, power){   // free Force dice into the tray, without leavin
    so two people dragging different tokens never collide):
      { on:1, src  'img/maps/<file>' | 'https://…' | 'room:<id>' (an upload kept beside the room),
        sc   the length of Short range, as a fraction of the map's width (0 = not calibrated),
+       ts   the GM's token size nudge (1 = one person wide for this scale),
        t_<orderKey>: { x, y }   token positions, 0–1 across and down (orderKey = c_<charId> / n_<id>),
        d_<id>:       { p [x,y,x,y…], c colour index, by } a drawn line }
    No grid: FFG measures in range bands, so the GM drags once across "Short" and every
@@ -6215,7 +6216,7 @@ const r4 = v => Math.round(clamp(+v||0, 0, 1)*10000)/10000;
 const mapSrcOk = s => typeof s==='string' && s.length<=500 && /^(img\/maps\/[\w.\-() %]+\.(png|jpe?g|webp|gif)|https?:\/\/[^\s"'<>]+|room:[a-z0-9]+)$/i.test(s);
 function normMap(m){
   if(!m || typeof m!=='object' || !m.on || !mapSrcOk(m.src)) return {};
-  const o = { on:1, src:m.src, sc: Math.round(clamp(+m.sc||0, 0, 1)*10000)/10000 };
+  const o = { on:1, src:m.src, sc: Math.round(clamp(+m.sc||0, 0, 1)*10000)/10000, ts: Math.round(clamp(+m.ts||1, 0.3, 4)*1000)/1000 };
   for(const k in m){
     const v = m[k]; if(!v || typeof v!=='object') continue;
     if(/^t_[cn]_[a-z0-9]+$/i.test(k)) o[k] = { x:r4(v.x), y:r4(v.y) };
@@ -6285,6 +6286,11 @@ function mapPos(key){   // where a token is; one not yet dragged waits along the
   const same = mapTokenKeys().filter(k=>k[0]===key[0]), i = Math.max(0, same.indexOf(key));
   return { x: key[0]==='c' ? 0.05 + 0.06*Math.floor(i/8) : 0.95 - 0.06*Math.floor(i/8), y: 0.08 + 0.11*(i%8) };
 }
+// A token is about one person wide: MAP_TOKEN × Short range once the scale is set (so it shrinks on a map that
+// shows a whole district and grows on one that shows a single room), 5% of the map before that. The GM can nudge it (ts).
+const MAP_TOKEN = 0.3;
+const mapTokenPct = () => { const m = S.map || {}; return Math.round(clamp((m.sc>0 ? m.sc*MAP_TOKEN*100 : 5) * (m.ts||1), 0.8, 20)*100)/100; };
+function mapTokenSize(dir){ if(!mapOn()) return; S.map.ts = Math.round(clamp((S.map.ts||1) * (dir>0 ? 1.25 : 0.8), 0.3, 4)*1000)/1000; render(); }
 const mapDist = (a, b) => Math.hypot(a.x-b.x, (a.y-b.y)*MAP_UI.asp);   // in map widths
 function mapBandFor(d){ const sc = mapOn() ? S.map.sc : 0; if(!(sc>0)) return ''; for(const [n, m] of MAP_BANDS) if(d <= sc*m) return n; return 'Extreme'; }
 function mapBandKeys(k1, k2){ if(!mapOn() || !(S.map.sc>0)) return ''; const a = S.map['t_'+k1], b = S.map['t_'+k2]; return a && b ? mapBandFor(mapDist(a, b)) : ''; }
@@ -6346,6 +6352,7 @@ function renderMapLayers(){   // everything that changes without changing the pi
   const svg = document.getElementById('mapSvg'), toks = document.getElementById('mapToks'), info = document.getElementById('mapInfo'); if(!svg || !mapOn()) return;
   const m = S.map, gm = encIsGM(), keys = mapTokenKeys(), cur = encOn() ? S.enc.cur : '';
   if(MAP_UI.sel && !keys.includes(MAP_UI.sel)) MAP_UI.sel = '';
+  const tw = mapTokenPct();
   let h = Object.keys(m).filter(k=>k.startsWith('d_')).map(k=>mapStrokeSvg(m[k].p, m[k].c)).join('');
   if(MAP_UI.sel && m.sc>0){ const c = mapPos(MAP_UI.sel);
     h += MAP_BANDS.map(([n, mult], i)=>{ const r = m.sc*mult*1000; return `<circle cx="${c.x*1000}" cy="${c.y*1000*MAP_UI.asp}" r="${r}" fill="${i===0?'rgba(255,255,255,.08)':'none'}" stroke="#fff" stroke-opacity="${.9-.18*i}" stroke-width="2.5" stroke-dasharray="${i?'12 8':''}"/>` +
@@ -6356,7 +6363,7 @@ function renderMapLayers(){   // everything that changes without changing the pi
   toks.innerHTML = keys.map(k=>{ const p = mapPos(k), pc = k[0]==='c', x = pc ? null : S.enc[k], name = encOn() || pc ? (pc ? cfg(k.slice(2)).name : encName(k)) : '';
     const bg = pc ? `url(img/${k.slice(2)}.png), url(img/${k.slice(2)}.jpg)` : (x.d.k ? `url(img/species/${esc(x.d.k)}.png)` : 'none');
     const al = x && x.d.type==='minion' ? encAlive(x) : 0;
-    return `<div class="mtok ${pc?'pc':'npc'} ${k===cur?'cur':''} ${k===MAP_UI.sel?'sel':''} ${(pc ? isDown(st(k.slice(2)), cfg(k.slice(2))) : encDown(k)) ? 'down':''} ${x && x.hid ? 'hid':''}" data-k="${k}" style="left:${p.x*100}%;top:${p.y*100}%;background-image:${bg}" title="${esc(name)}">${!pc && !x.d.k ? `<b>${esc((name||'?')[0])}</b>` : ''}${al>1 ? `<i>${al}</i>` : ''}<span>${esc(name.split(' ')[0])}</span></div>`; }).join('');
+    return `<div class="mtok ${pc?'pc':'npc'} ${k===cur?'cur':''} ${k===MAP_UI.sel?'sel':''} ${(pc ? isDown(st(k.slice(2)), cfg(k.slice(2))) : encDown(k)) ? 'down':''} ${x && x.hid ? 'hid':''}" data-k="${k}" style="left:${p.x*100}%;top:${p.y*100}%;width:${tw}%;background-image:${bg}${pc && cfg(k.slice(2)).face ? ';background-position:'+cfg(k.slice(2)).face : ''}" title="${esc(name)}">${!pc && !x.d.k ? `<b>${esc((name||'?')[0])}</b>` : ''}${al>1 ? `<i>${al}</i>` : ''}<span>${esc(name.split(' ')[0])}</span></div>`; }).join('');
   if(info){
     const sel = MAP_UI.sel, placed = k => !!m['t_'+k];
     info.innerHTML = !(m.sc>0) ? (gm ? 'No scale yet. Choose <b>📏 Set scale</b>, then drag across a distance you would call Short range (a few paces — four or five squares on a gridded map).' : 'The GM has not set the scale yet, so the ruler and range rings are off.')
@@ -6383,7 +6390,7 @@ function renderMap(){
       (MAP_UI.tool==='draw' ? MAP_COLORS.map((c,i)=>`<button class="mapdot ${MAP_UI.color===i?'on':''}" style="background:${c}" onclick="MAP_UI.color=${i};renderMap()" title="Line colour"></button>`).join('') : '') +
       `<button class="mini" onclick="mapUndo()" title="Remove the last line you drew">↶ undo my line</button>` : '') +
     (gm ? `<span style="margin-left:auto"></span>` + (src ? tool('cal','📏 Set scale','Drag across a distance you call Short range. Every other band follows from it.') +
-        `<button class="mini atk" onclick="sceneSave()" title="Keep this map, its scale and lines, and the NPCs in the encounter with their positions, to bring back later from the GM tab">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
+        `<span title="Token size. It follows the scale (about one person wide); nudge it here if this map needs bigger or smaller tokens." style="font-size:11.5px;color:var(--dim);white-space:nowrap">tokens <button class="mini" onclick="mapTokenSize(-1)">−</button><button class="mini" onclick="mapTokenSize(1)">+</button></span><button class="mini atk" onclick="sceneSave()" title="Keep this map, its scale and lines, and the NPCs in the encounter with their positions, to bring back later from the GM tab">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
       (files.length ? `<select onchange="mapSetSrc(this.value);this.value=''" title="Pictures in the img/maps folder"><option value="">a map from img/maps…</option>${files.map(f=>`<option value="${esc(f)}">${esc(f.replace(/^img\/maps\//,''))}</option>`).join('')}</select>` : '') +
       `<button class="mini" onclick="document.getElementById('mapFile').click()" title="Pick a picture from this device. It is shrunk and shared with the room.">⬆ upload</button><input type="file" id="mapFile" accept="image/*" style="display:none" onchange="mapUpload(this)">
        <input type="text" placeholder="or paste an image link (https://…)" onchange="mapSetSrc(this.value);this.value=''">` : '');
@@ -6393,7 +6400,7 @@ function renderMap(){
 
 /* ================================================================
    SCENES — the GM's saved set-ups, S.scenes (synced whole like the NPC library; survive 🆕 New).
-     { id, n name, src map picture, sc scale, mode combat|social, lines [{p, c}],
+     { id, n name, src map picture, sc scale, ts token size nudge, mode combat|social, lines [{p, c}],
        npcs [{ d NPC snapshot, count, hid, disp, pl placed, x, y }] }
    Saved from the Encounter tab's map bar; brought back from the GM tab. Character tokens
    are not saved: the party walks in from the edge. An uploaded picture is kept for as long
@@ -6403,7 +6410,7 @@ function normScenes(v){
   v = arrayify(v); if(!Array.isArray(v)) return [];
   return v.filter(s=>s && typeof s==='object' && mapSrcOk(s.src)).map(s=>{
     const lines = arrayify(s.lines), npcs = arrayify(s.npcs);
-    return { id: String(s.id || randomId().slice(0,10)), n: typeof s.n==='string' ? s.n.slice(0,60) : '', src: s.src, sc: Math.round(clamp(+s.sc||0, 0, 1)*10000)/10000, mode: s.mode==='social' ? 'social' : 'combat',
+    return { id: String(s.id || randomId().slice(0,10)), n: typeof s.n==='string' ? s.n.slice(0,60) : '', src: s.src, sc: Math.round(clamp(+s.sc||0, 0, 1)*10000)/10000, ts: Math.round(clamp(+s.ts||1, 0.3, 4)*1000)/1000, mode: s.mode==='social' ? 'social' : 'combat',
       lines: (Array.isArray(lines) ? lines : []).filter(l=>l && typeof l==='object').map(l=>({ p:arrayify(l.p), c:l.c })).filter(l=>Array.isArray(l.p) && l.p.length>=4).slice(0,150).map(l=>({ p:l.p.slice(0,400).map(r4), c:npcInt(l.c, 0, MAP_COLORS.length-1, 0) })),
       npcs: (Array.isArray(npcs) ? npcs : []).filter(x=>x && typeof x==='object' && x.d && typeof x.d==='object').slice(0,40).map(x=>({ d:normNpcs([x.d])[0], count:npcInt(x.count, 1, 12, 1), hid:x.hid ? 1 : 0, disp:ENC_DISP.includes(x.disp) ? x.disp : '', pl:x.pl ? 1 : 0, x:r4(x.x), y:r4(x.y) })) };
   });
@@ -6414,7 +6421,7 @@ function sceneSave(name){
   if(name==null) name = prompt('Name this scene (for example "Cantina"). Saving under a name that already exists replaces that scene.', '');
   name = String(name||'').trim().slice(0,60); if(!name) return null;
   const m = S.map, e = S.enc || {};
-  const sc = normScenes([{ n:name, src:m.src, sc:m.sc, mode:encOn() ? e.mode : 'combat',
+  const sc = normScenes([{ n:name, src:m.src, sc:m.sc, ts:m.ts, mode:encOn() ? e.mode : 'combat',
     lines: Object.keys(m).filter(k=>k.startsWith('d_')).map(k=>({ p:m[k].p, c:m[k].c })),
     npcs: (encOn() ? encNpcKeys() : []).map(k=>{ const p = m['t_'+k]; return { d:e[k].d, count:e[k].count, hid:e[k].hid, disp:e[k].disp, pl:p ? 1 : 0, x:p ? p.x : 0, y:p ? p.y : 0 }; }) }])[0];
   if(!sc) return null;
@@ -6431,7 +6438,7 @@ function sceneLoad(id){   // put a saved scene on the table: its map, scale and 
   const old = mapOn() ? S.map.src : '';
   if(!encOn()){ S.enc = normEnc({ on:1, mode:sc.mode }); logMsg(sc.mode==='social' ? '💬 A conversation begins.' : '⚔ An encounter begins — roll initiative.'); }
   for(const k of encNpcKeys()){ if(S.enc.cur===k) S.enc.cur = ''; delete S.enc[k]; }
-  const map = { on:1, src:sc.src, sc:sc.sc };
+  const map = { on:1, src:sc.src, sc:sc.sc, ts:sc.ts };
   sc.lines.forEach(l=>{ map['d_'+randomId().slice(0,8)] = { p:l.p, c:l.c, by:'' }; });
   for(const x of sc.npcs){
     const k = 'n_'+randomId().slice(0,8);
