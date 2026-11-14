@@ -10,5 +10,7 @@
   {"n": "Diplomat", "book": "Age of Rebellion", "free": 4, "skills": ["Charm", "Deception", "Knowledge (Core Worlds)", "Knowledge (Lore)", "Knowledge (Outer Rim)", "Knowledge (Xenology)", "Leadership", "Negotiation"]},
   {"n": "Engineer", "book": "Age of Rebellion", "free": 4, "skills": ["Athletics", "Computers", "Knowledge (Education)", "Mechanics", "Perception", "Piloting (Space)", "Ranged (Light)", "Vigilance"]},
   {"n": "Soldier", "book": "Age of Rebellion", "free": 4, "skills": ["Athletics", "Brawl", "Knowledge (Warfare)", "Medicine", "Melee", "Ranged (Light)", "Ranged (Heavy)", "Survival"]},
-  {"n": "Spy", "book": "Age of Rebellion", "free": 4, "skills": ["Computers", "Cool", "Coordination", "Deception", "Knowledge (Warfare)", "Perception", "Skulduggery", "Stealth"]}
+  {"n": "Spy", "book": "Age of Rebellion", "free": 4, "skills": ["Computers", "Cool", "Coordination", "Deception", "Knowledge (Warfare)", "Perception", "Skulduggery", "Stealth"]},
+  {"n": "Clone Soldier", "book": "Clone Wars Era", "free": 4, "skills": ["Athletics", "Knowledge (Warfare)", "Medicine", "Ranged (Light)", "Ranged (Heavy)", "Resilience", "Survival", "Vigilance"], "note": "from memory of Rise of the Separatists - confirm against the book"},
+  {"n": "Jedi", "book": "Clone Wars Era", "free": 3, "fr": 1, "skills": ["Athletics", "Cool", "Discipline", "Knowledge (Lore)", "Lightsaber", "Perception"], "note": "from memory of Rise of the Separatists - confirm against the book"}
 ]

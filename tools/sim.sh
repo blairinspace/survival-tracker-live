@@ -368,7 +368,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   // guided character creation: species, career, specialization, free ranks, characteristics
   (()=>{
     const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet;
-    if(RULES_DB.species.length<9 || RULES_DB.careers.length<18) throw new Error('species / careers did not load');
+    if(RULES_DB.species.length<9 || RULES_DB.careers.length<20) throw new Error('species / careers did not load');
     ccStart('cal'); ccBlank('cal'); if(!sh.cc || sh.species || Object.keys(sh.tr).length) throw new Error('blank sheet failed');
     ccBonus('cal','xp'); ccSetSpecies('cal','Cerean');
     if(cal.attr.int!==3 || cal.attr.ag!==1 || cal.wt!==12 || cal.st!==15 || sh.xp!==100 || sh.xpTotal!==100 || (sh.sk.vigilance||{}).r!==1) throw new Error('Cerean not applied');
@@ -388,7 +388,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     { const sq = RULES_DB.species.find(x=>x.n==='Squib'); if(!sq || !sq.hb || sq.sil!==0 || sq.attr.cun!==3) throw new Error('Squib did not import'); const sk0 = JSON.stringify(sh.sk), a0 = {...cal.attr}, w0 = cal.wt, s0 = cal.st, x0 = sh.xp, xt0 = sh.xpTotal;
       ccSetSpecies('cal','Squib'); if(sh.sil!==0 || cal.wt!==10 || cal.st!==13 || (sh.sk.negotiation||{}).r!==1) throw new Error('Squib not applied');
       ccSetSpecies('cal','Human'); if(sh.sil!==1 || (sh.sk.negotiation||{}).r) throw new Error('leaving Squib left traits behind'); ccPick('cal','fp','stealth'); ccPick('cal','fp','mechanics'); }
-    { if(RULES_DB.careers.length!==18 || TREE_BY['fp-bind'].fr!==2) throw new Error('careers or Bind prerequisite wrong'); const sk1 = JSON.stringify(sh.sk), car1 = sh.cc.car, fr1 = sh.fr, spec1 = sh.cc.spec;
+    { if(RULES_DB.careers.length!==20 || RULES_DB.careers.find(x=>x.n==='Jedi').fr!==1 || RULES_DB.careers.find(x=>x.n==='Jedi').free!==3 || RULES_DB.trees.filter(t=>t.k==='spec' && t.career==='Clone Soldier').length!==6 || TREE_BY['fp-bind'].fr!==2) throw new Error('careers or Bind prerequisite wrong'); const sk1 = JSON.stringify(sh.sk), car1 = sh.cc.car, fr1 = sh.fr, spec1 = sh.cc.spec;
       ccSetCareer('cal','Smuggler'); if(sh.fr!==0 || !sh.sk.streetwise.c || ccPickLimit(cal,'fc')!==4 || sh.sk.cool && sh.sk.cool.c && !TREE_BY[spec1].skills.includes('Cool')) throw new Error('Edge career not applied');
       for(const k of ['coordination','deception','perception','streetwise']) if(!ccPick('cal','fc',k)) throw new Error('four free career ranks expected'); if(ccPick('cal','fc','skulduggery')) throw new Error('fifth free rank allowed');
       if(!RULES_DB.trees.some(t=>t.k==='spec' && t.career==='Smuggler')) throw new Error('no Smuggler trees'); ccSetCareer('cal',car1); if(sh.fr!==1) throw new Error('Force rating not restored'); sh.fr = fr1; }
