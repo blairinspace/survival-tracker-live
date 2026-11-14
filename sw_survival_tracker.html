@@ -419,6 +419,33 @@
   .spdetail ul{margin:0 0 0 16px;padding:0} .spdetail li{margin-bottom:3px;color:#c4ccd6} .spdetail li b{color:var(--text)}
   .spsub{border-top:1px dotted var(--border);padding-top:6px;margin-top:6px} .spsub > b{color:var(--gold)} .spsub > small{color:var(--dim);margin-left:6px}
   @media(max-width:820px){ .spcols{grid-template-columns:1fr} .spdetail{position:static;max-height:none;order:-1} }
+  /* Encounter tab */
+  #enc{display:none}
+  .enchead{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:10px}
+  .enchead h2{font-size:17px;color:var(--gold);letter-spacing:1px} .enchead input.enctitle{flex:1 1 200px;font-size:15px;font-weight:600;color:var(--gold)}
+  .enchead label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
+  .encround{font-size:13px;font-weight:700;border:1px solid var(--border);border-radius:14px;padding:2px 12px}
+  .encturn{border:1px solid var(--accent);background:#132238;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+  .encturn b{font-size:16px} .encturn small{color:var(--dim)} .encturn.mine{border-color:var(--gold);background:#2e2608} .encturn.mine b{color:var(--gold)}
+  .enccols{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:12px;align-items:start}
+  .enccols h4{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px}
+  .encrow{display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:5px 8px;margin-bottom:5px;background:var(--panel2)}
+  .encrow.cur{border-color:var(--gold);background:#2e2608} .encrow.next{border-color:var(--accent)} .encrow.down{opacity:.45} .encrow.npc{border-left:3px solid var(--bad)} .encrow.pc{border-left:3px solid var(--good)}
+  .encrow img{width:30px;height:38px;object-fit:cover;border-radius:4px;flex:none} .encrow img.sp{object-fit:contain}
+  .encrow .who{flex:1;min-width:0} .encrow .who b{display:block;font-size:13px;overflow-wrap:anywhere} .encrow .who small{display:block;font-size:10.5px;color:var(--dim)}
+  .encrow .res{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;cursor:pointer} .encrow .pos{font-size:11px;color:var(--dim);width:16px;text-align:center;flex:none}
+  .encwait{margin-top:10px}
+  .enccards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+  .enccard{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--panel2);font-size:12px}
+  .enccard.hid{border-style:dashed;opacity:.8} .enccard.down{opacity:.5}
+  .enccard .top{display:flex;gap:8px;align-items:center;margin-bottom:6px} .enccard .top img{width:36px;height:50px;object-fit:contain;flex:none}
+  .enccard .top b{font-size:14px;display:block;overflow-wrap:anywhere} .enccard .top small{color:var(--dim)}
+  .enccard .track{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:4px 0} .enccard .track input{width:48px}
+  .enccard .stats{color:var(--dim);margin:4px 0} .enccard .stats b{color:var(--text)}
+  .enccard details{margin-top:4px} .enccard summary{cursor:pointer;color:var(--accent);font-size:11px} .enccard details div{margin:3px 0;line-height:1.4;white-space:pre-line}
+  .enccard .pl{white-space:nowrap;margin-right:8px;display:inline-block}
+  .cond-0{color:var(--good)} .cond-1{color:var(--warn)} .cond-2{color:var(--bad)} .cond-3{color:var(--dim)}
+  @media(max-width:820px){ .enccols{grid-template-columns:1fr} }
   /* GM tab: NPC library and editor */
   .npccols{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
   .npcside{display:flex;flex-direction:column;gap:6px} .npcside input[type=text],.npcside select{width:100%}
@@ -439,7 +466,7 @@
   .npced input.wide{width:100%}
   .b-minion{background:#22303c;color:#9fc3e6} .b-rival{background:#3d3212;color:#ffd97a} .b-nemesis{background:#3a1010;color:#ff9c9c}
   @media(max-width:820px){ .npccols{grid-template-columns:1fr} }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#gm,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#gm,#enc,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -536,6 +563,7 @@
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabTr" onclick="showTab('trees')">Talents</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
+  <button id="tabE" onclick="showTab('enc')" title="Encounters: initiative, turn order and the NPCs in the scene">Encounter</button>
   <button id="tabL" onclick="showTab('lore')">Lore</button>
   <button id="tabK" onclick="showTab('core')">Core Rules</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Rules</button>
@@ -591,7 +619,12 @@
   <div class="dpanel" id="sheetBody"></div>
 </div>
 
-<div id="dice"><div class="dicewrap">
+<div id="enc"><div class="itemswrap">
+  <div id="encHead"></div>
+  <div class="enccols"><div id="encOrder"></div><div id="encScene"></div></div>
+</div><div id="encDice" style="margin-top:12px"></div></div>
+
+<div id="dice"><div class="dicewrap" id="diceWrap">
   <div class="dpanel">
     <h3>Dice pool</h3>
     <div class="drow">
@@ -1197,7 +1230,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], destiny: {light:0, dark:0} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], enc: {}, destiny: {light:0, dark:0} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1246,6 +1279,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
   for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
+  s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
@@ -2373,6 +2407,8 @@ function render(){
   renderSheet();
   renderTrees();
   if(TAB==='gm' && SPECIES_DB && !isEditing()) renderGM();
+  if(TAB==='enc' && SPECIES_DB && !isEditing()) renderEnc();
+  { const tb = document.getElementById('tabE'); if(tb) tb.textContent = S.enc && S.enc.on ? (S.enc.mode==='social' ? '💬 Encounter ●' : '⚔ Encounter ●') : 'Encounter'; }
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2693,11 +2729,14 @@ function clearLog(){ if(!confirm('Clear the whole event log? Export it first if 
 let TAB = 'tracker';
 function showTab(t){
   TAB = t;
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR'],['gm','tabG']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR'],['gm','tabG'],['enc','tabE']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
-  if(t==='dice'){ renderDice(); renderFeed(); }
+  { const dw = document.getElementById('diceWrap'), home = document.getElementById(t==='enc' ? 'encDice' : 'dice');   // one dice tray, shown on whichever of the two tabs is open
+    if(dw && home && dw.parentNode!==home && home.appendChild) home.appendChild(dw); }
+  if(t==='dice' || t==='enc'){ renderDice(); renderFeed(); }
+  if(t==='enc') gmLoad(renderEnc);
   if(t==='trees') renderTrees();
   if(t==='core') renderCore();
   if(t==='lore') loreLoad(renderLore);
@@ -5290,10 +5329,10 @@ function pushLocal(){
     if(k==='chars'){
       const a = cur.chars||[], b = (prev&&prev.chars)||[];
       for(let i=0;i<a.length;i++) if(!same(a[i], b[i])) updates['chars/'+i]=a[i];
-    } else if(k==='ship'){   // per-subkey, so concurrent edits to different ship systems don't clobber
-      const a = cur.ship||{}, b = (prev&&prev.ship)||{};
+    } else if(k==='ship' || k==='enc'){   // per-subkey, so concurrent edits to different ship systems (or two players rolling initiative) don't clobber
+      const a = cur[k]||{}, b = (prev&&prev[k])||{};
       for(const kk of new Set([...Object.keys(a), ...Object.keys(b)]))
-        if(!same(a[kk], b[kk])) updates['ship/'+kk] = a[kk]===undefined ? null : a[kk];
+        if(!same(a[kk], b[kk])) updates[k+'/'+kk] = a[kk]===undefined ? null : a[kk];
     } else if(!same(cur[k], prev?prev[k]:undefined)){
       updates[k]=cur[k];
     }
@@ -5337,6 +5376,12 @@ function threeWayMerge(base, local, remote){
       out.ship = out.ship || {};
       for(const kk in L) if(!same(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
       for(const kk in B) if(!(kk in L)) delete out.ship[kk];                   // we emptied this list
+    } else if(k==='enc'){    // same idea for the encounter: each participant is its own subkey
+      if(!remote.enc && base.enc) continue;                                    // ended by someone else: it stays ended
+      const L=local.enc||{}, B=base.enc||{};
+      out.enc = out.enc || {};
+      for(const kk in L) if(!same(L[kk], B[kk])) out.enc[kk] = L[kk];
+      for(const kk in B) if(!(kk in L)) delete out.enc[kk];
     } else if(!same(local[k], base[k])){
       out[k] = local[k];                                                     // we edited this field
     }
@@ -5554,10 +5599,15 @@ function npcSkillDef(name){
   return SKILLS.find(s=>s.n.toLowerCase()===t) || null;
 }
 const npcSkillName = s => (npcSkillDef(s) || {n:String(s).trim()}).n;
-const npcRank = (n, name) => { const row = n.sk.find(x=>npcSkillName(x[0])===npcSkillName(name)); return !row ? 0 : n.type==='minion' ? Math.max(0, GM_UI.grp-1) : row[1]; };
-function npcPool(n, name){   // dice for a skill check: characteristic and rank, the higher is the pool size
-  const def = npcSkillDef(name); if(!def) return '';
-  const c = n.a[ATTRS.findIndex(a=>a[0]===def.ch)] || 0, r = npcRank(n, name), p = Math.min(c, r), a = Math.max(c, r) - p;
+const npcRank = (n, name, grp=GM_UI.grp) => { const row = n.sk.find(x=>npcSkillName(x[0])===npcSkillName(name)); return !row ? 0 : n.type==='minion' ? Math.max(0, grp-1) : row[1]; };
+function npcPoolDice(n, name, grp){   // characteristic and rank: the higher is the pool size, the lower the number of upgrades
+  const def = npcSkillDef(name); if(!def) return null;
+  const c = n.a[ATTRS.findIndex(a=>a[0]===def.ch)] || 0, r = npcRank(n, name, grp), p = Math.min(c, r);
+  return { p, a: Math.max(c, r) - p };
+}
+function npcPool(n, name, grp){   // the same, drawn as dice
+  const d = npcPoolDice(n, name, grp); if(!d) return '';
+  const {p, a} = d;
   return `<span class="die sm d12 t-p"></span>`.repeat(p) + `<span class="die sm d8 t-a"></span>`.repeat(a) || '<span style="color:var(--dim)">—</span>';
 }
 const npcDamage = (n, w) => /^\+\d+$/.test(w.dam) ? `= ${n.a[0] + +w.dam}` : '';   // "+2" adds Brawn (Brawl and Melee)
@@ -5685,7 +5735,7 @@ function npcEditor(n){
       <input type="text" class="npcname" value="${esc(n.n)}" placeholder="NPC name" onchange="npcSet('${id}','n',this.value)">
       <button class="mini" onclick="npcRandomName('${id}')" title="Roll a random name">🎲 name</button>
       <select onchange="npcType('${id}',this.value)" title="Minion: fights in groups, no strain, no skill ranks alone. Rival: strain becomes wounds. Nemesis: wounds and strain like a PC.">${Object.entries(NPC_TYPES).map(([k,l])=>`<option value="${k}"${n.type===k?' selected':''}>${l}</option>`).join('')}</select>
-      <button class="mini" onclick="npcDup('${id}')" title="Make a copy of this NPC">⧉ copy</button><button class="mini" onclick="npcDel('${id}')" title="Delete this NPC from the library">✕ delete</button></div>
+      <button class="mini atk" onclick="encAddNpc('${id}')" title="Put this NPC into the encounter (starts one if none is running). They arrive hidden from the players until you reveal them.">→ ⚔ encounter${encCopies(id) ? ' ('+encCopies(id)+' in)' : ''}</button><button class="mini" onclick="npcDup('${id}')" title="Make a copy of this NPC">⧉ copy</button><button class="mini" onclick="npcDel('${id}')" title="Delete this NPC from the library">✕ delete</button></div>
     ${n.tpl ? `<p class="hint">Started from the template <b>${esc(n.tpl)}</b>.</p>` : ''}
     <div class="npcrow"><label title="Type to search the species guide. A species not in the guide is fine: its numbers are then yours to set.">species <input type="text" list="npcSpeciesList" value="${esc(n.sp)}" placeholder="any species" onchange="npcSetSpecies('${id}',this.value)"></label>
       ${sp && sp.sub ? `<label>subspecies <select onchange="npcSetSub('${id}',this.value)"><option value="">—</option>${sp.sub.map(x=>`<option${n.sub===x.n?' selected':''}>${esc(x.n)}</option>`).join('')}</select></label>` : ''}
@@ -5711,6 +5761,209 @@ function npcEditor(n){
     ${spAb.length ? `<p class="hint"><b>From ${esc(sp.n)}${sub ? ' ('+esc(sub.n)+')' : ''}:</b> ${spAb.map(([a,b])=>`<b>${esc(a)}${b?':':''}</b> ${esc(b)}`).join(' · ')}</p>` : ''}
     <h4>Gear</h4><input type="text" class="wide" value="${esc(n.gear)}" placeholder="armor, tools, credits… (bonuses are not added automatically)" onchange="npcSet('${id}','gear',this.value)">
     <h4>GM notes</h4><textarea rows="3" placeholder="Personality, motivation, what they want from the party…" onchange="npcSet('${id}','notes',this.value)">${esc(n.notes)}</textarea>`;
+}
+
+/* ================================================================
+   ENCOUNTER TAB — initiative, strict turn order and the NPCs in the scene.
+   S.enc is {} when nothing is running, otherwise (synced per subkey, like the ship,
+   so two players rolling initiative at once never overwrite each other):
+     { on:1, title, mode combat|social, round, cur (order key of whoever is acting, '' = still rolling),
+       c_<charId>: { r rolled, s successes, a advantages, x triumphs, sk cool|vigilance, out sitting out },
+       n_<id>:     { d NPC snapshot (see NPC BUILDER), count (minion group), w wounds, st strain,
+                     hid hidden from players, disp disposition, r / s / a / x / sk as above } }
+   House rule: a slot belongs to whoever rolled it — no swapping with allies.
+   Honor system: hidden NPCs and NPC numbers are only drawn in GM mode, but they do sync.
+   ================================================================ */
+const ENC_UI = { me:'' };
+const ENC_DISP = ['', 'Hostile', 'Wary', 'Neutral', 'Friendly'];
+const ENC_SK = { cool:'Cool', vigilance:'Vigilance' };
+function normEnc(e){
+  if(!e || typeof e!=='object' || !e.on) return {};
+  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: e.mode==='social' ? 'social' : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '' };
+  const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
+  for(const k in e){
+    const v = e[k]; if(!v || typeof v!=='object') continue;
+    if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0 });
+    else if(/^n_[a-z0-9]+$/.test(k) && v.d && typeof v.d==='object')
+      o[k] = init(v, { d: normNpcs([v.d])[0], count: npcInt(v.count, 1, 12, 1), w: npcInt(v.w, 0, 9999, 0), st: npcInt(v.st, 0, 999, 0), hid: v.hid ? 1 : 0, disp: ENC_DISP.includes(v.disp) ? v.disp : '' });
+  }
+  return o;
+}
+const encOn = () => !!(S.enc && S.enc.on);
+const encIsGM = () => GM_UI.gm;
+const encNpcKeys = () => Object.keys(S.enc).filter(k=>k.startsWith('n_'));
+const encCopies = libId => encOn() ? encNpcKeys().filter(k=>S.enc[k].d.id===libId).length : 0;
+const encName = k => k.startsWith('c_') ? cfg(k.slice(2)).name : (S.enc[k].d.n || 'Unnamed NPC');
+// a minion group loses a member for every (one member's threshold) wounds; anyone else is down past their threshold
+const encAlive = e => e.d.type==='minion' ? Math.max(0, e.count - Math.floor(e.w / e.d.wt)) : (e.w > e.d.wt ? 0 : 1);
+function encDown(k){
+  const e = S.enc[k]; if(!e) return true;
+  if(k.startsWith('n_')) return encAlive(e)===0;
+  const cs = st(k.slice(2)), c = cfg(k.slice(2)); return !!(cs && isDown(cs, c));
+}
+function encOrder(all){   // strict initiative order: successes, then advantages, then PCs before NPCs
+  if(!encOn()) return [];
+  return Object.keys(S.enc).filter(k=>/^[cn]_/.test(k) && S.enc[k].r && !S.enc[k].out && (all || encIsGM() || !S.enc[k].hid))
+    .sort((x,y)=> S.enc[y].s-S.enc[x].s || S.enc[y].a-S.enc[x].a || (x[0]===y[0] ? 0 : x[0]==='c' ? -1 : 1) || (x<y ? -1 : 1));
+}
+function encStart(mode){
+  if(encOn()) return;
+  S.enc = normEnc({ on:1, mode });
+  logMsg(mode==='social' ? '💬 A conversation begins.' : '⚔ An encounter begins — roll initiative.');
+  render();
+}
+function encEnd(){
+  if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
+  const e = S.enc, fallen = encNpcKeys().filter(k=>!e[k].hid && encAlive(e[k])===0).map(encName);
+  logMsg(`${e.mode==='social' ? '💬 Conversation' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode==='combat' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
+  S.enc = {}; render();
+}
+function encSet(k, v){ if(!encOn()) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='title') scheduleSync(); else render(); }
+function encMe(v){
+  if(v==='gm'){ ENC_UI.me = ''; gmMode(true); } else { ENC_UI.me = cfg(v) ? v : ''; if(GM_UI.gm) gmMode(false); if(ENC_UI.me) DICE_UI.who = ENC_UI.me; }
+  lsSet('st_me', ENC_UI.me); renderEnc(); renderDice();
+}
+function encRecord(k, dice, sk){   // an initiative roll: every success symbol counts (there is no difficulty), advantages break ties
+  const t = tally(dice), e = S.enc[k] || (S.enc[k] = {});
+  Object.assign(e, { r:1, s:t.s+t.x, a:t.a, x:t.x, sk });
+}
+function encRollPC(id, key){
+  if(!encOn() || !ENC_SK[key]) return;
+  const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===key); if(!sk) return;
+  const s = skillState(cs, sk), td = talentDice(cs, key), r = rollDice({ p:s.p, a:s.a, b:Math.min(td.auto||0, POOL_MAX) });
+  if(r) postFeed({ k:'r', who:cfg(id).name, l:`Initiative (${sk.n})`, r });
+  encRecord('c_'+id, parseRoll(r), key); S.enc['c_'+id].out = 0;
+  render();
+}
+function encRollNPC(k, key){
+  const e = encOn() && S.enc[k]; if(!e || !e.d || !ENC_SK[key]) return;
+  const r = rollDice(npcPoolDice(e.d, ENC_SK[key], encAlive(e) || 1) || {});
+  if(r) postFeed({ k:'r', who: e.hid ? 'GM' : encName(k), l:`Initiative (${ENC_SK[key]})`, r });
+  encRecord(k, parseRoll(r), key);
+  render();
+}
+function encManual(k){   // physical dice, or fixing a mistake
+  const e = encOn() && S.enc[k]; if(!encOn()) return;
+  const v = prompt(`Initiative for ${encName(k)}: successes, then advantages (for example "2 1").`, e && e.r ? `${e.s} ${e.a}` : '');
+  if(v==null) return;
+  const m = String(v).match(/\d+/g); if(!m) return;
+  encSetInit(k, +m[0], +(m[1]||0));
+}
+function encSetInit(k, s, a){ const e = S.enc[k] || (S.enc[k] = { sk:'cool' }); Object.assign(e, { r:1, s:npcInt(s,0,99,0), a:npcInt(a,0,99,0), x:e.x||0 }); if(k[0]==='c') e.out = 0; if(!e.sk) e.sk = 'cool'; render(); }
+function encSit(id, out){ if(!encOn()) return; const k = 'c_'+id; S.enc[k] = Object.assign(S.enc[k] || { r:0, s:0, a:0, x:0, sk:'cool' }, { out: out ? 1 : 0 }); if(out && S.enc.cur===k) encNext(); else render(); }
+function encNext(){   // the next slot that can still act; past the end, a new round starts at the top
+  if(!encOn()) return;
+  const order = encOrder(true); if(!order.length) return;
+  const e = S.enc; let i = order.indexOf(e.cur);
+  for(let n=0; n<order.length; n++){
+    i++; if(i>=order.length){ i = 0; if(e.cur) e.round++; }
+    if(!encDown(order[i])){ e.cur = order[i]; render(); return; }
+    if(!e.cur) e.cur = order[i];   // so a first slot that is already down still counts as "started"
+  }
+  render();
+}
+function encBack(){
+  if(!encOn() || !S.enc.cur) return;
+  const order = encOrder(true), e = S.enc; let i = order.indexOf(e.cur);
+  if(i<=0){ if(e.round<=1){ e.cur = ''; render(); return; } e.round--; i = order.length; }
+  e.cur = order[i-1]; render();
+}
+function encAddNpc(libId, count){
+  const src = npcGet(libId); if(!src) return null;
+  if(!encOn()){ S.enc = normEnc({ on:1, mode:'combat' }); logMsg('⚔ An encounter begins — roll initiative.'); }
+  if(src.type==='minion' && count==null){ const v = prompt(`How many ${src.n || 'minions'} in this group?`, GM_UI.grp); if(v==null) return null; count = v; }
+  const d = JSON.parse(JSON.stringify(src)), same = encNpcKeys().filter(k=>S.enc[k].d.id===libId).length;
+  if(same) d.n = `${d.n || 'NPC'} #${same+1}`;
+  const k = 'n_'+randomId().slice(0,8);
+  S.enc[k] = normEnc({ on:1, [k]:{ d, count: src.type==='minion' ? count : 1, hid:1 } })[k];
+  render(); return k;
+}
+function encNpcSet(k, f, v){
+  const e = encOn() && S.enc[k]; if(!e) return;
+  if(f==='hid'){ e.hid = v ? 1 : 0; if(!v) logMsg(`👁 <b>${esc(encName(k))}</b> enters the scene.`); }
+  else if(f==='disp') e.disp = ENC_DISP.includes(v) ? v : '';
+  else if(f==='count') e.count = npcInt(v, 1, 12, e.count);
+  else e[f] = npcInt(v, 0, f==='w' ? 9999 : 999, e[f]);
+  render();
+}
+function encNpcAdj(k, f, d){ const e = encOn() && S.enc[k]; if(e) encNpcSet(k, f, Math.max(0, e[f] + d)); }
+function encNpcDel(k){ if(!encOn() || !S.enc[k] || !confirm(`Remove ${encName(k)} from the encounter?`)) return; if(S.enc.cur===k) encNext(); delete S.enc[k]; if(S.enc.cur===k) S.enc.cur = ''; render(); }
+function encCond(e){   // what the players are told about an NPC's health
+  if(e.d.type==='minion'){ const al = encAlive(e); return al===0 ? ['Defeated', 3] : [`${al} of ${e.count} standing`, al===e.count ? (e.w ? 1 : 0) : 2]; }
+  if(e.w > e.d.wt) return ['Down', 3];
+  return e.w===0 ? ['Unhurt', 0] : e.w*2 <= e.d.wt ? ['Hurt', 1] : ['Badly hurt', 2];
+}
+const encFace = k => k.startsWith('c_')
+  ? `<img src="img/${k.slice(2)}.png" alt="" onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/${k.slice(2)}.jpg'}else{this.style.visibility='hidden'}">`
+  : (S.enc[k].d.k ? `<img class="sp" src="img/species/${esc(S.enc[k].d.k)}.png" alt="" onerror="this.style.visibility='hidden'">` : `<img class="sp" alt="" style="visibility:hidden">`);
+const encRes = e => `${SYM.s[0]} ${e.s} ${SYM.a[0]} ${e.a}`;
+function encPcLine(id){
+  const cs = st(id), c = cfg(id); if(!cs) return '';
+  const cb = combatStats(cs) || {};
+  return `W ${cs.wounds||0}/${cs.wt||0} · S ${cs.strain||0}/${effStrainThresh(cs, c)}${cb.soak!=null ? ` · soak ${cb.soak}` : ''}`;
+}
+function renderEnc(){
+  const head = document.getElementById('encHead'); if(!head || !SPECIES_DB) return;
+  const orderEl = document.getElementById('encOrder'), scene = document.getElementById('encScene');
+  const gm = encIsGM(), e = S.enc, me = ENC_UI.me;
+  const meSel = `<label title="Who you are at the table. It marks your turn and sets who your dice roll as. Picking GM turns GM mode on.">I am <select onchange="encMe(this.value)"><option value="">watching</option>${CHARS.map(c=>`<option value="${c.id}"${!gm && me===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}<option value="gm"${gm?' selected':''}>🎭 the GM</option></select></label>`;
+  if(!encOn()){
+    head.innerHTML = `<div class="enchead"><h2>No encounter running</h2><span style="margin-left:auto"></span>${meSel}</div>
+      <p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">${gm ? 'Start a fight or a conversation. NPCs come from the library on the GM tab (→ ⚔ encounter), or add them here once it is running.' : 'When the GM starts an encounter, the turn order and the NPCs in the scene appear here.'}</p>
+      ${gm ? `<div class="enchead"><button class="primary" onclick="encStart('combat')">⚔ Start combat</button><button onclick="encStart('social')">💬 Start a conversation</button></div>` : ''}`;
+    orderEl.innerHTML = ''; scene.innerHTML = ''; return;
+  }
+  const combat = e.mode==='combat', order = encOrder(), cur = e.cur, ci = order.indexOf(cur);
+  const upNext = (()=>{ for(let n=1; n<order.length; n++){ const k = order[(Math.max(ci,0)+n) % order.length]; if(!encDown(k)) return k; } return ''; })();
+  head.innerHTML = `<div class="enchead">
+      ${gm ? `<input type="text" class="enctitle" value="${esc(e.title)}" placeholder="Name this encounter (optional)" onchange="encSet('title',this.value)">` : `<h2>${esc(e.title) || (combat ? 'Combat' : 'Conversation')}</h2>`}
+      ${gm ? `<button class="chip ${combat?'on':''}" onclick="encSet('mode','combat')">⚔ Combat</button><button class="chip ${combat?'':'on'}" onclick="encSet('mode','social')">💬 Conversation</button>` : ''}
+      ${combat && cur ? `<span class="encround">Round ${e.round}</span>` : ''}
+      <span style="margin-left:auto"></span>${meSel}
+      ${gm ? `<button class="mini" onclick="encEnd()" title="End the encounter for everyone and write a line to the event log">■ end encounter</button>` : ''}</div>
+    ${!combat ? `<div class="encturn"><b>💬 Conversation</b><small>No turn order. If blasters come out, the GM switches to Combat and everyone rolls initiative.</small></div>`
+      : !cur ? `<div class="encturn"><b>Roll initiative</b><small>Cool if you saw it coming, Vigilance if you did not. Your slot is yours: nobody swaps.</small>
+          ${order.length ? `<button class="primary" onclick="encNext()">▶ Start round 1</button>` : ''}</div>`
+      : `<div class="encturn ${cur==='c_'+me && !gm ? 'mine' : ''}"><b>${cur==='c_'+me && !gm ? '▶ Your turn, '+esc(encName(cur).split(' ')[0]) : order.includes(cur) ? '▶ '+esc(encName(cur)) : '▶ …'}</b>
+          <small>${upNext && upNext!==cur ? `On deck: ${upNext==='c_'+me && !gm ? '<b style="color:var(--gold);font-size:inherit">you</b>' : esc(encName(upNext))}` : ''}</small>
+          <span style="margin-left:auto"></span>${gm ? `<button class="mini" onclick="encBack()" title="Step back one turn">◀ back</button>` : ''}
+          <button class="primary" onclick="encNext()" title="Finish this turn and pass to the next slot">${cur==='c_'+me && !gm ? 'End my turn ▶' : 'Next turn ▶'}</button></div>`}`;
+  // --- initiative order + everyone who has not rolled ---
+  const row = (k, i) => { const x = e[k], pc = k[0]==='c', down = encDown(k);
+    return `<div class="encrow ${pc?'pc':'npc'} ${k===cur?'cur':k===upNext?'next':''} ${down?'down':''}"><span class="pos">${k===cur?'▶':i+1}</span>${encFace(k)}
+      <span class="who"><b>${esc(encName(k))}${x.hid ? ' <small style="display:inline">(hidden)</small>' : ''}</b><small>${pc ? encPcLine(k.slice(2)) : `<span class="cond-${encCond(x)[1]}">${encCond(x)[0]}</span>`}</small></span>
+      <span class="res" onclick="encManual('${k}')" title="${ENC_SK[x.sk]} — click to correct">${encRes(x)}</span></div>`; };
+  const waitPc = CHARS.filter(c=>!(e['c_'+c.id] && (e['c_'+c.id].r || e['c_'+c.id].out)));
+  const sitting = CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].out);
+  const waitNpc = gm ? encNpcKeys().filter(k=>!e[k].r) : [];
+  const rollBtns = (fn, arg) => `<button class="mini atk" onclick="${fn}('${arg}','cool')" title="Ready for it: roll Cool">Cool</button><button class="mini atk" onclick="${fn}('${arg}','vigilance')" title="Caught off guard: roll Vigilance">Vigil.</button>`;
+  orderEl.innerHTML = !combat ? '' : `<h4>Initiative order</h4>${order.map(row).join('') || `<p style="color:var(--dim);font-size:12px">Nobody has rolled yet.</p>`}
+    ${waitPc.length || waitNpc.length ? `<div class="encwait"><h4>Still to roll</h4>
+      ${waitPc.map(c=>`<div class="encrow pc">${encFace('c_'+c.id)}<span class="who"><b>${esc(c.name)}</b></span>${rollBtns('encRollPC', c.id)}<button class="mini" onclick="encManual('c_${c.id}')" title="Type in a result rolled with real dice">✎</button><button class="mini" onclick="encSit('${c.id}',1)" title="Not in this encounter">sit out</button></div>`).join('')}
+      ${waitNpc.map(k=>`<div class="encrow npc">${encFace(k)}<span class="who"><b>${esc(encName(k))}</b></span>${rollBtns('encRollNPC', k)}<button class="mini" onclick="encManual('${k}')" title="Type in a result">✎</button></div>`).join('')}</div>` : ''}
+    ${sitting.length ? `<p style="color:var(--dim);font-size:11.5px;margin-top:8px">Sitting out: ${sitting.map(c=>`${esc(c.name.split(' ')[0])} <button class="mini" onclick="encSit('${c.id}',0)" title="Bring them in">join</button>`).join(' ')}</p>` : ''}`;
+  // --- the scene: NPC cards ---
+  const keys = encNpcKeys().filter(k=>gm || !e[k].hid).sort((x,y)=>encName(x)<encName(y) ? -1 : 1);
+  const lines = txt => esc(txt).trim();
+  const card = k => { const x = e[k], d = x.d, minion = d.type==='minion', al = encAlive(x), [cond, cc] = encCond(x), total = minion ? d.wt*x.count : d.wt;
+    const top = `<div class="top">${d.k ? `<img src="img/species/${esc(d.k)}.png" alt="" onerror="this.style.visibility='hidden'">` : ''}<span style="flex:1;min-width:0"><b>${esc(encName(k))}</b>
+        <small>${gm ? `<span class="badge b-${d.type}">${NPC_TYPES[d.type]}</span>` : ''}${esc(d.sp)}${minion && x.count>1 ? ` · group of ${x.count}` : ''}</small></span>
+        ${gm ? `<button class="mini" onclick="encNpcSet('${k}','hid',${x.hid?0:1})" title="${x.hid ? 'Hidden from the players. Click to reveal.' : 'Visible to the players. Click to hide.'}">${x.hid ? '🙈 reveal' : '👁 shown'}</button><button class="mini" onclick="encNpcDel('${k}')" title="Remove from the encounter">✕</button>` : ''}</div>`;
+    if(!gm) return `<div class="enccard ${cc===3?'down':''}">${top}<div class="track"><b class="cond-${cc}">${cond}</b>${x.disp ? `<span style="color:var(--dim)">· ${x.disp}</span>` : ''}</div></div>`;
+    const trk = (f, label, max) => `<span class="pl">${label} <button class="mini" onclick="encNpcAdj('${k}','${f}',-1)">−</button> <input type="number" min="0" value="${x[f]}" onchange="encNpcSet('${k}','${f}',this.value)"> <button class="mini" onclick="encNpcAdj('${k}','${f}',1)">+</button> / <b>${max}</b></span>`;
+    const g = minion ? Math.max(al, 1) : 1;
+    return `<div class="enccard ${x.hid?'hid':''} ${cc===3?'down':''}">${top}
+      <div class="track">${trk('w','Wounds',total)}${d.st>0 && !minion ? trk('st','Strain',d.st) : ''}</div>
+      <div class="track"><b class="cond-${cc}">${cond}</b>${minion ? `<span class="pl">group of <input type="number" min="1" max="12" value="${x.count}" onchange="encNpcSet('${k}','count',this.value)"></span>` : ''}
+        <select onchange="encNpcSet('${k}','disp',this.value)" title="Disposition toward the party (the players see this)">${ENC_DISP.map(v=>`<option value="${v}"${x.disp===v?' selected':''}>${v || 'disposition…'}</option>`).join('')}</select></div>
+      <div class="stats">Soak <b>${d.soak}</b> · Defense <b>${d.dm}</b> melee / <b>${d.dr}</b> ranged · ${ATTRS.map(([,nm],i)=>`${nm.slice(0,2)} <b>${d.a[i]}</b>`).join(' ')}</div>
+      ${d.w.length ? `<div>${d.w.map(w=>`<div><b>${esc(w.n)}</b> ${npcPool(d, w.sk, g)} <span style="color:var(--dim)">dmg ${esc(w.dam)}${npcDamage(d, w) ? ' ('+npcDamage(d, w)+')' : ''} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : ''}
+      ${d.sk.length ? `<details><summary>Skills</summary><div style="white-space:normal">${d.sk.map(s=>`<span class="pl">${esc(s[0])} ${npcPool(d, s[0], g)}</span>`).join('')}</div></details>` : ''}
+      ${d.tal || d.ab || d.gear || d.notes ? `<details><summary>Talents, abilities, notes</summary>${d.tal ? `<div><b>Talents</b>\n${lines(d.tal)}</div>` : ''}${d.ab ? `<div><b>Abilities</b>\n${lines(d.ab)}</div>` : ''}${d.gear ? `<div><b>Gear</b> ${lines(d.gear)}</div>` : ''}${d.notes ? `<div><b>Notes</b>\n${lines(d.notes)}</div>` : ''}</details>` : ''}</div>`; };
+  scene.innerHTML = `<h4>${combat ? 'In the fight' : 'In the scene'}</h4>
+    ${gm ? `<div class="enchead"><select onchange="encAddNpc(this.value);this.value=''" title="NPCs arrive hidden; reveal them when the players would see them"><option value="">＋ add an NPC from the library…</option>${(S.npcs||[]).map(n=>`<option value="${n.id}">${esc(n.n || 'unnamed')} (${NPC_TYPES[n.type]})</option>`).join('')}</select>
+      ${(S.npcs||[]).length ? '' : `<small style="color:var(--dim)">The library is empty — build NPCs on the GM tab first.</small>`}</div>` : ''}
+    <div class="enccards">${keys.map(card).join('')}</div>${keys.length ? '' : `<p style="color:var(--dim);font-size:12px">${gm ? 'No NPCs in this encounter yet.' : 'Nobody else is in sight.'}</p>`}`;
 }
 
 function initCloud(){
@@ -5750,7 +6003,7 @@ function initCloud(){
    INIT
    ================================================================ */
 function init(){
-  GM_UI.gm = lsGet('st_gm')==='1';
+  GM_UI.gm = lsGet('st_gm')==='1'; ENC_UI.me = cfg(lsGet('st_me')||'') ? lsGet('st_me') : '';
   const restored = loadLocalState();
   S = restored || freshState();
   document.getElementById('envSel').innerHTML =

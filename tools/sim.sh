@@ -532,6 +532,43 @@ print('\n=== SMOKE TEST — UI code paths ===');
       const n4 = S.npcs.length; npcDel(S.npcs[3].id); if(S.npcs.length!==n4-1) throw new Error('delete wrong');
       print(`  NPC builder: ${ADV_DB.length} templates; species numbers by type, minion group pools, weapons from the catalog, copy / delete and the wire all hold`);
       S.npcs = JSON.parse(keepNpcs); GM_UI.npc = ''; GM_UI.grp = 3; gmMode(false); }
+    // Encounter tab: strict initiative order, turns and rounds, NPC cards, hidden NPCs, per-key merge, the wire
+    { const keepS = S; S = freshState(); const rolls0 = ROLLS.length;   // a rested party: nobody is down from hunger
+      if('enc' in syncSubset(S)) throw new Error('no encounter should mean no enc key on the wire');
+      showTab('enc'); gmMode(true); encStart('combat'); if(!encOn() || S.enc.mode!=='combat' || S.enc.cur!=='') throw new Error('encounter did not start');
+      const lib = npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper')), boss = npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Assassin'));
+      const tk = encAddNpc(lib.id, 3), bk = encAddNpc(boss.id), bk2 = encAddNpc(boss.id);
+      if(!S.enc[tk].hid || S.enc[tk].count!==3 || S.enc[bk].count!==1 || encName(bk2)!=='Imperial Assassin #2' || encCopies(boss.id)!==2) throw new Error('adding NPCs wrong');
+      lib.wt = 99; if(S.enc[tk].d.wt!==5) throw new Error('an encounter NPC should be a snapshot, not a link to the library');
+      encSetInit('c_cal', 3, 1); encSetInit('c_bode', 3, 1); encSetInit('c_tann', 1, 0); encSetInit(tk, 3, 1); encSetInit(bk, 4, 0);
+      encRollPC('merrin', 'vigilance'); if(!S.enc.c_merrin.r || S.enc.c_merrin.sk!=='vigilance' || ROLLS.length<=rolls0 || !/Initiative \(Vigilance\)/.test(ROLLS[ROLLS.length-1].l)) throw new Error('initiative roll did not record or reach the feed');
+      encSetInit('c_merrin', 0, 0); encSit('gibbs', 1);
+      let o = encOrder(); if(o.join()!==[bk,'c_bode','c_cal',tk,'c_tann','c_merrin'].join()) throw new Error('order wrong (successes, advantages, PCs before NPCs): '+o.join());
+      encRollNPC(bk2, 'cool'); if(!S.enc[bk2].r || ROLLS[ROLLS.length-1].who!=='GM') throw new Error('a hidden NPC should roll as "GM"'); encSetInit(bk2, 0, 0);
+      gmMode(false); o = encOrder(); if(o.includes(tk) || o.includes(bk) || o.length!==4) throw new Error('hidden NPCs should not be in the players\' order');
+      ENC_UI.me = 'cal'; renderEnc(); let pv = document.getElementById('encScene').innerHTML + document.getElementById('encOrder').innerHTML + document.getElementById('encHead').innerHTML;
+      if(/Stormtrooper|Assassin|Soak/.test(pv) || /undefined|NaN|\[object/.test(pv)) throw new Error('the player view leaks hidden NPCs or is broken');
+      gmMode(true); encNpcSet(tk, 'hid', 0); encNpcSet(bk, 'hid', 0); gmMode(false); renderEnc(); pv = document.getElementById('encScene').innerHTML;
+      if(!/Imperial Stormtrooper/.test(pv) || !/3 of 3 standing/.test(pv) || /Soak|Wounds/.test(pv)) throw new Error('a revealed NPC should show its name and condition only');
+      encNext(); if(S.enc.cur!==bk || S.enc.round!==1) throw new Error('round 1 should start at the top');
+      encNext(); encNext(); if(S.enc.cur!=='c_cal') throw new Error('turn should pass down the order'); renderEnc();
+      if(!/Your turn, Cal/.test(document.getElementById('encHead').innerHTML) || !/End my turn/.test(document.getElementById('encHead').innerHTML)) throw new Error('your-turn banner missing');
+      encNpcSet(tk, 'w', 5); if(encAlive(S.enc[tk])!==2 || encCond(S.enc[tk])[0]!=='2 of 3 standing') throw new Error('minion group should lose one member per threshold of wounds');
+      encNpcAdj(tk, 'w', 10); if(encAlive(S.enc[tk])!==0 || !encDown(tk)) throw new Error('minion group should be defeated');
+      encNext(); if(S.enc.cur!=='c_tann') throw new Error('a defeated group should be skipped');
+      encNext(); encNext(); encNext(); if(S.enc.cur!==bk || S.enc.round!==2) throw new Error('round should advance at the top of the order: '+S.enc.cur+' r'+S.enc.round);
+      encBack(); if(S.enc.cur!==bk2 || S.enc.round!==1) throw new Error('back should step to the end of the previous round: '+S.enc.cur);
+      encNpcSet(bk, 'w', 19); if(encCond(S.enc[bk])[0]!=='Down') throw new Error('past the threshold is down'); encNpcSet(bk, 'w', 9); if(encCond(S.enc[bk])[0]!=='Hurt') throw new Error('half wounds is Hurt');
+      gmMode(true); renderEnc(); const gv = document.getElementById('encScene').innerHTML; if(!/Soak <b>3<\/b>/.test(gv) || !/Disruptor rifle/.test(gv) || /undefined|NaN|\[object/.test(gv)) throw new Error('GM card wrong');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).enc, syncSubset(S).enc) || !wire.enc[tk].d || !Array.isArray(wire.enc[tk].d.sk)) throw new Error('the encounter does not survive the wire');
+      { const base = syncSubset(S), mine = JSON.parse(JSON.stringify(base)), theirs = JSON.parse(JSON.stringify(base));
+        mine.enc.c_cal.s = 9; theirs.enc.c_bode.s = 8; theirs.enc.c_kata = { r:1, s:2, a:0, x:0, sk:'cool', out:0 };
+        const m = threeWayMerge(base, mine, theirs); if(m.enc.c_cal.s!==9 || m.enc.c_bode.s!==8 || !m.enc.c_kata) throw new Error('two players rolling at once should both keep their rolls');
+        const gone = JSON.parse(JSON.stringify(base)); delete gone.enc; if(threeWayMerge(base, mine, gone).enc) throw new Error('an encounter ended elsewhere should stay ended'); }
+      encSet('mode','social'); renderEnc(); if(!/Conversation/.test(document.getElementById('encHead').innerHTML) || document.getElementById('encOrder').innerHTML!=='') throw new Error('conversation mode should drop the turn order');
+      encSet('mode','combat'); encEnd(); if(encOn() || 'enc' in syncSubset(S) || !S.log.some(l=>/Encounter over after 1 round/.test(l.m) && /Defeated: Imperial Stormtrooper/.test(l.m))) throw new Error('ending the encounter wrong: '+S.log.map(l=>l.m).join(' | '));
+      renderEnc(); print(`  encounter: strict order (successes, advantages, PCs first), rounds, skipped casualties, hidden NPCs stay out of the player view, simultaneous rolls merge, survives the wire`);
+      S = keepS; ENC_UI.me = ''; gmMode(false); showTab('tracker'); }
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{
