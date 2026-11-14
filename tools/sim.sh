@@ -34,6 +34,8 @@ STUB
 [ -f lore.js ] && cat lore.js
 [ -f species.js ] && cat species.js
 [ -f adversaries.js ] && cat adversaries.js
+[ -f maps.js ] && cat maps.js
+echo 'if(typeof MAPS==="undefined") var MAPS = [];'
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -605,6 +607,45 @@ print('\n=== SMOKE TEST — UI code paths ===');
       encEnd(); renderEnc(); if(!/Cal's options/.test(document.getElementById('encPanel').innerHTML)) throw new Error('options should stay available outside an encounter');
       print(`  encounter options: talents sort into offense / defense / force / utility; range, defense and Adversary set the pool; hits apply once after soak and Pierce; second maneuver costs strain`);
       S = keepS; setRolls(ROLLS.filter(e=>![1111,2222,3333].includes(e.ts))); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', cat:'offense' }); poolClear(); gmMode(false); showTab('tracker'); }
+    // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
+      if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
+      for(const bad of ['javascript:alert(1)', 'img/maps/../../x.png', 'img/x.png', 'data:image/png;base64,AAAA', 'https://a.b/c.png" onerror="x', '']) if(mapSrcOk(bad)) throw new Error('bad map source accepted: '+bad);
+      for(const ok of ['img/maps/Docking Bay (night).jpg', 'https://example.com/a/map.png?x=1', 'room:ab12cd34ef']) if(!mapSrcOk(ok)) throw new Error('good map source refused: '+ok);
+      mapSetSrc('img/maps/test.png'); if(!mapOn() || S.map.sc!==0) throw new Error('map did not start');
+      MAP_UI.asp = 0.5; mapCal(0.1); if(S.map.sc!==0.1 || MAP_UI.tool!=='move') throw new Error('calibration wrong');
+      const bands = [[0.015,'Engaged'],[0.09,'Short'],[0.25,'Medium'],[0.7,'Long'],[0.95,'Extreme']]; for(const [d, want] of bands) if(mapBandFor(d)!==want) throw new Error(`${d} map widths should be ${want}, got ${mapBandFor(d)}`);
+      if(mapDist({x:0,y:0},{x:0,y:1})!==0.5) throw new Error('vertical distance should use the picture\'s shape');
+      encStart('combat'); const tk = encAddNpc(npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper')).id, 3);
+      const p0 = mapPos('c_cal'), n0 = mapPos(tk); if(!(p0.x<0.2) || !(n0.x>0.8) || S.map.t_c_cal) throw new Error('unplaced tokens should wait at the edges without being stored');
+      if(mapBandKeys('c_cal', tk)!=='') throw new Error('range should not be read off the map until both tokens are placed');
+      mapTokenSet('c_cal', 0.2, 0.5); mapTokenSet(tk, 0.45, 0.5); if(mapBandKeys('c_cal', tk)!=='Medium') throw new Error('0.25 apart at scale 0.1 should be Medium: '+mapBandKeys('c_cal', tk));
+      mapTokenSet('constructor', 0.5, 0.5); mapTokenSet('c_cal', 7, -3); if(S.map.t_constructor || S.map.t_c_cal.x!==1 || S.map.t_c_cal.y!==0) throw new Error('token positions should be validated and clamped');
+      mapTokenSet('c_cal', 0.2, 0.5);
+      const cal = st('cal'); cal.inv.push({ name:'Light Blaster Pistol', ref:'Light Blaster Pistol', type:'Weapon', eq:1, qty:1 });
+      encNpcSet(tk,'hid',0); ENC_UI.tgt = tk; ENC_UI.rng = 'Extreme'; encAttackPC('cal', cal.inv.length-1);
+      if(DICE_UI.pool.d!==2 || !/Medium range \(from the map\)/.test(DICE_UI.weapon.note)) throw new Error('the attack should take Medium from the map, not the manual pick: '+DICE_UI.weapon.note);
+      encAttackPC('cal', -1); if(!/close to Engaged first/.test(DICE_UI.weapon.note)) throw new Error('a melee attack from Medium should say so');
+      mapTokenSet(tk, 0.21, 0.5); encAttackPC('cal', cal.inv.length-1); if(DICE_UI.pool.d!==2 || !/Engaged range/.test(DICE_UI.weapon.note)) throw new Error('a pistol at Engaged should be Average');
+      MAP_UI.color = 2; mapStrokeAdd([0.1,0.1,0.2,0.2,0.3,0.1]); mapStrokeAdd([0.5,0.5]); const lines = () => Object.keys(S.map).filter(k=>k.startsWith('d_'));
+      if(lines().length!==1 || S.map[lines()[0]].c!==2 || S.map[lines()[0]].p.length!==6) throw new Error('drawing a line wrong');
+      renderEnc(); const mh = document.getElementById('mapToks').innerHTML, sv = document.getElementById('mapSvg').innerHTML;
+      if(!/data-k="c_cal"/.test(mh) || !/data-k="n_/.test(mh) || !/<i>3<\/i>/.test(mh) || !/polyline/.test(sv) || /undefined|NaN|\[object/.test(mh+sv)) throw new Error('map layers render wrong');
+      MAP_UI.sel = 'c_cal'; renderMapLayers(); if((document.getElementById('mapSvg').innerHTML.match(/<circle/g)||[]).length!==MAP_BANDS.length || !/Stormtrooper <b>Engaged<\/b>|Imperial <b>Engaged<\/b>/.test(document.getElementById('mapInfo').innerHTML)) throw new Error('range rings or the range list missing: '+document.getElementById('mapInfo').innerHTML);
+      encNpcSet(tk,'hid',1); gmMode(false); renderEnc(); if(/data-k="n_/.test(document.getElementById('mapToks').innerHTML) || /Set scale|remove map|upload/.test(document.getElementById('mapBar').innerHTML)) throw new Error('players should not see hidden tokens or the GM\'s map controls');
+      gmMode(true); const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).map, syncSubset(S).map) || !Array.isArray(wire.map[lines()[0]].p) || wire.map.sc!==0.1) throw new Error('the map does not survive the wire');
+      if(normMap({ on:1, src:'javascript:alert(1)', t_c_cal:{x:.5,y:.5} }).on) throw new Error('a bad source off the wire should mean no map');
+      { const base = syncSubset(S), mine = JSON.parse(JSON.stringify(base)), theirs = JSON.parse(JSON.stringify(base));
+        mine.map.t_c_cal = { x:0.6, y:0.6 }; theirs.map.t_c_bode = { x:0.3, y:0.3 }; delete theirs.map[lines()[0]];
+        const m = threeWayMerge(base, mine, theirs); if(m.map.t_c_cal.x!==0.6 || !m.map.t_c_bode || m.map[lines()[0]]) throw new Error('two people moving different tokens should both land');
+        const gone = JSON.parse(JSON.stringify(base)); delete gone.map; if(threeWayMerge(base, mine, gone).map) throw new Error('a map removed elsewhere should stay removed'); }
+      mapUndo(); if(lines().length!==0) throw new Error('undo should remove my last line');
+      mapClear('t'); if(Object.keys(S.map).some(k=>k.startsWith('t_'))) throw new Error('reset tokens wrong');
+      mapSetSrc('https://example.com/other.png'); if(S.map.sc!==0 || S.map.src!=='https://example.com/other.png') throw new Error('a new map should start uncalibrated');
+      mapRemove(); if(mapOn() || 'map' in syncSubset(S)) throw new Error('removing the map wrong'); renderEnc();
+      gmMode(false); renderEnc(); if(document.getElementById('encMap').style.display!=='none') throw new Error('with no map, players should not see the map box');
+      print(`  map: sources checked, tokens clamp and merge per token, one Short-range drag sets every band, attacks read their range from the map, hidden tokens stay hidden, survives the wire`);
+      S = keepS; Object.assign(MAP_UI, { tool:'move', color:0, sel:'', ruler:null, drag:null, asp:0.625, mine:[] }); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', cat:'offense' }); poolClear(); showTab('tracker'); }
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{

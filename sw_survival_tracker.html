@@ -446,6 +446,20 @@
   .enccard .pl{white-space:nowrap;margin-right:8px;display:inline-block}
   .cond-0{color:var(--good)} .cond-1{color:var(--warn)} .cond-2{color:var(--bad)} .cond-3{color:var(--dim)}
   @media(max-width:820px){ .enccols{grid-template-columns:1fr} }
+  /* Encounter tab: the map */
+  .mapbar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:8px} .mapbar label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
+  .mapbar h3{font-size:14px;color:var(--gold);letter-spacing:1px;text-transform:uppercase} .mapbar input[type=text]{width:200px}
+  .mapdot{width:18px;height:18px;border-radius:50%;padding:0;border:2px solid var(--border)} .mapdot.on{border-color:#fff}
+  #mapFrame{position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#0a0d12;user-select:none;-webkit-user-select:none;line-height:0}
+  #mapFrame.tooling{touch-action:none;cursor:crosshair}
+  #mapFrame img.mapimg{width:100%;height:auto;display:block;pointer-events:none}
+  #mapSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .mtok{position:absolute;width:5%;min-width:26px;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;border:2px solid var(--good);background:#1c2330 center/cover no-repeat;cursor:grab;touch-action:none;box-shadow:0 1px 4px #000a;line-height:1}
+  .mtok.npc{border-color:var(--bad);background-size:contain} .mtok.cur{box-shadow:0 0 0 3px var(--gold),0 1px 4px #000a} .mtok.sel{box-shadow:0 0 0 3px #fff,0 1px 4px #000a} .mtok.down{filter:grayscale(1) brightness(.6)} .mtok.hid{opacity:.55;border-style:dashed}
+  .mtok span{position:absolute;left:50%;top:100%;transform:translateX(-50%);font-size:10px;font-weight:700;white-space:nowrap;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none;padding-top:1px}
+  .mtok i{position:absolute;right:-6px;top:-6px;background:var(--bad);color:#fff;font-style:normal;font-size:10px;font-weight:700;border-radius:8px;padding:0 4px;line-height:14px;pointer-events:none}
+  .mtok b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;pointer-events:none}
+  .mapinfo{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.5} .mapinfo b{color:var(--text)}
   /* Encounter tab: a character's options */
   .abhead{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:8px} .abhead h3{font-size:14px;color:var(--gold);letter-spacing:1px;text-transform:uppercase}
   .abhead label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
@@ -634,7 +648,7 @@
 <div id="enc"><div class="itemswrap">
   <div id="encHead"></div>
   <div class="enccols"><div id="encOrder"></div><div id="encScene"></div></div>
-</div><div class="itemswrap" id="encPanel" style="margin-top:12px"></div><div id="encDice" style="margin-top:12px"></div></div>
+</div><div class="itemswrap" id="encMap" style="margin-top:12px;display:none"></div><div class="itemswrap" id="encPanel" style="margin-top:12px"></div><div id="encDice" style="margin-top:12px"></div></div>
 
 <div id="dice"><div class="dicewrap" id="diceWrap">
   <div class="dpanel">
@@ -1242,7 +1256,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], enc: {}, destiny: {light:0, dark:0} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], enc: {}, map: {}, destiny: {light:0, dark:0} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1292,6 +1306,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
+  s.map = normMap(s.map);      // the map on the table, same idea
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
@@ -5341,7 +5356,7 @@ function pushLocal(){
     if(k==='chars'){
       const a = cur.chars||[], b = (prev&&prev.chars)||[];
       for(let i=0;i<a.length;i++) if(!same(a[i], b[i])) updates['chars/'+i]=a[i];
-    } else if(k==='ship' || k==='enc'){   // per-subkey, so concurrent edits to different ship systems (or two players rolling initiative) don't clobber
+    } else if(k==='ship' || k==='enc' || k==='map'){   // per-subkey, so concurrent edits to different ship systems (or two players rolling initiative) don't clobber
       const a = cur[k]||{}, b = (prev&&prev[k])||{};
       for(const kk of new Set([...Object.keys(a), ...Object.keys(b)]))
         if(!same(a[kk], b[kk])) updates[k+'/'+kk] = a[kk]===undefined ? null : a[kk];
@@ -5388,12 +5403,12 @@ function threeWayMerge(base, local, remote){
       out.ship = out.ship || {};
       for(const kk in L) if(!same(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
       for(const kk in B) if(!(kk in L)) delete out.ship[kk];                   // we emptied this list
-    } else if(k==='enc'){    // same idea for the encounter: each participant is its own subkey
-      if(!remote.enc && base.enc) continue;                                    // ended by someone else: it stays ended
-      const L=local.enc||{}, B=base.enc||{};
-      out.enc = out.enc || {};
-      for(const kk in L) if(!same(L[kk], B[kk])) out.enc[kk] = L[kk];
-      for(const kk in B) if(!(kk in L)) delete out.enc[kk];
+    } else if(k==='enc' || k==='map'){    // same idea for the encounter and the map: each participant, token and line is its own subkey
+      if(!remote[k] && base[k]) continue;                                      // ended / removed by someone else: it stays gone
+      const L=local[k]||{}, B=base[k]||{};
+      out[k] = out[k] || {};
+      for(const kk in L) if(!same(L[kk], B[kk])) out[k][kk] = L[kk];
+      for(const kk in B) if(!(kk in L)) delete out[k][kk];
     } else if(!same(local[k], base[k])){
       out[k] = local[k];                                                     // we edited this field
     }
@@ -5560,7 +5575,17 @@ function advLoad(cb){   // NPC templates (adversaries.js); the builder works wit
   const sc = document.createElement('script'); sc.src = 'adversaries.js'; sc.onload = done; sc.onerror = done;
   document.head.appendChild(sc);
 }
-function gmLoad(cb){ speciesLoad(()=>advLoad(cb)); }
+let MAPS_DB = null, MAPS_WAIT = null;
+function mapsLoad(cb){   // the list of map files in img/maps (maps.js, written by deploy.sh); optional
+  if(MAPS_DB) return cb();
+  if(typeof MAPS!=='undefined'){ MAPS_DB = MAPS; return cb(); }
+  if(MAPS_WAIT){ MAPS_WAIT.push(cb); return; }
+  MAPS_WAIT = [cb];
+  const done = () => { MAPS_DB = typeof MAPS!=='undefined' ? MAPS : []; const w = MAPS_WAIT; MAPS_WAIT = null; w.forEach(f=>f()); };
+  const sc = document.createElement('script'); sc.src = 'maps.js'; sc.onload = done; sc.onerror = done;
+  document.head.appendChild(sc);
+}
+function gmLoad(cb){ speciesLoad(()=>advLoad(()=>mapsLoad(cb))); }
 function gmMode(on){ GM_UI.gm = !!on; lsSet('st_gm', on?'1':'0'); if(!on) GM_UI.sec = 'species'; renderGM(); }
 function gmSec(s){ GM_UI.sec = s; renderGM(); }
 function renderGM(){
@@ -5927,7 +5952,7 @@ function renderEnc(){
     head.innerHTML = `<div class="enchead"><h2>No encounter running</h2><span style="margin-left:auto"></span>${meSel}</div>
       <p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">${gm ? 'Start a fight or a conversation. NPCs come from the library on the GM tab (→ ⚔ encounter), or add them here once it is running.' : 'When the GM starts an encounter, the turn order and the NPCs in the scene appear here.'}</p>
       ${gm ? `<div class="enchead"><button class="primary" onclick="encStart('combat')">⚔ Start combat</button><button onclick="encStart('social')">💬 Start a conversation</button></div>` : ''}`;
-    orderEl.innerHTML = ''; scene.innerHTML = ''; renderEncPanel(); return;
+    orderEl.innerHTML = ''; scene.innerHTML = ''; renderMap(); renderEncPanel(); return;
   }
   const combat = e.mode==='combat', order = encOrder(), cur = e.cur, ci = order.indexOf(cur);
   const upNext = (()=>{ for(let n=1; n<order.length; n++){ const k = order[(Math.max(ci,0)+n) % order.length]; if(!encDown(k)) return k; } return ''; })();
@@ -5981,7 +6006,7 @@ function renderEnc(){
       ${(S.npcs||[]).length ? '' : `<small style="color:var(--dim)">The library is empty — build NPCs on the GM tab first.</small>`}
       <label title="Who the ⚔ buttons on the NPC cards attack, and from how far. Sets the difficulty and the target's defense for you.">NPCs attack <select onchange="ENC_UI.tpc=this.value">${`<option value="">nobody yet</option>` + CHARS.filter(c=>!(e['c_'+c.id]||{}).out).map(c=>`<option value="c_${c.id}"${ENC_UI.tpc==='c_'+c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select> at ${encRangeSel()}</label></div>` : ''}
     <div class="enccards">${keys.map(card).join('')}</div>${keys.length ? '' : `<p style="color:var(--dim);font-size:12px">${gm ? 'No NPCs in this encounter yet.' : 'Nobody else is in sight.'}</p>`}`;
-  renderEncPanel(); renderFeed();   // the feed's "apply" buttons depend on the encounter
+  renderMap(); renderEncPanel(); renderFeed();   // the feed's "apply" buttons depend on the encounter
 }
 
 /* ---- a character's options in an encounter ------------------------
@@ -6039,10 +6064,12 @@ function encTargetStats(key, ranged){
 }
 function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, dam, crit, q, wrng, src, tgt, cs }
   const ranged = !['brawl','melee','lightsaber'].includes(a.skillKey);
-  const band = ranged ? (ENC_UI.rng || 'Medium') : 'Engaged', T = a.tgt ? encTargetStats(a.tgt, ranged) : null;
+  const seen = a.ak && a.tgt ? mapBandKeys(a.ak, a.tgt) : '';   // both tokens on a calibrated map: the range is read off it
+  const band = ranged ? (seen || ENC_UI.rng || 'Medium') : 'Engaged', T = a.tgt ? encTargetStats(a.tgt, ranged) : null;
   let d = encDifficulty(a.skillKey, band), c = 0;
   for(let i=0; i<(a.upg||0) + (T ? T.adv : 0); i++){ if(d>0){ d--; c++; } else d++; }
-  const notes = [`${band} range: ${['Simple','Easy','Average','Hard','Daunting','Formidable'][encDifficulty(a.skillKey, band)]}`];
+  const notes = [`${band} range${ranged && seen ? ' (from the map)' : ''}: ${['Simple','Easy','Average','Hard','Daunting','Formidable'][encDifficulty(a.skillKey, band)]}`];
+  if(!ranged && seen && seen!=='Engaged') notes.push(`the map shows ${seen.toLowerCase()} range — close to Engaged first`);
   if(ranged && band==='Engaged') notes.push('shooting while engaged is harder');
   if(ranged && a.wrng && encBandI(band) > encBandI(a.wrng)) notes.push(`beyond this weapon's ${a.wrng.toLowerCase()} range`);
   if(T && T.def) notes.push(`${T.name}'s defense: ${T.def} Setback`);
@@ -6062,12 +6089,12 @@ function encAttackPC(id, i){   // i = inventory row, or -1 for fists
   const tgt = S.enc && S.enc[ENC_UI.tgt] && !encDown(ENC_UI.tgt) ? ENC_UI.tgt : '';
   if(i<0){
     const sk = SKILLS.find(x=>x.k==='brawl'), s = skillState(cs, sk);
-    return encLoadAttack({ who:id, label:'Brawl'+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, skillKey:'brawl', n:'Unarmed', dam:cs.attr.br||0, crit:5, q:'Disorient 1, Knockdown, Stun Setting', tgt, cs });
+    return encLoadAttack({ ak:'c_'+id, who:id, label:'Brawl'+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, skillKey:'brawl', n:'Unarmed', dam:cs.attr.br||0, crit:5, q:'Disorient 1, Knockdown, Stun Setting', tgt, cs });
   }
   const it = cs.inv[i]; if(!it) return;
   const w = weaponState(cs, it), s = skillState(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
-  encLoadAttack({ who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
+  encLoadAttack({ ak:'c_'+id, who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
     wnote: t.setb ? `${t.name} weapon: ${t.setb} Setback${t.upg?' and an upgraded difficulty':''}` : '', src:{ id, i, name:it.name }, tgt, cs });
 }
 function encAttackNPC(k, wi){
@@ -6075,7 +6102,7 @@ function encAttackNPC(k, wi){
   const d = x.d, def = npcSkillDef(w.sk), pool = npcPoolDice(d, w.sk, encAlive(x) || 1) || { p:0, a:0 };
   const tgt = S.enc[ENC_UI.tpc] && !S.enc[ENC_UI.tpc].out ? ENC_UI.tpc : (cfg(String(ENC_UI.tpc).slice(2)) ? ENC_UI.tpc : '');
   const dam = /^\+\d+$/.test(w.dam) ? d.a[0] + +w.dam : numOr(w.dam);
-  encLoadAttack({ who:'gm', label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
+  encLoadAttack({ ak:k, who:'gm', label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
 }
 // the feed card of an attack that named a target: damage after soak, and buttons to apply it
 function encHit(w, r){
@@ -6158,6 +6185,200 @@ function encForce(id, power){   // free Force dice into the tray, without leavin
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = power;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+/* ================================================================
+   MAP — one image on the table, tokens for everyone in the scene, range rings,
+   a ruler and freehand lines. S.map is {} with no map, otherwise (synced per subkey,
+   so two people dragging different tokens never collide):
+     { on:1, src  'img/maps/<file>' | 'https://…' | 'room:<id>' (an upload kept beside the room),
+       sc   the length of Short range, as a fraction of the map's width (0 = not calibrated),
+       t_<orderKey>: { x, y }   token positions, 0–1 across and down (orderKey = c_<charId> / n_<id>),
+       d_<id>:       { p [x,y,x,y…], c colour index, by } a drawn line }
+   No grid: FFG measures in range bands, so the GM drags once across "Short" and every
+   other band is a multiple of that (MAP_BANDS). Positions are fractions, so every screen agrees.
+   ================================================================ */
+const MAP_BANDS = [['Engaged',0.2], ['Short',1], ['Medium',3], ['Long',8]];   // × the calibrated Short distance; past the last is Extreme
+const MAP_COLORS = ['#ffd97a','#ff6b6b','#58a6ff','#3fb950','#ffffff'];
+const MAP_UI = { tool:'move', color:0, sel:'', ruler:null, drag:null, asp:0.625, temp:'', mine:[] };
+const MAP_IMG = {};   // uploaded images by id (data URLs), fetched once per device
+const r4 = v => Math.round(clamp(+v||0, 0, 1)*10000)/10000;
+const mapSrcOk = s => typeof s==='string' && s.length<=500 && /^(img\/maps\/[\w.\-() %]+\.(png|jpe?g|webp|gif)|https?:\/\/[^\s"'<>]+|room:[a-z0-9]+)$/i.test(s);
+function normMap(m){
+  if(!m || typeof m!=='object' || !m.on || !mapSrcOk(m.src)) return {};
+  const o = { on:1, src:m.src, sc: Math.round(clamp(+m.sc||0, 0, 1)*10000)/10000 };
+  for(const k in m){
+    const v = m[k]; if(!v || typeof v!=='object') continue;
+    if(/^t_[cn]_[a-z0-9]+$/i.test(k)) o[k] = { x:r4(v.x), y:r4(v.y) };
+    else if(/^d_[a-z0-9]+$/.test(k)){ const p = arrayify(v.p); if(Array.isArray(p) && p.length>=4) o[k] = { p:p.slice(0,400).map(r4), c:npcInt(v.c, 0, MAP_COLORS.length-1, 0), by:String(v.by||'').slice(0,40) }; }
+  }
+  return o;
+}
+const mapOn = () => !!(S.map && S.map.on);
+function mapImgFetch(id){
+  if(MAP_IMG[id]!==undefined) return;
+  MAP_IMG[id] = '';
+  const got = v => { if(typeof v==='string' && /^data:image\//.test(v)){ MAP_IMG[id] = v; renderMap(); } };
+  if(CLOUD.db && CLOUD.room) CLOUD.db.ref('rooms/'+CLOUD.room+'/mapimg/'+id).once('value').then(s=>got(s.val())).catch(()=>{ delete MAP_IMG[id]; });
+  else got(lsGet('st_mapimg_'+id));
+}
+function mapUrl(src){
+  if(src.startsWith('room:')){ const id = src.slice(5); if(!MAP_IMG[id]) mapImgFetch(id); return MAP_IMG[id] || ''; }
+  return src.startsWith('img/') ? encodeURI(src) : src;
+}
+function mapImgDrop(src){   // an uploaded image nobody points at any more
+  if(!src || !src.startsWith('room:')) return;
+  const id = src.slice(5); delete MAP_IMG[id];
+  if(CLOUD.db && CLOUD.room) CLOUD.db.ref('rooms/'+CLOUD.room+'/mapimg/'+id).remove().catch(()=>{});
+  else try{ localStorage.removeItem('st_mapimg_'+id); }catch(e){}
+}
+function mapSetSrc(src){
+  src = String(src||'').trim(); if(!src) return;
+  if(!mapSrcOk(src)){ alert('That does not look like a map: pick a file from img/maps, or paste a link that starts with https://'); return; }
+  const old = S.map && S.map.src; if(old===src) return;
+  S.map = normMap({ on:1, src }); if(old) mapImgDrop(old);
+  Object.assign(MAP_UI, { sel:'', ruler:null, mine:[], tool:'move' });
+  logMsg('🗺 A new map is on the table.'); render();
+}
+function mapRemove(){
+  if(!mapOn() || !confirm('Take the map off the table for everyone? Tokens and drawings on it are cleared.')) return;
+  mapImgDrop(S.map.src); S.map = {}; render();
+}
+function mapUpload(input){   // shrink in the browser, keep beside the room (not in the synced state)
+  const f = input.files && input.files[0]; input.value = ''; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { const im = new Image();
+    im.onload = () => {
+      let data = '';
+      for(const [side, q] of [[1800,.82],[1500,.75],[1200,.7],[1000,.6]]){
+        const k = Math.min(1, side/Math.max(im.width, im.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(im.width*k); cv.height = Math.round(im.height*k); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+        data = cv.toDataURL('image/jpeg', q); if(data.length < 900000) break;
+      }
+      if(data.length >= 900000){ alert('That image is too detailed to share even after shrinking. Try a smaller picture, or put it in img/maps and deploy.'); return; }
+      const id = randomId().slice(0,10); MAP_IMG[id] = data;
+      const go = () => mapSetSrc('room:'+id);
+      if(CLOUD.db && CLOUD.room) CLOUD.db.ref('rooms/'+CLOUD.room+'/mapimg/'+id).set(data).then(go).catch(e=>syncNote('Map not sent: '+e.message, 'bad'));
+      else { try{ localStorage.setItem('st_mapimg_'+id, data); }catch(e){} go(); }
+    };
+    im.onerror = () => alert('That file is not an image this browser can read.');
+    im.src = rd.result; };
+  rd.readAsDataURL(f);
+}
+// who has a token: every character not sitting out, and the encounter's NPCs (hidden ones only for the GM)
+function mapTokenKeys(){
+  const e = S.enc || {};
+  return CHARS.filter(c=>!(e['c_'+c.id]||{}).out).map(c=>'c_'+c.id).concat(encOn() ? encNpcKeys().filter(k=>encIsGM() || !e[k].hid) : []);
+}
+function mapPos(key){   // where a token is; one not yet dragged waits along the edge (characters left, NPCs right)
+  const p = S.map['t_'+key]; if(p) return p;
+  const same = mapTokenKeys().filter(k=>k[0]===key[0]), i = Math.max(0, same.indexOf(key));
+  return { x: key[0]==='c' ? 0.05 + 0.06*Math.floor(i/8) : 0.95 - 0.06*Math.floor(i/8), y: 0.08 + 0.11*(i%8) };
+}
+const mapDist = (a, b) => Math.hypot(a.x-b.x, (a.y-b.y)*MAP_UI.asp);   // in map widths
+function mapBandFor(d){ const sc = mapOn() ? S.map.sc : 0; if(!(sc>0)) return ''; for(const [n, m] of MAP_BANDS) if(d <= sc*m) return n; return 'Extreme'; }
+function mapBandKeys(k1, k2){ if(!mapOn() || !(S.map.sc>0)) return ''; const a = S.map['t_'+k1], b = S.map['t_'+k2]; return a && b ? mapBandFor(mapDist(a, b)) : ''; }
+function mapTokenSet(key, x, y){ if(!mapOn() || !/^[cn]_[a-z0-9]+$/i.test(key)) return; S.map['t_'+key] = { x:r4(x), y:r4(y) }; render(); }
+function mapCal(d){ if(!mapOn()) return; S.map.sc = Math.round(clamp(d, 0.005, 1)*10000)/10000; MAP_UI.tool = 'move'; logMsg('🗺 Map scale set: range rings and the ruler now read in range bands.'); render(); }
+function mapStrokeAdd(pts){
+  if(!mapOn() || pts.length<4) return;
+  if(Object.keys(S.map).filter(k=>k.startsWith('d_')).length >= 150){ alert('The map is full of lines — clear some first.'); return; }
+  const id = randomId().slice(0,8); S.map['d_'+id] = { p:pts.slice(0,400).map(r4), c:MAP_UI.color, by:String(CLOUD.player||'').slice(0,40) };
+  MAP_UI.mine.push(id); render();
+}
+function mapUndo(){ while(MAP_UI.mine.length){ const id = MAP_UI.mine.pop(); if(S.map['d_'+id]){ delete S.map['d_'+id]; render(); return; } } }
+function mapClear(what){
+  if(!mapOn() || !confirm(what==='d' ? 'Erase every line drawn on the map?' : 'Send every token back to the edge of the map?')) return;
+  for(const k of Object.keys(S.map)) if(k.startsWith(what+'_')) delete S.map[k];
+  render();
+}
+function mapTool(t){ MAP_UI.tool = t; MAP_UI.ruler = null; renderMap(); }
+// --- pointer handling: drag a token, or drag out a ruler / calibration line / drawn line ---
+function mapPoint(ev){ const r = document.getElementById('mapFrame').getBoundingClientRect(); return { x: clamp((ev.clientX-r.left)/r.width, 0, 1), y: clamp((ev.clientY-r.top)/r.height, 0, 1) }; }
+const mapXY = p => `${(p.x*1000).toFixed(1)},${(p.y*1000*MAP_UI.asp).toFixed(1)}`;
+function mapLine(a, b, label, color){
+  const mx = (a.x+b.x)*500, my = (a.y+b.y)*500*MAP_UI.asp;
+  return `<line x1="${a.x*1000}" y1="${a.y*1000*MAP_UI.asp}" x2="${b.x*1000}" y2="${b.y*1000*MAP_UI.asp}" stroke="${color}" stroke-width="3" stroke-dasharray="10 6"/>` +
+    (label ? `<text x="${mx}" y="${my-8}" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" stroke="#000" stroke-width="5" paint-order="stroke">${label}</text>` : '');
+}
+function mapDown(ev){
+  if(!mapOn()) return;
+  const tok = ev.target && ev.target.closest && ev.target.closest('.mtok'), pt = mapPoint(ev), frame = document.getElementById('mapFrame');
+  if(MAP_UI.tool==='move'){
+    if(!tok){ if(MAP_UI.sel || MAP_UI.ruler){ MAP_UI.sel = ''; MAP_UI.ruler = null; renderMapLayers(); } return; }
+    MAP_UI.drag = { key:tok.dataset.k, el:tok, a:mapPos(tok.dataset.k), moved:false };
+  } else MAP_UI.drag = { tool:MAP_UI.tool, a:pt, pts:[r4(pt.x), r4(pt.y)] };
+  try{ frame.setPointerCapture(ev.pointerId); }catch(e){}
+  ev.preventDefault();
+}
+function mapMove(ev){
+  const d = MAP_UI.drag; if(!d) return;
+  const pt = mapPoint(ev), tmp = document.getElementById('mapTemp');
+  if(d.key){
+    if(mapDist(d.a, pt) > 0.006) d.moved = true;
+    if(d.moved){ d.el.style.left = (pt.x*100)+'%'; d.el.style.top = (pt.y*100)+'%'; if(tmp) tmp.innerHTML = mapLine(d.a, pt, mapBandFor(mapDist(d.a, pt)), '#ffffff'); }
+  } else if(d.tool==='draw'){
+    const n = d.pts.length; if(Math.hypot(pt.x-d.pts[n-2], pt.y-d.pts[n-1]) > 0.004 && n<400) d.pts.push(r4(pt.x), r4(pt.y));
+    if(tmp) tmp.innerHTML = mapStrokeSvg(d.pts, MAP_UI.color);
+  } else if(tmp) tmp.innerHTML = mapLine(d.a, pt, d.tool==='cal' ? 'Short range' : mapBandFor(mapDist(d.a, pt)), d.tool==='cal' ? '#ffd97a' : '#ffffff');
+}
+function mapUp(ev){
+  const d = MAP_UI.drag; if(!d) return;
+  MAP_UI.drag = null;
+  const pt = mapPoint(ev), tmp = document.getElementById('mapTemp'); if(tmp) tmp.innerHTML = '';
+  if(d.key){ if(d.moved) mapTokenSet(d.key, pt.x, pt.y); else { MAP_UI.sel = MAP_UI.sel===d.key ? '' : d.key; renderMapLayers(); } }
+  else if(d.tool==='draw') mapStrokeAdd(d.pts);
+  else if(d.tool==='cal'){ if(mapDist(d.a, pt) > 0.005) mapCal(mapDist(d.a, pt)); }
+  else { MAP_UI.ruler = { a:d.a, b:pt }; renderMapLayers(); }
+}
+const mapStrokeSvg = (p, c) => `<polyline fill="none" stroke="${MAP_COLORS[c]||MAP_COLORS[0]}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="${p.map((v,i)=> i%2 ? (v*1000*MAP_UI.asp).toFixed(1) : (v*1000).toFixed(1)).join(' ')}"/>`;
+function renderMapLayers(){   // everything that changes without changing the picture: lines, rings, tokens, the note underneath
+  const svg = document.getElementById('mapSvg'), toks = document.getElementById('mapToks'), info = document.getElementById('mapInfo'); if(!svg || !mapOn()) return;
+  const m = S.map, gm = encIsGM(), keys = mapTokenKeys(), cur = encOn() ? S.enc.cur : '';
+  if(MAP_UI.sel && !keys.includes(MAP_UI.sel)) MAP_UI.sel = '';
+  let h = Object.keys(m).filter(k=>k.startsWith('d_')).map(k=>mapStrokeSvg(m[k].p, m[k].c)).join('');
+  if(MAP_UI.sel && m.sc>0){ const c = mapPos(MAP_UI.sel);
+    h += MAP_BANDS.map(([n, mult], i)=>{ const r = m.sc*mult*1000; return `<circle cx="${c.x*1000}" cy="${c.y*1000*MAP_UI.asp}" r="${r}" fill="${i===0?'rgba(255,255,255,.08)':'none'}" stroke="#fff" stroke-opacity="${.9-.18*i}" stroke-width="2.5" stroke-dasharray="${i?'12 8':''}"/>` +
+      (i ? `<text x="${c.x*1000}" y="${c.y*1000*MAP_UI.asp - r + 24}" text-anchor="middle" font-size="20" font-weight="700" fill="#fff" stroke="#000" stroke-width="5" paint-order="stroke">${n}</text>` : ''); }).join(''); }
+  if(MAP_UI.ruler) h += mapLine(MAP_UI.ruler.a, MAP_UI.ruler.b, mapBandFor(mapDist(MAP_UI.ruler.a, MAP_UI.ruler.b)) || 'no scale yet', '#ffffff');
+  svg.setAttribute && svg.setAttribute('viewBox', `0 0 1000 ${(1000*MAP_UI.asp).toFixed(1)}`);
+  svg.innerHTML = h + `<g id="mapTemp"></g>`;
+  toks.innerHTML = keys.map(k=>{ const p = mapPos(k), pc = k[0]==='c', x = pc ? null : S.enc[k], name = encOn() || pc ? (pc ? cfg(k.slice(2)).name : encName(k)) : '';
+    const bg = pc ? `url(img/${k.slice(2)}.png), url(img/${k.slice(2)}.jpg)` : (x.d.k ? `url(img/species/${esc(x.d.k)}.png)` : 'none');
+    const al = x && x.d.type==='minion' ? encAlive(x) : 0;
+    return `<div class="mtok ${pc?'pc':'npc'} ${k===cur?'cur':''} ${k===MAP_UI.sel?'sel':''} ${(pc ? encOn() && encDown(k) : encDown(k)) ? 'down':''} ${x && x.hid ? 'hid':''}" data-k="${k}" style="left:${p.x*100}%;top:${p.y*100}%;background-image:${bg}" title="${esc(name)}">${!pc && !x.d.k ? `<b>${esc((name||'?')[0])}</b>` : ''}${al>1 ? `<i>${al}</i>` : ''}<span>${esc(name.split(' ')[0])}</span></div>`; }).join('');
+  if(info){
+    const sel = MAP_UI.sel, placed = k => !!m['t_'+k];
+    info.innerHTML = !(m.sc>0) ? (gm ? 'No scale yet. Choose <b>📏 Set scale</b>, then drag across a distance you would call Short range (a few paces — four or five squares on a gridded map).' : 'The GM has not set the scale yet, so the ruler and range rings are off.')
+      : sel ? `From <b>${esc(sel[0]==='c' ? cfg(sel.slice(2)).name : encName(sel))}</b>: ` + (keys.filter(k=>k!==sel && placed(k) && placed(sel)).map(k=>`${esc((k[0]==='c' ? cfg(k.slice(2)).name : encName(k)).split(' ')[0])} <b>${mapBandFor(mapDist(m['t_'+sel], m['t_'+k]))}</b>`).join(' · ') || 'drag tokens onto the map to see their ranges.')
+      : 'Drag a token to move it (the line shows how far it went). Click a token for its range rings. Attacks between two placed tokens take their range from the map.';
+  }
+}
+function renderMap(){
+  const box = document.getElementById('encMap'); if(!box) return;
+  const gm = encIsGM();
+  if(!mapOn() && !gm){ box.style.display = 'none'; box.dataset.built = ''; return; }
+  box.style.display = '';
+  if(MAP_UI.drag) return;   // never rebuild under a finger
+  const src = mapOn() ? S.map.src : '', url = src ? mapUrl(src) : '', built = src+'|'+(url ? 1 : 0)+'|'+(gm?1:0);
+  if(box.dataset.built !== built){
+    box.dataset.built = built;
+    box.innerHTML = `<div class="mapbar" id="mapBar"></div>` + (src ? `<div id="mapFrame" onpointerdown="mapDown(event)" onpointermove="mapMove(event)" onpointerup="mapUp(event)" onpointercancel="mapUp(event)">
+        ${url ? `<img class="mapimg" src="${esc(url)}" alt="map" onload="if(this.naturalWidth){MAP_UI.asp=this.naturalHeight/this.naturalWidth;renderMapLayers()}" onerror="this.alt='';document.getElementById('mapInfo').textContent='The map picture did not load. Check the file name or link.'">` : `<div style="aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:13px;line-height:1.4">Fetching the map…</div>`}
+        <svg id="mapSvg" preserveAspectRatio="none"></svg><div id="mapToks"></div></div><div class="mapinfo" id="mapInfo"></div>` : '');
+  }
+  const tool = (k, l, tip) => `<button class="chip ${MAP_UI.tool===k?'on':''}" onclick="mapTool('${k}')" title="${tip}">${l}</button>`;
+  const files = (MAPS_DB||[]).filter(mapSrcOk);
+  document.getElementById('mapBar').innerHTML = `<h3>🗺 Map</h3>` + (src ? tool('move','✋ Move','Drag tokens. Click one for its range rings.') + tool('ruler','📐 Ruler','Drag between two points to read the range band') + tool('draw','✏️ Draw','Draw on the map for everyone') +
+      (MAP_UI.tool==='draw' ? MAP_COLORS.map((c,i)=>`<button class="mapdot ${MAP_UI.color===i?'on':''}" style="background:${c}" onclick="MAP_UI.color=${i};renderMap()" title="Line colour"></button>`).join('') : '') +
+      `<button class="mini" onclick="mapUndo()" title="Remove the last line you drew">↶ undo my line</button>` : '') +
+    (gm ? `<span style="margin-left:auto"></span>` + (src ? tool('cal','📏 Set scale','Drag across a distance you call Short range. Every other band follows from it.') +
+        `<button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
+      (files.length ? `<select onchange="mapSetSrc(this.value);this.value=''" title="Pictures in the img/maps folder"><option value="">a map from img/maps…</option>${files.map(f=>`<option value="${esc(f)}">${esc(f.replace(/^img\/maps\//,''))}</option>`).join('')}</select>` : '') +
+      `<button class="mini" onclick="document.getElementById('mapFile').click()" title="Pick a picture from this device. It is shrunk and shared with the room.">⬆ upload</button><input type="file" id="mapFile" accept="image/*" style="display:none" onchange="mapUpload(this)">
+       <input type="text" placeholder="or paste an image link (https://…)" onchange="mapSetSrc(this.value);this.value=''">` : '');
+  const frame = document.getElementById('mapFrame'); if(frame && src) frame.className = MAP_UI.tool==='move' ? '' : 'tooling';
+  if(src) renderMapLayers();
 }
 
 function initCloud(){
