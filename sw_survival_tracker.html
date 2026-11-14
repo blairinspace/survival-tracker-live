@@ -446,6 +446,18 @@
   .enccard .pl{white-space:nowrap;margin-right:8px;display:inline-block}
   .cond-0{color:var(--good)} .cond-1{color:var(--warn)} .cond-2{color:var(--bad)} .cond-3{color:var(--dim)}
   @media(max-width:820px){ .enccols{grid-template-columns:1fr} }
+  /* Encounter tab: a character's options */
+  .abhead{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:8px} .abhead h3{font-size:14px;color:var(--gold);letter-spacing:1px;text-transform:uppercase}
+  .abhead label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
+  .abturn{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border:1px dashed var(--border);border-radius:8px;padding:6px 10px;margin-bottom:8px;font-size:12px}
+  .abturn button.used{opacity:.5;text-decoration:line-through}
+  .ablist{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:6px}
+  .abil{border:1px solid var(--border);border-radius:8px;padding:6px 9px;background:var(--panel2);font-size:12px;line-height:1.4}
+  .abil b{font-size:12.5px} .abil small{display:block;color:#b6bec8;margin-top:2px} .abil .meta{color:var(--dim);font-size:11px}
+  .abil.wpn{border-left:3px solid var(--gold)} .abil.pas{opacity:.75}
+  .abil .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .b-act{background:#3d3212;color:#ffd97a} .b-man{background:#12331c;color:#9be0a8} .b-inc{background:#22303c;color:#9fc3e6} .b-out{background:#3a1010;color:#ff9c9c} .b-pas{background:#262d38;color:#8b949e}
+  .absub{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:10px 0 4px}
   /* GM tab: NPC library and editor */
   .npccols{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
   .npcside{display:flex;flex-direction:column;gap:6px} .npcside input[type=text],.npcside select{width:100%}
@@ -622,7 +634,7 @@
 <div id="enc"><div class="itemswrap">
   <div id="encHead"></div>
   <div class="enccols"><div id="encOrder"></div><div id="encScene"></div></div>
-</div><div id="encDice" style="margin-top:12px"></div></div>
+</div><div class="itemswrap" id="encPanel" style="margin-top:12px"></div><div id="encDice" style="margin-top:12px"></div></div>
 
 <div id="dice"><div class="dicewrap" id="diceWrap">
   <div class="dpanel">
@@ -4168,14 +4180,14 @@ function resultHtml(dice){
   }
   return head + parts.join('');
 }
-function weaponCardHtml(w, dice){   // w comes off the wire: coerce and escape everything
+function weaponCardHtml(w, dice, e){   // w comes off the wire: coerce and escape everything
   if(!w || typeof w!=='object') return '';
   const r = tally(dice), dam = numOr(w.dam), crit = numOr(w.crit), hit = r.netS>0;
   const critOn = hit && crit>0 && (r.netA>=crit || r.x>0);
   return `<div class="wcard"><b>${esc(String(w.n||'Weapon').slice(0,60))}</b> · ` +
     (hit ? `Damage ${dam} + ${r.netS} = <b>${dam+r.netS}</b> <span style="color:var(--dim)">before soak</span>` : `Damage ${dam} — <span style="color:var(--dim)">missed</span>`) +
     ` · Crit ${crit||'—'}` + (critOn ? ` <span class="crit" title="Enough Advantage (or a Triumph) to inflict a critical injury">critical available</span>` : '') +
-    (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') + `</div>`;
+    (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') + encHitHtml(w, r, e, critOn) + `</div>`;
 }
 function feedEntryHtml(e){
   const by = esc(String(e.by||'Player').slice(0,40)), t = esc(String(e.t||'').slice(0,40));
@@ -4191,7 +4203,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    ${weaponCardHtml(e.w, dice)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice)}</div></div>`;
 }
 function renderFeed(){
@@ -5768,7 +5780,9 @@ function npcEditor(n){
    S.enc is {} when nothing is running, otherwise (synced per subkey, like the ship,
    so two players rolling initiative at once never overwrite each other):
      { on:1, title, mode combat|social, round, cur (order key of whoever is acting, '' = still rolling),
-       c_<charId>: { r rolled, s successes, a advantages, x triumphs, sk cool|vigilance, out sitting out },
+       c_<charId>: { r rolled, s successes, a advantages, x triumphs, sk cool|vigilance, out sitting out,
+                     act / man action and maneuvers used this turn },
+       ap_<ts>:    1 once the hit rolled at that time has been applied to its target,
        n_<id>:     { d NPC snapshot (see NPC BUILDER), count (minion group), w wounds, st strain,
                      hid hidden from players, disp disposition, r / s / a / x / sk as above } }
    House rule: a slot belongs to whoever rolled it — no swapping with allies.
@@ -5782,8 +5796,10 @@ function normEnc(e){
   const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: e.mode==='social' ? 'social' : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '' };
   const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
   for(const k in e){
-    const v = e[k]; if(!v || typeof v!=='object') continue;
-    if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0 });
+    const v = e[k];
+    if(/^ap_\d+$/.test(k) && v){ o[k] = 1; continue; }   // a hit from the roll feed that has been applied
+    if(!v || typeof v!=='object') continue;
+    if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0, act: v.act ? 1 : 0, man: npcInt(v.man, 0, 2, 0) });
     else if(/^n_[a-z0-9]+$/.test(k) && v.d && typeof v.d==='object')
       o[k] = init(v, { d: normNpcs([v.d])[0], count: npcInt(v.count, 1, 12, 1), w: npcInt(v.w, 0, 9999, 0), st: npcInt(v.st, 0, 999, 0), hid: v.hid ? 1 : 0, disp: ENC_DISP.includes(v.disp) ? v.disp : '' });
   }
@@ -5825,7 +5841,7 @@ function encMe(v){
 }
 function encRecord(k, dice, sk){   // an initiative roll: every success symbol counts (there is no difficulty), advantages break ties
   const t = tally(dice), e = S.enc[k] || (S.enc[k] = {});
-  Object.assign(e, { r:1, s:t.s+t.x, a:t.a, x:t.x, sk });
+  Object.assign(e, { r:1, s:t.s+t.x, a:t.a, x:t.x, sk }); if(k[0]==='c'){ e.act = e.act||0; e.man = e.man||0; }
 }
 function encRollPC(id, key){
   if(!encOn() || !ENC_SK[key]) return;
@@ -5849,15 +5865,15 @@ function encManual(k){   // physical dice, or fixing a mistake
   const m = String(v).match(/\d+/g); if(!m) return;
   encSetInit(k, +m[0], +(m[1]||0));
 }
-function encSetInit(k, s, a){ const e = S.enc[k] || (S.enc[k] = { sk:'cool' }); Object.assign(e, { r:1, s:npcInt(s,0,99,0), a:npcInt(a,0,99,0), x:e.x||0 }); if(k[0]==='c') e.out = 0; if(!e.sk) e.sk = 'cool'; render(); }
-function encSit(id, out){ if(!encOn()) return; const k = 'c_'+id; S.enc[k] = Object.assign(S.enc[k] || { r:0, s:0, a:0, x:0, sk:'cool' }, { out: out ? 1 : 0 }); if(out && S.enc.cur===k) encNext(); else render(); }
+function encSetInit(k, s, a){ const e = S.enc[k] || (S.enc[k] = { sk:'cool' }); Object.assign(e, { r:1, s:npcInt(s,0,99,0), a:npcInt(a,0,99,0), x:e.x||0 }); if(k[0]==='c'){ e.out = 0; e.act = e.act||0; e.man = e.man||0; } if(!e.sk) e.sk = 'cool'; render(); }
+function encSit(id, out){ if(!encOn()) return; const k = 'c_'+id; S.enc[k] = Object.assign(S.enc[k] || { r:0, s:0, a:0, x:0, sk:'cool', act:0, man:0 }, { out: out ? 1 : 0 }); if(out && S.enc.cur===k) encNext(); else render(); }
 function encNext(){   // the next slot that can still act; past the end, a new round starts at the top
   if(!encOn()) return;
   const order = encOrder(true); if(!order.length) return;
   const e = S.enc; let i = order.indexOf(e.cur);
   for(let n=0; n<order.length; n++){
     i++; if(i>=order.length){ i = 0; if(e.cur) e.round++; }
-    if(!encDown(order[i])){ e.cur = order[i]; render(); return; }
+    if(!encDown(order[i])){ e.cur = order[i]; if(e.cur[0]==='c'){ e[e.cur].act = 0; e[e.cur].man = 0; } render(); return; }   // a fresh turn: action and maneuver back
     if(!e.cur) e.cur = order[i];   // so a first slot that is already down still counts as "started"
   }
   render();
@@ -5911,7 +5927,7 @@ function renderEnc(){
     head.innerHTML = `<div class="enchead"><h2>No encounter running</h2><span style="margin-left:auto"></span>${meSel}</div>
       <p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">${gm ? 'Start a fight or a conversation. NPCs come from the library on the GM tab (→ ⚔ encounter), or add them here once it is running.' : 'When the GM starts an encounter, the turn order and the NPCs in the scene appear here.'}</p>
       ${gm ? `<div class="enchead"><button class="primary" onclick="encStart('combat')">⚔ Start combat</button><button onclick="encStart('social')">💬 Start a conversation</button></div>` : ''}`;
-    orderEl.innerHTML = ''; scene.innerHTML = ''; return;
+    orderEl.innerHTML = ''; scene.innerHTML = ''; renderEncPanel(); return;
   }
   const combat = e.mode==='combat', order = encOrder(), cur = e.cur, ci = order.indexOf(cur);
   const upNext = (()=>{ for(let n=1; n<order.length; n++){ const k = order[(Math.max(ci,0)+n) % order.length]; if(!encDown(k)) return k; } return ''; })();
@@ -5957,13 +5973,191 @@ function renderEnc(){
       <div class="track"><b class="cond-${cc}">${cond}</b>${minion ? `<span class="pl">group of <input type="number" min="1" max="12" value="${x.count}" onchange="encNpcSet('${k}','count',this.value)"></span>` : ''}
         <select onchange="encNpcSet('${k}','disp',this.value)" title="Disposition toward the party (the players see this)">${ENC_DISP.map(v=>`<option value="${v}"${x.disp===v?' selected':''}>${v || 'disposition…'}</option>`).join('')}</select></div>
       <div class="stats">Soak <b>${d.soak}</b> · Defense <b>${d.dm}</b> melee / <b>${d.dr}</b> ranged · ${ATTRS.map(([,nm],i)=>`${nm.slice(0,2)} <b>${d.a[i]}</b>`).join(' ')}</div>
-      ${d.w.length ? `<div>${d.w.map(w=>`<div><b>${esc(w.n)}</b> ${npcPool(d, w.sk, g)} <span style="color:var(--dim)">dmg ${esc(w.dam)}${npcDamage(d, w) ? ' ('+npcDamage(d, w)+')' : ''} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : ''}
+      ${d.w.length ? `<div>${d.w.map((w,wi)=>`<div><button class="mini atk" onclick="encAttackNPC('${k}',${wi})" title="Load this attack into the dice tray against the chosen target">⚔</button> <b>${esc(w.n)}</b> ${npcPool(d, w.sk, g)} <span style="color:var(--dim)">dmg ${esc(w.dam)}${npcDamage(d, w) ? ' ('+npcDamage(d, w)+')' : ''} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : ''}
       ${d.sk.length ? `<details><summary>Skills</summary><div style="white-space:normal">${d.sk.map(s=>`<span class="pl">${esc(s[0])} ${npcPool(d, s[0], g)}</span>`).join('')}</div></details>` : ''}
       ${d.tal || d.ab || d.gear || d.notes ? `<details><summary>Talents, abilities, notes</summary>${d.tal ? `<div><b>Talents</b>\n${lines(d.tal)}</div>` : ''}${d.ab ? `<div><b>Abilities</b>\n${lines(d.ab)}</div>` : ''}${d.gear ? `<div><b>Gear</b> ${lines(d.gear)}</div>` : ''}${d.notes ? `<div><b>Notes</b>\n${lines(d.notes)}</div>` : ''}</details>` : ''}</div>`; };
   scene.innerHTML = `<h4>${combat ? 'In the fight' : 'In the scene'}</h4>
     ${gm ? `<div class="enchead"><select onchange="encAddNpc(this.value);this.value=''" title="NPCs arrive hidden; reveal them when the players would see them"><option value="">＋ add an NPC from the library…</option>${(S.npcs||[]).map(n=>`<option value="${n.id}">${esc(n.n || 'unnamed')} (${NPC_TYPES[n.type]})</option>`).join('')}</select>
-      ${(S.npcs||[]).length ? '' : `<small style="color:var(--dim)">The library is empty — build NPCs on the GM tab first.</small>`}</div>` : ''}
+      ${(S.npcs||[]).length ? '' : `<small style="color:var(--dim)">The library is empty — build NPCs on the GM tab first.</small>`}
+      <label title="Who the ⚔ buttons on the NPC cards attack, and from how far. Sets the difficulty and the target's defense for you.">NPCs attack <select onchange="ENC_UI.tpc=this.value">${`<option value="">nobody yet</option>` + CHARS.filter(c=>!(e['c_'+c.id]||{}).out).map(c=>`<option value="c_${c.id}"${ENC_UI.tpc==='c_'+c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select> at ${encRangeSel()}</label></div>` : ''}
     <div class="enccards">${keys.map(card).join('')}</div>${keys.length ? '' : `<p style="color:var(--dim);font-size:12px">${gm ? 'No NPCs in this encounter yet.' : 'Nobody else is in sight.'}</p>`}`;
+  renderEncPanel(); renderFeed();   // the feed's "apply" buttons depend on the encounter
+}
+
+/* ---- a character's options in an encounter ------------------------
+   The panel lists what the picked character can do, sorted into Offense, Defense,
+   Force and Utility. Weapons come from equipped inventory, talents from owned trees
+   (sorted by a keyword reading of their text; ABIL_FIX corrects the odd one), Force
+   powers and signature abilities from the Talents tab. An attack against a chosen
+   target loads the dice tray with the right difficulty, the target's defense as
+   Setback and its Adversary ranks as upgrades; the roll's feed card then offers to
+   apply the damage after soak. */
+Object.assign(ENC_UI, { pc:'', cat:'offense', tgt:'', tpc:'', rng:'' });
+const ABIL_CATS = { offense:'⚔ Offense', defense:'🛡 Defense', force:'✦ Force', utility:'🧰 Utility' };
+const ABIL_FIX = { 'Quick Draw':'offense', 'Grit':'defense', 'Toughened':'defense', 'Enduring':'defense', 'Durable':'defense', 'Resolve':'defense', 'Rapid Recovery':'defense', 'Second Wind':'defense' };
+function abilCat(name, tal){
+  if(ABIL_FIX[name]) return ABIL_FIX[name];
+  const e = name+' '+(tal.e||'');
+  if(/when (hit|targeted|struck|attacked)|reduce (the|that) damage|\bdefense\b|\bsoak\b|attacks? (against|targeting) (you|the character|him|her)|wound threshold|strain threshold|parry|reflect|dodge|recover.{0,20}strain/i.test(e)) return 'defense';
+  if(/attack|damage|critical|combat check|\b(brawl|melee|ranged|lightsaber|gunnery)\b|weapon|initiative/i.test(e)) return 'offense';
+  return tal.f ? 'force' : 'utility';
+}
+const abilBadge = a => { a = String(a||''); return /out of turn/i.test(a) ? ['out','Out of turn'] : /action/i.test(a) ? ['act','Action'] : /maneuver/i.test(a) ? ['man','Maneuver'] : /incidental/i.test(a) ? ['inc','Incidental'] : /^active/i.test(a) ? ['inc','Active'] : ['pas','Passive']; };
+const ENC_STD = {
+  offense: [['Aim','Maneuver','Add a Boost die to your next attack. Aim twice for two. Or call a shot at an item or location: two Setback (one if you aim twice).']],
+  defense: [['Take cover','Maneuver','Behind cover: +1 ranged defense, and it may add Setback to some Perception checks against you.'],
+            ['Guarded stance','Maneuver','Until the end of your next turn: +1 melee defense, and a Setback die on your own combat checks.'],
+            ['Drop prone','Maneuver','Ranged attacks against you add a Setback die; melee attacks against you gain a Boost die. Standing up is a maneuver.']],
+  force: [],
+  utility: [['Move','Maneuver','Change range band with a target (short and medium take one maneuver, long and extreme two), or engage / disengage.'],
+            ['Assist','Maneuver','Add a Boost die to an engaged ally\'s next check.'],
+            ['Interact or manage gear','Maneuver','Open a door, draw or stow a weapon, reload, take something from a pack.'],
+            ['Exchange an action','Action','Give up your action for an extra maneuver. Never more than two maneuvers in a turn.']] };
+const encBandI = r => Math.max(0, WEAPON_RANGES.indexOf(r));
+const encRangeSel = () => `<select onchange="ENC_UI.rng=this.value" title="How far the target is. Ranged attacks: Short Easy, Medium Average, Long Hard, Extreme Daunting. Melee is always Average, at Engaged.">${WEAPON_RANGES.map(r=>`<option${(ENC_UI.rng||'Medium')===r?' selected':''}>${r}</option>`).join('')}</select>`;
+function encPanelSet(k, v){ ENC_UI[k] = v; renderEncPanel(); }
+function encTurnUse(id, what){   // tick off this turn's action / maneuver; a second maneuver costs 2 strain
+  const e = encOn() && S.enc['c_'+id], cs = st(id); if(!e || !cs) return;
+  if(what==='act') e.act = e.act ? 0 : 1;
+  else if(what==='man') e.man = e.man ? 0 : 1;
+  else if(what==='man2' && e.man<2){ e.man = 2; cs.strain = (cs.strain||0) + 2; logMsg(`🏃 ${cfg(id).name} takes a second maneuver — 2 strain.`); }
+  render();
+}
+// what an attack has to beat: difficulty from range, the target's defense as Setback, Adversary as upgrades
+function encDifficulty(skillKey, band){
+  if(['brawl','melee','lightsaber'].includes(skillKey)) return 2;
+  if(band==='Engaged') return skillKey==='ranged_light' ? 2 : 3;
+  return { Short:1, Medium:2, Long:3, Extreme:4 }[band] || 2;
+}
+function encTargetStats(key, ranged){
+  if(!encOn() || !/^[cn]_[a-z0-9]+$/i.test(String(key))) return null;
+  if(key[0]==='n'){ const x = S.enc[key]; if(!x || !x.d) return null; const d = x.d;
+    return { name: encName(key), soak: d.soak, def: ranged ? d.dr : d.dm, adv: +((d.tal.match(/Adversary\s+(\d)/i)||[])[1]||0), pc:false }; }
+  const cs = st(key.slice(2)); if(!cs || !cfg(key.slice(2))) return null;
+  const cb = combatStats(cs);
+  return { name: cfg(key.slice(2)).name, soak: cb.soak, def: ranged ? cb.defR : cb.defM, adv: 0, pc:true };
+}
+function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, dam, crit, q, wrng, src, tgt, cs }
+  const ranged = !['brawl','melee','lightsaber'].includes(a.skillKey);
+  const band = ranged ? (ENC_UI.rng || 'Medium') : 'Engaged', T = a.tgt ? encTargetStats(a.tgt, ranged) : null;
+  let d = encDifficulty(a.skillKey, band), c = 0;
+  for(let i=0; i<(a.upg||0) + (T ? T.adv : 0); i++){ if(d>0){ d--; c++; } else d++; }
+  const notes = [`${band} range: ${['Simple','Easy','Average','Hard','Daunting','Formidable'][encDifficulty(a.skillKey, band)]}`];
+  if(ranged && band==='Engaged') notes.push('shooting while engaged is harder');
+  if(ranged && a.wrng && encBandI(band) > encBandI(a.wrng)) notes.push(`beyond this weapon's ${a.wrng.toLowerCase()} range`);
+  if(T && T.def) notes.push(`${T.name}'s defense: ${T.def} Setback`);
+  if(T && T.adv) notes.push(`Adversary ${T.adv}: ${T.adv} upgrade${T.adv===1?'':'s'}`);
+  if(a.wnote) notes.push(a.wnote);
+  Object.assign(DICE_UI.pool, { p:a.p, a:a.a, b:0, k:clamp((a.k||0) + (T ? T.def : 0), 0, POOL_MAX), d, c, F:0 });
+  DICE_UI.repair = null; DICE_UI.tal = null;
+  Object.assign(DICE_UI, { who:a.who, label:a.label, weapon:{ n:String(a.n).slice(0,60), dam:a.dam, crit:a.crit, q:String(a.q||'').slice(0,160), rng:band, note:notes.join(' · '), src:a.src||null } });
+  if(T){ DICE_UI.weapon.tgt = a.tgt; DICE_UI.weapon.tn = T.name.slice(0,60); }
+  if(a.cs) tdLoad(a.cs, a.skillKey);
+  const lab = document.getElementById('diceLabel'); if(lab) lab.value = a.label;
+  renderDice();
+  const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function encAttackPC(id, i){   // i = inventory row, or -1 for fists
+  const cs = st(id); if(!cs) return;
+  const tgt = S.enc && S.enc[ENC_UI.tgt] && !encDown(ENC_UI.tgt) ? ENC_UI.tgt : '';
+  if(i<0){
+    const sk = SKILLS.find(x=>x.k==='brawl'), s = skillState(cs, sk);
+    return encLoadAttack({ who:id, label:'Brawl'+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, skillKey:'brawl', n:'Unarmed', dam:cs.attr.br||0, crit:5, q:'Disorient 1, Knockdown, Stun Setting', tgt, cs });
+  }
+  const it = cs.inv[i]; if(!it) return;
+  const w = weaponState(cs, it), s = skillState(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
+  if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
+  encLoadAttack({ who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
+    wnote: t.setb ? `${t.name} weapon: ${t.setb} Setback${t.upg?' and an upgraded difficulty':''}` : '', src:{ id, i, name:it.name }, tgt, cs });
+}
+function encAttackNPC(k, wi){
+  const x = encOn() && S.enc[k], w = x && x.d && x.d.w[wi]; if(!w) return;
+  const d = x.d, def = npcSkillDef(w.sk), pool = npcPoolDice(d, w.sk, encAlive(x) || 1) || { p:0, a:0 };
+  const tgt = S.enc[ENC_UI.tpc] && !S.enc[ENC_UI.tpc].out ? ENC_UI.tpc : (cfg(String(ENC_UI.tpc).slice(2)) ? ENC_UI.tpc : '');
+  const dam = /^\+\d+$/.test(w.dam) ? d.a[0] + +w.dam : numOr(w.dam);
+  encLoadAttack({ who:'gm', label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
+}
+// the feed card of an attack that named a target: damage after soak, and buttons to apply it
+function encHit(w, r){
+  if(!w || !encOn() || !(r.netS>0)) return null;
+  const T = encTargetStats(w.tgt, true); if(!T || (w.tgt[0]==='c' && (S.enc[w.tgt]||{}).out)) return null;
+  const soak = Math.max(0, T.soak - qualN(w.q,'Pierce') - 10*qualN(w.q,'Breach'));
+  return { T, soak, dmg: Math.max(0, numOr(w.dam) + r.netS - soak), stun: /stun (setting|damage)/i.test(String(w.q||'')) };
+}
+function encHitHtml(w, r, e, critOn){
+  const h = encHit(w, r); if(!h || !e) return '';
+  const ts = Math.round(+e.ts)||0, see = h.T.pc || encIsGM(), done = S.enc['ap_'+ts];
+  return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> after soak ${h.soak}` : ' — the GM applies soak'}
+    ${done ? ' <span style="color:var(--good)">✓ applied</span>' : see && ts ? ` <button class="mini atk" onclick="encApply(${ts},'w')" title="Add this to ${esc(h.T.name)}'s wounds">apply ${h.dmg} wounds</button>${h.stun ? ` <button class="mini" onclick="encApply(${ts},'st')" title="Stun: the damage goes to strain instead">as strain</button>` : ''}` : ''}
+    ${critOn && ts ? ` <button class="mini" onclick="encCrit(${ts})" title="Roll d100 for the critical injury (Vicious is added for you)">🎲 crit</button>` : ''}</span>`;
+}
+const encFeedRoll = ts => ROLLS.find(e=>e && e.k==='r' && Math.round(+e.ts)===ts && e.w);
+function encApply(ts, how){
+  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts]) return;
+  const h = encHit(e.w, tally(parseRoll(e.r))); if(!h) return;
+  const key = e.w.tgt, strain = how==='st';
+  if(key[0]==='n'){ const x = S.enc[key]; if(strain && x.d.type==='nemesis' && x.d.st>0) x.st += h.dmg; else x.w += h.dmg; }   // minions and rivals take strain as wounds
+  else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = (cs.wounds||0) + h.dmg; }
+  S.enc['ap_'+ts] = 1;
+  const hidden = key[0]==='n' && S.enc[key].hid;
+  if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : 'wound'}${h.dmg===1?'':'s'} from ${esc(String(e.who||'an attack').slice(0,40))}'s ${esc(String(e.w.n||'attack').slice(0,60))}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
+  render(); renderFeed();
+}
+function encCrit(ts){
+  const e = encFeedRoll(ts); if(!e) return;
+  const roll = rollInt(100)+1, vic = qualN(e.w.q,'Vicious'), tn = String(e.w.tn||'the target').slice(0,40);
+  postFeed({ k:'p', h:'Critical injury', m:`${tn}: d100 ${roll}${vic ? ` + ${vic*10} (Vicious ${vic})` : ''} = ${roll+vic*10}. Add 10 per critical already suffered. A minion group loses one member.` });
+}
+function renderEncPanel(){
+  const box = document.getElementById('encPanel'); if(!box) return;
+  const id = cfg(ENC_UI.pc) ? ENC_UI.pc : ENC_UI.me, cs = id && st(id), c = id && cfg(id);
+  const pick = `<label>Options for <select onchange="encPanelSet('pc',this.value)"><option value="">${ENC_UI.me && cfg(ENC_UI.me) ? 'me ('+esc(cfg(ENC_UI.me).name.split(' ')[0])+')' : 'pick a character…'}</option>${CHARS.map(x=>`<option value="${x.id}"${ENC_UI.pc===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label>`;
+  if(!cs){ box.innerHTML = `<div class="abhead"><h3>What can I do?</h3>${pick}</div><p style="color:var(--dim);font-size:12.5px">Pick a character (or set “I am” above) to see their attacks, defenses, Force powers and other options in one place.</p>`; return; }
+  // --- gather ---
+  const items = { offense:[], defense:[], force:[], utility:[] };
+  const eqW = cs.inv.map((it,i)=>[it,i]).filter(([it])=>isEquipped(it) && isWeapon(it));
+  const pool = s => `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
+  for(const [it,i] of eqW){ const w = weaponState(cs, it), s = skillState(cs, w.skill);
+    items.offense.push(`<div class="abil wpn"><div class="row"><b>${esc(invLabel(it)||'weapon')}</b><span>${pool(s)}</span><span style="margin-left:auto"></span><button class="mini atk" onclick="encAttackPC('${id}',${i})">⚔ attack</button></div>
+      <span class="meta">${esc(w.skill.n)} · damage ${w.total} · crit ${w.crit||'—'} · ${w.rng}</span>${w.q ? `<small>${esc(w.q)}</small>` : ''}</div>`); }
+  { const s = skillState(cs, SKILLS.find(x=>x.k==='brawl'));
+    items.offense.push(`<div class="abil wpn"><div class="row"><b>Unarmed</b><span>${pool(s)}</span><span style="margin-left:auto"></span><button class="mini atk" onclick="encAttackPC('${id}',-1)">⚔ attack</button></div>
+      <span class="meta">Brawl · damage ${cs.attr.br||0} · crit 5 · Engaged</span><small>Disorient 1, Knockdown. May deal its damage as strain.</small></div>`); }
+  const std = ([n, kind, e]) => `<div class="abil"><div class="row"><b>${n}</b><span class="badge b-${abilBadge('Active ('+kind+')')[0]}">${kind}</span></div><small>${e}</small></div>`;
+  for(const k in ENC_STD) items[k].push(...ENC_STD[k].map(std));
+  const passive = { offense:[], defense:[], force:[], utility:[] };
+  for(const r of talentRanks(cs)){ const tal = RULES_DB.talents[r.n] || {}, cat = abilCat(r.n, tal), [bc, bl] = abilBadge(tal.a);
+    const h = `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(r.n)}${r.rank>1 ? ' '+r.rank : ''}</b><span class="badge b-${bc}">${bl}</span></div>${tal.e ? `<small>${esc(tal.e)}</small>` : ''}</div>`;
+    (bc==='pas' ? passive : items)[cat].push(h); }
+  const fr = cs.sheet.fr||0, free = Math.max(0, fr - (cs.force||0));
+  for(const tid of Object.keys(cs.sheet.tr)){ const t = TREE_BY[tid]; if(!t || t.k==='spec') continue;
+    const ups = treeNodes(cs, tid).filter(n=>!n.root);
+    items[t.k==='power' ? 'force' : 'utility'].push(`<div class="abil"><div class="row"><b>${esc(t.n)}</b><span class="badge b-act">${t.k==='power' ? 'Force power' : 'Signature ability'}</span>${t.k==='power' && free ? `<span style="margin-left:auto"></span><button class="mini force" onclick="encForce('${id}','${esc(t.n).replace(/'/g,'’')}')">✦ roll ${free}</button>` : ''}</div>
+      ${t.basic ? `<small>${esc(t.basic)}</small>` : ''}${ups.length ? `<small><b>Upgrades:</b> ${ups.map(n=>`<span title="${esc(n.e||'')}">${esc(n.n)}</span>`).join(' · ')}</small>` : ''}</div>`); }
+  // --- draw ---
+  const cat = ABIL_CATS[ENC_UI.cat] ? ENC_UI.cat : 'offense', cb = combatStats(cs), e = S.enc, mine = encOn() && e['c_'+id], myTurn = encOn() && e.cur==='c_'+id;
+  const targets = encOn() ? encNpcKeys().filter(k=>(encIsGM() || !e[k].hid) && !encDown(k)) : [];
+  if(ENC_UI.tgt && !targets.includes(ENC_UI.tgt)) ENC_UI.tgt = '';
+  const lead = cat==='offense' ? `<div class="abhead"><label title="Pick who you are attacking and the dice tray sets the difficulty, their defense and Adversary upgrades for you.">Target <select onchange="ENC_UI.tgt=this.value"><option value="">no target (set the difficulty yourself)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}</option>`).join('')}</select></label><label>Range ${encRangeSel()}</label></div>`
+    : cat==='defense' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">Soak <b>${cb.soak}</b> · Defense <b>${cb.defM}</b> melee / <b>${cb.defR}</b> ranged · Wounds <b>${cs.wounds||0}</b>/${cs.wt||0} · Strain <b>${cs.strain||0}</b>/${effStrainThresh(cs, c)}</p>`
+    : cat==='force' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">${fr ? `Force rating <b>${fr}</b>${cs.force ? ` · ${cs.force} committed, <b>${free}</b> free to roll` : ''}` : `${esc(c.name)} has no Force rating.`}</p>` : '';
+  box.innerHTML = `<div class="abhead"><h3>${esc(c.name.split(' ')[0])}'s options</h3>${pick}<span style="margin-left:auto"></span>
+      ${Object.entries(ABIL_CATS).map(([k,l])=>`<button class="chip ${cat===k?'on':''}" onclick="encPanelSet('cat','${k}')">${l} ${items[k].length + passive[k].length}</button>`).join('')}</div>
+    ${mine && mine.r && !mine.out && e.mode==='combat' ? `<div class="abturn"><b>${myTurn ? 'This turn:' : 'Next turn:'}</b>
+      <button class="mini ${mine.act?'used':''}" onclick="encTurnUse('${id}','act')" title="One action per turn: an attack, a skill check, activating an ability">Action${mine.act?' ✓':''}</button>
+      <button class="mini ${mine.man?'used':''}" onclick="encTurnUse('${id}','man')" title="One free maneuver per turn">Maneuver${mine.man?' ✓':''}</button>
+      <button class="mini ${mine.man>=2?'used':''}" ${mine.man>=2?'disabled':''} onclick="encTurnUse('${id}','man2')" title="A second maneuver costs 2 strain (added for you). Never more than two in a turn.">2nd maneuver${mine.man>=2?' ✓':' (2 strain)'}</button>
+      <span class="meta" style="color:var(--dim)">Resets when your turn comes round.</span></div>` : ''}
+    ${lead}<div class="ablist">${items[cat].join('')}</div>${items[cat].length ? '' : `<p style="color:var(--dim);font-size:12px">Nothing here yet.</p>`}
+    ${passive[cat].length ? `<div class="absub">Always on</div><div class="ablist">${passive[cat].join('')}</div>` : ''}`;
+}
+function encForce(id, power){   // free Force dice into the tray, without leaving the encounter
+  const cs = st(id), n = Math.max(0, (cs.sheet.fr||0) - (cs.force||0)); if(!n) return;
+  Object.assign(DICE_UI.pool, { p:0, a:0, b:0, k:0, d:0, c:0, F:Math.min(n, POOL_MAX) });
+  Object.assign(DICE_UI, { who:id, label:power, weapon:null, repair:null, tal:null });
+  const lab = document.getElementById('diceLabel'); if(lab) lab.value = power;
+  renderDice();
+  const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 function initCloud(){

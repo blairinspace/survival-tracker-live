@@ -569,6 +569,42 @@ print('\n=== SMOKE TEST — UI code paths ===');
       encSet('mode','combat'); encEnd(); if(encOn() || 'enc' in syncSubset(S) || !S.log.some(l=>/Encounter over after 1 round/.test(l.m) && /Defeated: Imperial Stormtrooper/.test(l.m))) throw new Error('ending the encounter wrong: '+S.log.map(l=>l.m).join(' | '));
       renderEnc(); print(`  encounter: strict order (successes, advantages, PCs first), rounds, skipped casualties, hidden NPCs stay out of the player view, simultaneous rolls merge, survives the wire`);
       S = keepS; ENC_UI.me = ''; gmMode(false); showTab('tracker'); }
+    // Encounter options: sorting talents, attack difficulty from range / defense / Adversary, damage after soak, turn economy
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true); encStart('combat');
+      const T = RULES_DB.talents; for(const [n, want] of [['Parry','defense'],['Reflect','defense'],['Dodge','defense'],['Saber Throw','offense'],['Toughened','defense'],['Quick Draw','offense'],['Sense Danger','force']])
+        if(T[n] && abilCat(n, T[n])!==want) throw new Error(`${n} should sort under ${want}, got ${abilCat(n, T[n])}`);
+      if(abilBadge('Active (Incidental, Out of Turn)')[0]!=='out' || abilBadge('Active (Maneuver)')[0]!=='man' || abilBadge('Passive')[0]!=='pas') throw new Error('activation badges wrong');
+      const tk = encAddNpc(npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper')).id, 3), bk = encAddNpc(npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Assassin')).id);
+      encNpcSet(tk,'hid',0); encNpcSet(bk,'hid',0);
+      const cal = st('cal'); cal.inv.push({ name:'Light Blaster Pistol', ref:'Light Blaster Pistol', type:'Weapon', eq:1, qty:1 }); const wi = cal.inv.length-1;
+      if(!isEquipped(cal.inv[wi]) || weaponState(cal, cal.inv[wi]).skill.k!=='ranged_light') throw new Error('test pistol is not an equipped ranged weapon');
+      ENC_UI.tgt = bk; ENC_UI.rng = 'Long'; encAttackPC('cal', -1);
+      if(DICE_UI.pool.d!==0 || DICE_UI.pool.c!==2 || DICE_UI.pool.k!==1 || DICE_UI.weapon.tgt!==bk || DICE_UI.weapon.rng!=='Engaged' || !/Adversary 2/.test(DICE_UI.weapon.note)) throw new Error('melee vs Adversary 2 and defense 1 should be two Challenge and one Setback: '+JSON.stringify(DICE_UI.pool));
+      ENC_UI.tgt = tk; encAttackPC('cal', wi); if(DICE_UI.pool.d!==3 || DICE_UI.pool.c!==0 || DICE_UI.pool.k!==0 || !/Long range: Hard/.test(DICE_UI.weapon.note) || !/beyond this weapon/.test(DICE_UI.weapon.note)) throw new Error('long range should be Hard: '+JSON.stringify(DICE_UI.pool)+DICE_UI.weapon.note);
+      ENC_UI.rng = 'Engaged'; encAttackPC('cal', wi); if(DICE_UI.pool.d!==2) throw new Error('a pistol while engaged should be Average');
+      ENC_UI.rng = 'Short'; encAttackPC('cal', wi); if(DICE_UI.pool.d!==1 || DICE_UI.who!=='cal') throw new Error('short range should be Easy');
+      const n0 = ROLLS.length; rollPool(); const sent = ROLLS[ROLLS.length-1]; if(ROLLS.length!==n0+1 || sent.w.tgt!==tk || sent.w.src || sent.w.note) throw new Error('the roll should carry its target and nothing private');
+      const f1 = DICE.a.faces.find(x=>x==='s'); if(!f1) throw new Error('no single-success Ability face');
+      ROLLS.push({ k:'r', who:'Cal Kestis', ts:1111, r:`a:${f1} a:${f1}`, w:{ n:'Pistol', dam:5, crit:4, q:'Stun Setting, Pierce 1', tgt:tk, tn:'Imperial Stormtrooper' } });
+      const h = encHit(ROLLS[ROLLS.length-1].w, tally(parseRoll(ROLLS[ROLLS.length-1].r))); if(!h || h.soak!==4 || h.dmg!==3 || !h.stun) throw new Error('5 + 2 successes against soak 5 with Pierce 1 should be 3: '+JSON.stringify(h));
+      let card = feedEntryHtml(ROLLS[ROLLS.length-1]); if(!/apply 3 wounds/.test(card) || !/as strain/.test(card) || !/after soak 4/.test(card)) throw new Error('GM feed card should offer to apply the hit');
+      gmMode(false); card = feedEntryHtml(ROLLS[ROLLS.length-1]); if(/apply 3|after soak/.test(card) || !/the GM applies soak/.test(card)) throw new Error('players should not see an NPC\'s soak or apply the hit');
+      gmMode(true); encApply(1111, 'st'); if(S.enc[tk].w!==3 || !S.enc.ap_1111) throw new Error('a minion takes strain as wounds'); encApply(1111, 'w'); if(S.enc[tk].w!==3) throw new Error('a hit should apply only once');
+      if(!/✓ applied/.test(feedEntryHtml(ROLLS[ROLLS.length-1]))) throw new Error('applied hit should say so');
+      ENC_UI.tpc = 'c_cal'; ENC_UI.rng = 'Medium'; encAttackNPC(bk, 0); if(DICE_UI.who!=='gm' || DICE_UI.pool.d!==2 || DICE_UI.pool.p!==3 || DICE_UI.pool.a!==1 || DICE_UI.weapon.tgt!=='c_cal' || DICE_UI.weapon.dam!==10) throw new Error('NPC attack setup wrong: '+JSON.stringify(DICE_UI.pool));
+      const soak = combatStats(cal).soak, w0 = cal.wounds||0; ROLLS.push({ k:'r', who:'GM', ts:2222, r:`a:${f1}`, w:{ n:'Disruptor rifle', dam:10, crit:2, q:'Vicious 5', tgt:'c_cal', tn:'Cal Kestis' } });
+      gmMode(false); if(!/apply \d+ wounds/.test(feedEntryHtml(ROLLS[ROLLS.length-1]))) throw new Error('anyone may apply a hit on a player character');
+      encApply(2222, 'w'); if(cal.wounds!==w0 + Math.max(0, 11 - soak)) throw new Error('damage to a PC should be reduced by their soak');
+      ROLLS.push({ k:'r', who:'x', ts:3333, r:`a:${f1}`, w:{ n:'x', dam:5, tgt:'constructor', tn:'x' } }); if(encHit(ROLLS[ROLLS.length-1].w, {netS:1})) throw new Error('a bad target key off the wire should be ignored');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!wire.enc.ap_1111 || !same(syncSubset(wire).enc, syncSubset(S).enc)) throw new Error('applied hits do not survive the wire');
+      encSetInit('c_cal', 2, 0); encSetInit('c_bode', 1, 0); encNext(); const s0 = cal.strain||0; encTurnUse('cal','act'); encTurnUse('cal','man2'); encTurnUse('cal','man2');
+      if(!S.enc.c_cal.act || S.enc.c_cal.man!==2 || cal.strain!==s0+2) throw new Error('a second maneuver should cost 2 strain once');
+      encNext(); encNext(); if(S.enc.cur!=='c_cal' || S.enc.c_cal.act || S.enc.c_cal.man) throw new Error('action and maneuver should come back on your turn');
+      ENC_UI.pc = 'cal'; for(const k of Object.keys(ABIL_CATS)){ encPanelSet('cat', k); const ph = document.getElementById('encPanel').innerHTML; if(/undefined|NaN|\[object/.test(ph) || !/Cal's options/.test(ph)) throw new Error('options panel broken on '+k); }
+      encPanelSet('cat','offense'); const ph = document.getElementById('encPanel').innerHTML; if(!/Light Blaster Pistol/.test(ph) || !/Unarmed/.test(ph) || !/This turn:/.test(ph) || !/Imperial Assassin/.test(ph)) throw new Error('offense panel should list weapons, targets and the turn tracker');
+      encEnd(); renderEnc(); if(!/Cal's options/.test(document.getElementById('encPanel').innerHTML)) throw new Error('options should stay available outside an encounter');
+      print(`  encounter options: talents sort into offense / defense / force / utility; range, defense and Adversary set the pool; hits apply once after soak and Pierce; second maneuver costs strain`);
+      S = keepS; setRolls(ROLLS.filter(e=>![1111,2222,3333].includes(e.ts))); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', cat:'offense' }); poolClear(); gmMode(false); showTab('tracker'); }
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{
