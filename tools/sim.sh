@@ -409,6 +409,12 @@ print('\n=== SMOKE TEST — UI code paths ===');
       setBuild(c, was); t.hunger = 0; }
     S = keepB; migrate(JSON.parse(JSON.stringify(syncSubset(S))));   // put the roster's builds back to this state's
     if(Math.abs(foodPts(cfg('tann'),'snack')*3 - foodPts(cfg('tann'),'ration')) > 1e-9 || foodPts(cfg('tann'),'meal') <= foodPts(cfg('tann'),'ration')) throw new Error('snack / meal sizes wrong');
+    { const t = st('tann'), keepInv = t.inv; t.status = null; t.water = 0; t.hunger = 60; t.inv = [stockRow('Ration', 2), stockRow('Snack', 1)];
+      startStatus('tann','ration'); if(Math.abs(-t.status.deltas.hunger - foodPts(cfg('tann'),'ration')*REFEED.frac) > 1e-9) throw new Error('refeeding should absorb only part of a ration');
+      t.status = null; t.hunger = 60; eatSnack('tann'); if(Math.abs(60 - t.hunger - foodPts(cfg('tann'),'snack')*REFEED.frac) > 1e-9) throw new Error('refeeding should slow a snack too');
+      t.status = null; t.hunger = 0; t.inv = keepInv; }
+    if(dailyNeeds(cfg('kata')).water!==44 || invTypeFor(CATALOG.find(x=>x.n==='Field Ration Pack'))!=='Ration' || invTypeFor(CATALOG.find(x=>x.n==='Imperial Army Field Rations'))==='Ration') throw new Error('daily water or ration item typing wrong');
+    { const f = freshState().chars, n = id => stockOf(f.find(x=>x.id===id),'Ration'); if(n('pike')!==6 || n('tann')!==9 || n('cal')!==11 || n('bode')!==12) throw new Error('starting rations should be three days by build: '+[n('pike'),n('tann'),n('cal'),n('bode')]); migrate(JSON.parse(JSON.stringify(syncSubset(S)))); }
     sheetSil('cal',0); if(sh.sil!==0 || st('pike').sheet.sil!==0 || st('bode').sheet.sil!==1) throw new Error('silhouette wrong'); sheetSil('cal',1);
     sheetName('cal',"  Cal <b>O'Kestis  "); if(cfg('cal').name!=='Cal bO’Kestis' || sh.name!=='Cal bO’Kestis') throw new Error('name not cleaned: '+cfg('cal').name);
     sheetName('cal','Prauf'); render(); if(!/Prauf/.test(document.getElementById('sheetChips').innerHTML) || !/Character Creator/.test(creationHtml(cal))) throw new Error('rename not shown');
