@@ -32,6 +32,7 @@ STUB
 [ -f items-custom.js ] && cat items-custom.js
 [ -f rules.js ] && cat rules.js
 [ -f lore.js ] && cat lore.js
+[ -f species.js ] && cat species.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -491,6 +492,16 @@ print('\n=== SMOKE TEST — UI code paths ===');
     loreSet('q','mantis'); if(!/lhit|class="on"|<button/.test(document.getElementById('loreNav').innerHTML)) throw new Error('lore search list empty'); loreSet('q','');
     if(!/Active objectives/i.test(N[LORE_DB.home].h) || !/lbase|lempty/.test(N[LORE_DB.home].h)) throw new Error('home page lists did not generate');
     print(`  lore: ${Object.keys(N).length} pages in ${LORE_DB.sections.length} sections, every link resolves, no private markers`); showTab('tracker');
+    // GM tab: the species guide loads, filters and renders
+    showTab('gm'); if(!SPECIES_DB || SPECIES_DB.length<300) throw new Error('species.js did not load');
+    if(SPECIES_DB.some(s=>s.a.length!==6 || !(s.wt>0) || !(s.st>0) || !(s.xp>0) || !s.n || (s.sub||[]).some(x=>x.a && x.a.length!==6))) throw new Error('a species is missing numbers');
+    gmSet('q','nautolan'); if(speciesFiltered().length!==1) throw new Error('species search wrong');
+    speciesPick(speciesFiltered()[0][1]); const sd = document.getElementById('gmDetail').innerHTML;
+    if(!/Nautolan/.test(sd) || !/Wounds <b>14<\/b>/.test(sd) || !/Pheromone Detection/.test(sd) || /undefined|NaN|\[object|\[[A-Z]{2}\]/.test(sd)) throw new Error('species detail render wrong');
+    gmSet('q',''); gmSet('attr','0'); const strong = speciesFiltered(); if(!strong.length || strong.length===SPECIES_DB.length || strong.some(([s])=>s.a[0]<3 && !(s.sub||[]).some(x=>x.a && x.a[0]>=3))) throw new Error('strong-in filter wrong');
+    gmSet('attr',''); gmSet('sort','xp'); const byXp = speciesFiltered(); if(byXp[0][0].xp < byXp[byXp.length-1][0].xp) throw new Error('species sort wrong'); gmSet('sort','name');
+    { const aq = SPECIES_DB.find(s=>s.n==='Aqualish'); GM_UI.sel = SPECIES_DB.indexOf(aq); renderSpeciesDetail(); if(!/Subspecies/.test(document.getElementById('gmDetail').innerHTML) || aq.sub.length!==3) throw new Error('subspecies not shown'); GM_UI.sel = -1; }
+    print(`  species: ${SPECIES_DB.length} in the guide, ${SPECIES_DB.filter(s=>s.sub).length} with subspecies; search, filter, sort and detail render`); showTab('tracker');
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{

@@ -399,7 +399,27 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  /* GM tab: species browser */
+  #gm{display:none}
+  .spcols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
+  .spgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .spcard{display:flex;gap:8px;align-items:center;text-align:left;padding:6px 8px;border-radius:8px;min-height:58px}
+  .spcard.on{background:#1f3a5f;border-color:var(--accent)}
+  .spcard img{width:34px;height:46px;object-fit:contain;flex:none}
+  .spcard b{display:block;font-size:12.5px;font-weight:600;overflow-wrap:anywhere} .spcard small{display:block;font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .spcard small i{font-style:normal;color:var(--good);font-weight:700}
+  .spdetail{position:sticky;top:8px;max-height:calc(100vh - 16px);overflow-y:auto;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12.5px;line-height:1.5}
+  .sphead{display:flex;gap:12px;align-items:center;margin-bottom:10px} .sphead img{width:64px;height:96px;object-fit:contain;flex:none}
+  .sphead h3{color:var(--gold);font-size:17px} .sphead small{color:var(--dim);display:block}
+  .spattrs{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-bottom:8px}
+  .spattrs div{border:1px solid var(--border);border-radius:6px;text-align:center;padding:3px 0;background:var(--panel)}
+  .spattrs b{display:block;font-size:17px} .spattrs span{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .spattrs .hi b{color:var(--good)} .spattrs .lo b{color:var(--bad)}
+  .spdetail h4{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:10px 0 4px}
+  .spdetail ul{margin:0 0 0 16px;padding:0} .spdetail li{margin-bottom:3px;color:#c4ccd6} .spdetail li b{color:var(--text)}
+  .spsub{border-top:1px dotted var(--border);padding-top:6px;margin-top:6px} .spsub > b{color:var(--gold)} .spsub > small{color:var(--dim);margin-left:6px}
+  @media(max-width:820px){ .spcols{grid-template-columns:1fr} .spdetail{position:static;max-height:none;order:-1} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#gm,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -499,6 +519,7 @@
   <button id="tabL" onclick="showTab('lore')">Lore</button>
   <button id="tabK" onclick="showTab('core')">Core Rules</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Rules</button>
+  <button id="tabG" onclick="showTab('gm')" title="Game Master tools: the species browser">GM</button>
   <span id="destinyChip"></span>
 </div>
 
@@ -589,6 +610,16 @@
   </div><div id="coreBody"></div></div>
 
 <div id="rules"></div>
+
+<div id="gm"><div class="itemswrap">
+  <div class="itembar">
+    <input type="text" id="gmQ" placeholder="search species and abilities… (e.g. aquatic, claws)" oninput="gmSet('q',this.value)">
+    <label title="Only species (or a subspecies) with 3 or more in this characteristic">strong in <select id="gmAttr" onchange="gmSet('attr',this.value)"></select></label>
+    <label title="Sort the results">sort <select id="gmSort" onchange="gmSet('sort',this.value)"><option value="name">name</option><option value="xp">starting XP</option><option value="wt">wounds</option><option value="st">strain</option></select></label>
+    <span class="itemcount" id="gmCount" style="margin:0"></span>
+  </div>
+  <div class="spcols"><div class="spgrid" id="gmGrid"></div><div class="spdetail" id="gmDetail"></div></div>
+</div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -2636,7 +2667,7 @@ function clearLog(){ if(!confirm('Clear the whole event log? Export it first if 
 let TAB = 'tracker';
 function showTab(t){
   TAB = t;
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR'],['gm','tabG']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
@@ -2644,6 +2675,7 @@ function showTab(t){
   if(t==='trees') renderTrees();
   if(t==='core') renderCore();
   if(t==='lore') loreLoad(renderLore);
+  if(t==='gm') speciesLoad(renderSpecies);
 }
 
 /* ================================================================
@@ -5363,6 +5395,72 @@ async function roomCopyLink(){
   const url = location.href.split('#')[0] + '#room=' + CLOUD.room;
   try{ await navigator.clipboard.writeText(url); syncNote('Share link copied — send it to your players.', 'ok'); }
   catch(e){ syncNote('Copy failed — the link is in your address bar to copy manually.', 'bad'); }
+}
+
+/* ================================================================
+   GM TAB — tools for the Game Master. So far: the species browser.
+   species.js is generated from the vault by tools/import-species.py and
+   loaded the first time the tab opens (like lore.js).
+   SPECIES entry: { n, k icon key (img/species/k.png), a [br,ag,int,cun,wil,pr],
+                    wt, st, xp, ab [[name,text]], sub [{n, ab, a?, wt?, st?, xp?}] }
+   ================================================================ */
+let SPECIES_DB = null, SPECIES_WAIT = null;
+const GM_UI = { q:'', attr:'', sort:'name', sel:-1 };
+function speciesLoad(cb){
+  if(SPECIES_DB) return cb();
+  if(typeof SPECIES!=='undefined'){ SPECIES_DB = SPECIES; return cb(); }
+  const box = document.getElementById('gmDetail');
+  if(SPECIES_WAIT){ SPECIES_WAIT.push(cb); return; }
+  SPECIES_WAIT = [cb]; if(box) box.innerHTML = '<p style="color:var(--dim)">Opening the species guide…</p>';
+  const sc = document.createElement('script'); sc.src = 'species.js';
+  sc.onload = () => { SPECIES_DB = typeof SPECIES!=='undefined' ? SPECIES : null; const w = SPECIES_WAIT; SPECIES_WAIT = null; if(SPECIES_DB) w.forEach(f=>f()); else if(box) box.innerHTML = '<p style="color:var(--bad)">The species guide did not load.</p>'; };
+  sc.onerror = () => { SPECIES_WAIT = null; if(box) box.innerHTML = '<p style="color:var(--bad)">The species guide did not load (species.js is missing).</p>'; };
+  document.head.appendChild(sc);
+}
+const spIcon = s => s.k ? `<img src="img/species/${s.k}.png" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : '';
+const spHay = s => s._h || (s._h = [s.n, ...s.ab.flat(), ...(s.sub||[]).flatMap(x=>[x.n, ...x.ab.flat()])].join(' ').toLowerCase());
+function gmSet(k, v){ GM_UI[k] = v; renderSpecies(); }
+function speciesFiltered(){
+  const u = GM_UI, words = u.q.trim().toLowerCase().split(/\s+/).filter(Boolean), ai = u.attr==='' ? -1 : +u.attr;
+  const list = SPECIES_DB.map((s,i)=>[s,i]).filter(([s])=>
+    (ai<0 || s.a[ai]>=3 || (s.sub||[]).some(x=>x.a && x.a[ai]>=3)) && words.every(w=>spHay(s).includes(w)));
+  if(u.sort!=='name') list.sort((x,y)=> y[0][u.sort]-x[0][u.sort] || x[1]-y[1]);
+  return list;
+}
+function renderSpecies(){
+  const grid = document.getElementById('gmGrid'); if(!grid || !SPECIES_DB) return;
+  const u = GM_UI, sel = document.getElementById('gmAttr');
+  sel.innerHTML = `<option value="">any characteristic</option>` + ATTRS.map(([k,n],i)=>`<option value="${i}"${u.attr===String(i)?' selected':''}>${n}</option>`).join('');
+  document.getElementById('gmSort').value = u.sort;
+  const list = speciesFiltered();
+  document.getElementById('gmCount').innerHTML = `showing <b>${list.length}</b> of ${SPECIES_DB.length} species`;
+  grid.innerHTML = list.map(([s,i])=>`<button class="spcard ${u.sel===i?'on':''}" id="spc_${i}" onclick="speciesPick(${i})">${spIcon(s)}<span><b>${esc(s.n)}</b>
+    <small>${s.a.map((v,j)=>v>=3 ? `<i>${ATTRS[j][1].slice(0,2)} ${v}</i>` : v).join(' ')}</small><small>W ${s.wt} · S ${s.st} · ${s.xp} XP${s.sub?` · ${s.sub.length} sub`:''}</small></span></button>`).join('')
+    || `<p style="color:var(--dim)">No species matches — try fewer words or another characteristic.</p>`;
+  renderSpeciesDetail();
+}
+function speciesPick(i){
+  const old = document.getElementById('spc_'+GM_UI.sel); if(old) old.className = 'spcard';
+  GM_UI.sel = i;
+  const now = document.getElementById('spc_'+i); if(now) now.className = 'spcard on';
+  renderSpeciesDetail();
+  const box = document.getElementById('gmDetail');
+  if(box && box.scrollIntoView && window.matchMedia && window.matchMedia('(max-width:820px)').matches) box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function renderSpeciesDetail(){
+  const box = document.getElementById('gmDetail'); if(!box) return;
+  const s = SPECIES_DB[GM_UI.sel];
+  if(!s){ box.innerHTML = `<p style="color:var(--dim)">Pick a species to see its characteristics, thresholds, starting XP and abilities. The six numbers on each card are Brawn, Agility, Intellect, Cunning, Willpower and Presence; a 3 or better is marked.</p>`; return; }
+  const attrs = a => `<div class="spattrs">${a.map((v,j)=>`<div class="${v>=3?'hi':v<=1?'lo':''}"><b>${v}</b><span>${ATTRS[j][1].slice(0,3)}</span></div>`).join('')}</div>`;
+  const abil = ab => ab.length ? `<ul>${ab.map(([n,t])=>`<li><b>${esc(n)}${t?':':''}</b> ${esc(t)}</li>`).join('')}</ul>` : '';
+  const sub = x => { const a = x.a||s.a, wt = x.wt??s.wt, st = x.st??s.st, xp = x.xp??s.xp;
+    const diff = [x.wt!=null && `Wounds ${wt+a[0]}`, x.st!=null && `Strain ${st+a[4]}`, x.xp!=null && `${xp} XP`].filter(Boolean).join(' · ');
+    return `<div class="spsub"><b>${esc(x.n)}</b>${diff?`<small>${diff}</small>`:''}${x.a?attrs(x.a):''}${abil(x.ab)}</div>`; };
+  box.innerHTML = `<div class="sphead">${spIcon(s)}<div><h3>${esc(s.n)}</h3>
+      <small>Wounds <b>${s.wt+s.a[0]}</b> (${s.wt} + Brawn) · Strain <b>${s.st+s.a[4]}</b> (${s.st} + Willpower)</small><small>${s.xp} starting XP</small></div></div>
+    ${attrs(s.a)}
+    ${s.ab.length ? `<h4>Abilities</h4>${abil(s.ab)}` : ''}
+    ${s.sub ? `<h4>Subspecies</h4><small style="color:var(--dim)">Each replaces only what it lists; the rest stays as above.</small>${s.sub.map(sub).join('')}` : ''}`;
 }
 
 function initCloud(){
