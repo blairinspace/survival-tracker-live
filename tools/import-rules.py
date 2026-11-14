@@ -116,6 +116,7 @@ def symmetrize(nodes, where):
     return by
 
 
+POWER_FR = {'Bind': 2}   # Force rating a power needs where the vault note does not state it
 PLACEMENTS = {}
 RC = re.compile(r'^(?:s\d+)?r(\d+)c(\d+)$')
 
@@ -264,8 +265,14 @@ def creation_data():
         text = open(path, encoding='utf-8').read()
         sk = re.search(r'## Career Skills\s*\n+(.+)', text)
         specs = re.findall(r'^- \[\[([^\]|]+)', text.split('## Specializations', 1)[1].split('\n## ', 1)[0], re.M) if '## Specializations' in text else []
-        careers.append({'n': name, 'skills': [x.strip() for x in clean(sk.group(1)).split(',')] if sk else [],
+        careers.append({'n': name, 'book': 'Force and Destiny', 'skills': [x.strip() for x in clean(sk.group(1)).split(',')] if sk else [],
                         'specs': specs, 'free': 3, 'fr': 1 if 'Force rating 1' in text else 0})
+    extra = os.path.join(ROOT, 'tools', 'careers-extra.json')   # careers from books that are not in the vault (hand-maintained)
+    if os.path.exists(extra):
+        have = {c['n'] for c in careers}
+        for c in json.load(open(extra, encoding='utf-8')):
+            if c['n'] not in have:
+                careers.append({'n': c['n'], 'book': c['book'], 'skills': c['skills'], 'specs': [], 'free': c.get('free', 4), 'fr': c.get('fr', 0)})
     morality = []   # Table 2-1: paired emotional strengths and weaknesses
     mpath = os.path.join(base, 'Morality.md')
     if os.path.exists(mpath):
@@ -317,6 +324,7 @@ def main():
                     tree['book'] = 'Force Powers'
                     pre = re.search(r'Force Rating (\d+)', fm.get('prerequisite', '') or text[:1500])
                     tree['fr'] = int(pre.group(1)) if pre else 1
+                    tree['fr'] = max(tree['fr'], POWER_FR.get(name, 1))
                     basic = re.search(r'\*\*Basic Power:\*\* *(.+)', text)
                     if basic:
                         basic = basic.group(1)

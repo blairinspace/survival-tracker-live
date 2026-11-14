@@ -1,0 +1,14 @@
+[
+  {"n": "Bounty Hunter", "book": "Edge of the Empire", "free": 4, "skills": ["Athletics", "Brawl", "Perception", "Piloting (Planetary)", "Piloting (Space)", "Ranged (Heavy)", "Streetwise", "Vigilance"]},
+  {"n": "Colonist", "book": "Edge of the Empire", "free": 4, "skills": ["Charm", "Deception", "Knowledge (Core Worlds)", "Knowledge (Education)", "Knowledge (Lore)", "Leadership", "Negotiation", "Streetwise"]},
+  {"n": "Explorer", "book": "Edge of the Empire", "free": 4, "skills": ["Astrogation", "Cool", "Knowledge (Lore)", "Knowledge (Outer Rim)", "Knowledge (Xenology)", "Perception", "Piloting (Space)", "Survival"]},
+  {"n": "Hired Gun", "book": "Edge of the Empire", "free": 4, "skills": ["Athletics", "Brawl", "Discipline", "Melee", "Piloting (Planetary)", "Ranged (Light)", "Resilience", "Vigilance"]},
+  {"n": "Smuggler", "book": "Edge of the Empire", "free": 4, "skills": ["Coordination", "Deception", "Knowledge (Underworld)", "Perception", "Piloting (Space)", "Skulduggery", "Streetwise", "Vigilance"]},
+  {"n": "Technician", "book": "Edge of the Empire", "free": 4, "skills": ["Astrogation", "Computers", "Coordination", "Discipline", "Knowledge (Outer Rim)", "Mechanics", "Perception", "Piloting (Planetary)"]},
+  {"n": "Ace", "book": "Age of Rebellion", "free": 4, "skills": ["Astrogation", "Cool", "Gunnery", "Mechanics", "Perception", "Piloting (Planetary)", "Piloting (Space)", "Ranged (Light)"]},
+  {"n": "Commander", "book": "Age of Rebellion", "free": 4, "skills": ["Coercion", "Cool", "Discipline", "Knowledge (Warfare)", "Leadership", "Perception", "Ranged (Light)", "Vigilance"]},
+  {"n": "Diplomat", "book": "Age of Rebellion", "free": 4, "skills": ["Charm", "Deception", "Knowledge (Core Worlds)", "Knowledge (Lore)", "Knowledge (Outer Rim)", "Knowledge (Xenology)", "Leadership", "Negotiation"]},
+  {"n": "Engineer", "book": "Age of Rebellion", "free": 4, "skills": ["Athletics", "Computers", "Knowledge (Education)", "Mechanics", "Perception", "Piloting (Space)", "Ranged (Light)", "Vigilance"]},
+  {"n": "Soldier", "book": "Age of Rebellion", "free": 4, "skills": ["Athletics", "Brawl", "Knowledge (Warfare)", "Medicine", "Melee", "Ranged (Light)", "Ranged (Heavy)", "Survival"]},
+  {"n": "Spy", "book": "Age of Rebellion", "free": 4, "skills": ["Computers", "Cool", "Coordination", "Deception", "Knowledge (Warfare)", "Perception", "Skulduggery", "Stealth"]}
+]

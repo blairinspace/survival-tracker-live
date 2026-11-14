@@ -3500,6 +3500,7 @@ function ccSetCareer(id, name){
   ccUnpick(sh, 'fc');
   if(old) for(const n of old.skills){ const k = skillKeyByName(n); if(k && !keep.has(k)) skCareer(sh, k, false); }
   for(const n of car.skills){ const k = skillKeyByName(n); if(k) skCareer(sh, k, true); }
+  if(old && old.fr && !car.fr && sh.fr <= old.fr){ sh.fr = 0; if(cs.force) cs.force = 0; }   // leaving a Force career for one without the Force
   sh.career = car.n; cc.car = car.n; if(car.fr && sh.fr < car.fr) sh.fr = car.fr;
   render();
 }
@@ -3561,10 +3562,11 @@ function creationHtml(cs){
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>
     ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : ''}
     <div class="shead"><label title="A species that is not in the list: type its name, then set characteristics, thresholds and XP by hand on the sheet.">Other species (not listed)<input type="text" value="${esc(sp ? '' : sh.species)}" placeholder="species name" onchange="ccOther('${id}','species',this.value)"></label></div>`;
-  else if(step===5) body = `<p>Your <b>career</b> never changes. It gives six career skills (cheaper to raise forever), decides which specializations are cheap, and for these careers starts you at Force rating 1.</p>
-    <div class="cccards">${RULES_DB.careers.map(x=>`<div class="tnode ${car&&car.n===x.n?'own':'can'}" onclick="ccSetCareer('${id}','${x.n}')"><b>${esc(x.n)}</b><small>${esc(x.skills.join(', '))}</small></div>`).join('')}</div>
+  else if(step===5) body = `<p>Your <b>career</b> never changes. It gives your career skills (cheaper to raise forever) and decides which specializations are cheap. <b>Force and Destiny</b> careers have six skills, three free ranks and start at Force rating 1; <b>Edge of the Empire</b> and <b>Age of Rebellion</b> careers have eight skills, four free ranks and no Force rating.</p>
+    ${[...new Set(RULES_DB.careers.map(x=>x.book))].map(book=>`<h4 style="color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">${esc(book)}</h4>
+    <div class="cccards">${RULES_DB.careers.filter(x=>x.book===book).map(x=>`<div class="tnode ${car&&car.n===x.n?'own':'can'}" onclick="ccSetCareer('${id}','${x.n}')" title="${x.fr?'Starts at Force rating '+x.fr+'. ':''}${x.free} free ranks among these ${x.skills.length} career skills."><b>${esc(x.n)}${x.fr?' <span style="color:var(--force)">✦</span>':''}</b><small>${esc(x.skills.join(', '))}</small></div>`).join('')}</div>`).join('')}
     ${car ? `<p><b>Free career ranks:</b> one free rank in ${car.free} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : ''}
-    <div class="shead"><label title="A career from another book: type its name, then tick its career skills by hand in the skill list.">Other career (not listed)<input type="text" value="${esc(car ? '' : sh.career)}" placeholder="career name" onchange="ccOther('${id}','career',this.value)"></label></div>`;
+    <div class="shead"><label title="A career that is not listed (Clone Soldier, Jedi, homebrew): type its name, then tick its career skills by hand in the skill list.">Other career (not listed)<input type="text" value="${esc(car ? '' : sh.career)}" placeholder="career name" onchange="ccOther('${id}','career',this.value)"></label></div>`;
   else if(step===6){
     const opts = RULES_DB.trees.filter(t=>t.k==='spec' && car && t.career===car.n);
     body = `<p>Your first <b>specialization</b> is free. It adds four more career skills and a talent tree to spend XP in.</p>` +
