@@ -18,7 +18,7 @@ Output (short keys, like items.js):
   Homebrew: notes in ./homebrew use the same format (trees anywhere under it, talents in
   homebrew/Talents.md) and come out flagged hb 1.
 
-  RULES.trees[]  id · n name · k kind (spec|power|sig) · book · career · skills[] (spec) ·
+  RULES.trees[]  id · n name · k kind (spec|power|sig) · book · career · skills[] (spec) · grantFr (spec) ·
                  fr Force rating needed (power) · basic text (power) · rows · nodes[]
   node           id · n name · c XP cost · x,y,w grid cell (4 columns wide; y 0 is the top row) ·
                  to[] connected node ids · root 1 if it can be bought first ·
@@ -315,6 +315,9 @@ def main():
                     sk = re.search(r'\*\*Additional career skills:\*\* *(.+)', text) or \
                         re.search(r'## Additional Career Skills\s*\n+(.+)', text)
                     tree['skills'] = [s.strip() for s in clean(sk.group(1)).split(',')] if sk else []
+                    grant = re.search(r'\*\*Grants:\*\* *Force Rating (\d)', text)   # Force-sensitive universal trees give a Force rating, not skills
+                    if grant:
+                        tree['grantFr'] = int(grant.group(1))
                     layout_grid(nodes, by, None)
                     for n in nodes:
                         if n['y'] == 0:
@@ -391,6 +394,15 @@ def main():
                     tree['nodes'].append(o)
                 trees.append(tree)
 
+    over_path = os.path.join(HOMEBREW, 'overrides.json')   # house rules layered over published trees
+    if os.path.exists(over_path):
+        for tid, o in json.load(open(over_path, encoding='utf-8')).get('trees', {}).items():
+            t = next((x for x in trees if x['id'] == tid), None)
+            if not t:
+                print('  ! overrides.json names an unknown tree:', tid)
+            elif 'skills' in o:
+                t['skills'] = o['skills']
+                t['hbSkills'] = 1
     summaries = json.load(open(SUMMARIES, encoding='utf-8')) if os.path.exists(SUMMARIES) else {}
     core = talent_entries(os.path.join(VAULT, '04 - Talents', 'Talent Descriptions.md'), '## Talent List')
     cat = talent_entries(os.path.join(VAULT, 'Talent Trees', 'Master Talent Catalog.md'))

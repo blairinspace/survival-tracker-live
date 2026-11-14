@@ -328,6 +328,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
       if(cal.st!==st0+1 || cal.wt!==wt0 || sh.fr!==fr0 || cal.attr.br!==br0 || sh.xp!==xp0) throw new Error('refund did not undo exactly what was applied');
       cal.st = st0; treeBuy('cal',A,'r1c3'); treeBuy('cal',A,'r2c3'); specRemove('cal',A); if(cal.st!==st0 || cal.wt!==wt0) throw new Error('removing a specialization did not undo its talents');
       specAdd('cal',A,true); sh.tr = JSON.parse(tr0); sh.xp = 80; sh.specs = 'Healer, Arbiter'; }
+    { const ps = TREE_BY['padawan-survivor-universal'], fr0 = sh.fr; if(ps.grantFr!==1 || ps.skills.join()!=='Deception,Stealth,Streetwise,Vigilance' || !ps.hbSkills || TREE_BY['force-sensitive-exile-universal'].skills.length) throw new Error('Padawan Survivor should grant Force rating 1 and its house-rule skills'); sh.fr = 0; const dc0 = (sh.sk.deception||{}).c; specAdd('cal',ps.id,true); if(!sh.sk.deception.c || !sh.sk.streetwise.c) throw new Error('house-rule career skills not ticked'); if(!dc0) skCareer(sh,'deception',false); skCareer(sh,'streetwise',false); if(sh.fr!==1 || !/Grants Force rating 1/.test(treeHtml(ps, cal))) throw new Error('Force rating not granted'); specRemove('cal',ps.id); sh.fr = fr0; }
     specRemove('cal','healer'); if(sh.xp!==105 || sh.tr.healer || /Healer/.test(sh.specs)) throw new Error('removing a specialization should refund it');
     print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
     S = migrate(JSON.parse(keep)); showTab('tracker');
@@ -427,7 +428,13 @@ print('\n=== SMOKE TEST — UI code paths ===');
     sheetName('cal','Prauf'); render(); if(!/Prauf/.test(document.getElementById('sheetChips').innerHTML) || !/Character Creator/.test(creationHtml(cal))) throw new Error('rename not shown');
     migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(cfg('cal').name!=='Prauf') throw new Error('name lost on the wire');
     sheetName('cal',''); if(cfg('cal').name!=='Cal Kestis') throw new Error('clearing the name should restore the default');
-    ccEnd('cal'); if(sh.cc || creationHtml(cal)!=='' || bad) throw new Error('creation walkthrough render broken');
+    { const b = JSON.parse(JSON.stringify(buildExport('cal'))), bo = st('bode'), inv0 = JSON.stringify(bo.inv), cr0 = (bo.sheet.credits = 777), nm0 = cfg('bode').name;
+      if(b.sheet.credits!==undefined || b.sheet.cc || b.kind!=='st-build') throw new Error('build export should leave out credits and progress');
+      if(buildApply('bode', {kind:'nope'})==='' || buildApply('bd1', b)==='') throw new Error('bad builds should be refused');
+      if(buildApply('bode', b)!=='' || JSON.stringify(bo.inv)!==inv0 || bo.sheet.credits!==777 || bo.attr.ag!==cal.attr.ag || bo.wt!==cal.wt || JSON.stringify(bo.sheet.tr)!==JSON.stringify(sh.tr) || bo.sheet.species!==sh.species) throw new Error('build import wrong');
+      S = migrate(JSON.parse(keep)); }
+    const cal2 = st('cal'); ccStart('cal');
+    ccEnd('cal'); if(cal2.sheet.cc || creationHtml(cal2)!=='' || bad) throw new Error('creation walkthrough render broken');
     print(`  creation: ${RULES_DB.species.length} species and ${RULES_DB.careers.length} careers; species, career, specialization, free ranks and characteristic purchases apply and undo cleanly`);
     S = migrate(JSON.parse(keep));
   })();

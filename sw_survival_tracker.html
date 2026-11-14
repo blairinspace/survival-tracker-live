@@ -203,6 +203,7 @@
   .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:54px}
   .sktable tr.uneq td{opacity:.6} .sktable tr.uneq td.keep{opacity:1}
   button.eqbtn{font-size:13px;padding:1px 6px;opacity:.45} button.eqbtn.on{opacity:1;border-color:var(--gold);color:var(--gold)}
+  .sbox input.xpn{width:58px}
   .sbox b.derived{font-size:20px;color:var(--text)}
   .wcard{border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:12.5px}
   .wcard b{color:var(--text)} .wcard .q{color:var(--dim);font-size:11.5px;display:block;margin-top:2px}
@@ -3040,7 +3041,7 @@ function renderSheet(){
       ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Morichro on the Tracker card.',
         (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
         ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
-      ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp')+' / '+num('xpTotal'), 'available / total')}
+      ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp','xpn')+' / '+num('xpTotal','xpn'), 'available / total')}
       ${box('Credits','Credits on hand.', num('credits','big'))}
     </div>
     <div class="sboxes">` + ATTRS.map(([k,n])=>
@@ -3160,6 +3161,7 @@ function specAdd(id, tid, free){
   const list = cs.sheet.specs.split(',').map(x=>x.trim()).filter(Boolean);   // keep the sheet's Specializations box in step
   if(!list.some(x=>normName(x)===normName(t.n))) cs.sheet.specs = list.concat(t.n).join(', ').slice(0,120);
   for(const name of t.skills){ const k = skillKeyByName(name); if(k) (cs.sheet.sk[k] || (cs.sheet.sk[k] = {})).c = 1; }   // its career skills
+  if(t.grantFr && cs.sheet.fr < t.grantFr) cs.sheet.fr = t.grantFr;   // Force-sensitive universal trees grant a Force rating if you have none
   render(); return true;
 }
 function specRemove(id, tid){
@@ -3208,7 +3210,7 @@ function treeHtml(t, cs){   // cs null = read-only
   }).join('');
   let info = '';
   if(t.k==='spec'){
-    info = `<b>Career skills:</b> ${esc(t.skills.join(', ') || '—')}`;
+    info = `<b>Career skills:</b> ${esc(t.skills.join(', ') || 'none')}${t.hbSkills ? ' <span class="badge b-hb" title="House rule: the published tree lists different career skills, or none">HB</span>' : ''}${t.grantFr ? ` · <b>Grants Force rating ${t.grantFr}</b> if you have none` : ''}`;
     if(cs){
       const cost = specCost(cs, t);
       info += '<br>' + (o
@@ -3521,6 +3523,43 @@ function ccOther(id, k, v){   // a species or career that is not in the vault: j
   if(k==='career'){ ccUnpick(sh, 'fc'); delete cc.car; sh.career = v; }
   render();
 }
+/* ---- builds: one character's sheet as a file. A build is everything the Character Creator and the
+   Talents tab set — name, bio, species, career, characteristics, thresholds, skills, trees, Morality,
+   Obligation, Duty, XP — and NOT the inventory, credits, needs, wounds or strain. Importing one
+   replaces that character's sheet and leaves their items exactly as they are. */
+function buildExport(id){
+  const cs = st(id), sheet = JSON.parse(JSON.stringify(cs.sheet));
+  delete sheet.credits; delete sheet.cc;
+  return { kind:'st-build', v:1, name:cfg(id).name, droid:!!cfg(id).droid, attr:{...cs.attr}, wt:cs.wt, st:cs.st, sheet };
+}
+function buildApply(id, b){
+  const cs = st(id), c = cfg(id);
+  if(!cs || !b || b.kind!=='st-build' || !b.sheet || typeof b.sheet!=='object' || !b.attr) return 'That file is not a character build.';
+  if(!!b.droid !== !!c.droid) return `That build is for ${b.droid?'a droid':'an organic character'} and ${c.name} is not.`;
+  const credits = cs.sheet.credits, sheet = JSON.parse(JSON.stringify(b.sheet));
+  delete sheet.cc; sheet.credits = credits;
+  for(const [k] of ATTRS) cs.attr[k] = clamp(Math.round(+b.attr[k])||1, 1, 7);
+  cs.encThresh = cs.attr.br + 5;
+  if(Number.isFinite(+b.wt)) cs.wt = clamp(Math.round(+b.wt), 0, 99);
+  if(Number.isFinite(+b.st)) cs.st = clamp(Math.round(+b.st), 0, 99);
+  cs.sheet = sheet; normSheet(cs, c);
+  if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs);
+  logMsg(`👤 ${c.name}'s sheet was replaced by an imported build${b.name && b.name!==c.name ? ` (“${cleanName(b.name)}”)` : ''}. Inventory and credits unchanged.`);
+  render(); return '';
+}
+function buildDownload(id){
+  const blob = new Blob([JSON.stringify(buildExport(id), null, 1)], {type:'application/json'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `build_${cfg(id).name.replace(/[^A-Za-z0-9]+/g,'_')}.json`; a.click();
+}
+function buildUpload(id, inp){
+  const f = inp.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = e => { let err; try{ const b = JSON.parse(e.target.result);
+      if(!confirm(`Replace ${cfg(id).name}'s sheet with this build${b && b.name ? ` (“${b.name}”)` : ''}? Skills, talents, XP, bio and Morality are overwritten. Inventory and credits are kept.`)) return;
+      err = buildApply(id, b); }catch(x){ err = 'That file could not be read.'; }
+    if(err) alert(err); };
+  r.readAsText(f); inp.value = '';
+}
 function ccAttr(id, k, d){   // creation is the only time XP buys a characteristic: 10 × the new rating, 5 at most
   const cs = st(id), sh = cs.sheet, sp = ccSpecies(cs), cur = cs.attr[k], floor = sp ? sp.attr[k] : 1;
   if(d>0){ const cost = 10*(cur+1); if(cur >= CC_ATTR_MAX || sh.xp < cost) return false; cs.attr[k]++; sh.xp -= cost; }
@@ -3547,7 +3586,10 @@ function creationHtml(cs){
       <label title="Size in the rules. Most characters are 1; Jawa-sized characters and small droids are 0.">Silhouette<select onchange="sheetSil('${id}',this.value)">${SILHOUETTES.map((t,i)=>`<option value="${i}" ${i===sh.sil?'selected':''}>${t}</option>`).join('')}</select></label></div>
     <p class="tinfo"><b>Build: ${esc(sh.bio.build)}</b> — needs ${needsText(cfg(id))}. ${esc(BUILDS[sh.bio.build].tip)} Changing it changes this character's needs on the Tracker tab from now on.</p>
     <p>The species, career and specializations shown beside the name are set by the steps below. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
-    <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button></p>`;
+    <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button>
+      <button class="mini" onclick="buildDownload('${id}')" title="Save this character's build (sheet, skills, talents, XP, bio, Morality) to a file. Inventory and credits are not included.">⬇ export build</button>
+      <button class="mini" onclick="document.getElementById('buildFile_${id}').click()" title="Load a build file onto this character. It replaces the sheet and keeps the inventory and credits.">⬆ import build</button>
+      <input type="file" id="buildFile_${id}" accept=".json" style="display:none" onchange="buildUpload('${id}',this)"></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
     <div class="ccsteps">${Object.keys(CC_BONUS).filter(Boolean).map(k=>`<button class="chip ${cc.bonus===k?'on':''}" onclick="ccBonus('${id}','${cc.bonus===k?'':k}')">${CC_BONUS[k].label}</button>`).join('')}</div>
     <p>Then choose an <b>emotional strength</b> and its paired <b>weakness</b>, or roll for them. They have no rules effect; they tell you what tempts the character.</p>

@@ -1,0 +1,9 @@
+{
+  "_about": "House rules layered over the published trees. Keys under 'trees' are tree ids from rules.js; 'skills' replaces that specialization's additional career skills.",
+  "trees": {
+    "padawan-survivor-universal": {
+      "skills": ["Deception", "Stealth", "Streetwise", "Vigilance"],
+      "note": "House rule (2026-11-13): the published tree grants Force rating 1 and no career skills. A hunted ex-Padawan lives by hiding, lying, knowing the streets and watching their back."
+    }
+  }
+}
