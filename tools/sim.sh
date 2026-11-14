@@ -329,6 +329,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
       cal.st = st0; treeBuy('cal',A,'r1c3'); treeBuy('cal',A,'r2c3'); specRemove('cal',A); if(cal.st!==st0 || cal.wt!==wt0) throw new Error('removing a specialization did not undo its talents');
       specAdd('cal',A,true); sh.tr = JSON.parse(tr0); sh.xp = 80; sh.specs = 'Healer, Arbiter'; }
     { const ps = TREE_BY['padawan-survivor-universal'], fr0 = sh.fr; if(ps.grantFr!==1 || ps.skills.join()!=='Deception,Stealth,Streetwise,Vigilance' || !ps.hbSkills || TREE_BY['force-sensitive-exile-universal'].skills.length) throw new Error('Padawan Survivor should grant Force rating 1 and its house-rule skills'); sh.fr = 0; const dc0 = (sh.sk.deception||{}).c; specAdd('cal',ps.id,true); if(!sh.sk.deception.c || !sh.sk.streetwise.c) throw new Error('house-rule career skills not ticked'); if(!dc0) skCareer(sh,'deception',false); skCareer(sh,'streetwise',false); if(sh.fr!==1 || !/Grants Force rating 1/.test(treeHtml(ps, cal))) throw new Error('Force rating not granted'); specRemove('cal',ps.id); sh.fr = fr0; }
+    { const bg = 'bodyguard-hired-gun', sm0 = sh.soakMod, x0 = sh.xp; sh.xp = 500; specAdd('cal',bg,true); for(const n of ['r1c2','r2c2','r2c1','r3c1','r4c1']) treeBuy('cal',bg,n); if(sh.soakMod!==sm0+1) throw new Error('Enduring should add 1 soak'); treeRefund('cal',bg,'r4c1'); if(sh.soakMod!==sm0) throw new Error('refunding Enduring should take the soak back'); specRemove('cal',bg); for(const n of TREE_BY[bg].skills){ const k = skillKeyByName(n); if(k && sh.sk[k] && !sh.sk[k].r) delete sh.sk[k]; } sh.xp = x0; sh.specs = sh.specs.replace(/,? ?Bodyguard/,''); }
     specRemove('cal','healer'); if(sh.xp!==105 || sh.tr.healer || /Healer/.test(sh.specs)) throw new Error('removing a specialization should refund it');
     print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
     S = migrate(JSON.parse(keep)); showTab('tracker');
@@ -452,6 +453,28 @@ print('\n=== SMOKE TEST — UI code paths ===');
     showTab('core'); gmCheck('destiny', true); if(!/class="done"/.test(coreSections()[0][3])) throw new Error('GM checklist tick not shown'); gmReset();
     for(const x of S.chars) x.sheet.mor = 50; st('bode').sheet.mor = 88; if(moralTrigger(90)!=='bode') throw new Error('Morality trigger wrong'); st('bode').sheet.mor = 50;
     print(`  core rules: ${secs.length} sections, ${Math.round(html.length/1000)}k of reference, 0 broken interpolations`); showTab('tracker');
+  })();
+  // command console: Alpha's authorized users, orders by priority and urgency, macros, override, modules
+  (()=>{
+    const keep = JSON.stringify(S), al = st('alpha'), m = cmdOf(al);
+    if(!m || cmdOf(st('bd1')) || cmdOf(st('cal')) || cmdHtml(st('cal'))!=='' || cmdCardLine(st('bd1'))!=='') throw new Error('only Alpha should have a console');
+    if(cmdUserName(m.users[0])!==cfg('bode').name || !m.users[1].pr || m.users.length!==7 || m.mods.length!==6 || m.macros[0].st.length!==3) throw new Error('console defaults wrong');
+    const [bode, kata, cal] = m.users;
+    cmdOrder('alpha','Hold position',2,1,cal.id); cmdOrder('alpha','Move Principal to Cover','','',bode.id); cmdOrder('alpha','Scan the corridor',1,2,kata.id); cmdOrder('alpha','Carry Kata',1,1,kata.id);
+    const ord = cmdSorted(m).map(o=>o.t).join('|'); if(ord!=='Move Principal to Cover|Carry Kata|Scan the corridor|Hold position') throw new Error('order sorting wrong: '+ord);
+    if(cmdOrder('alpha','Stand down',9,9,cal.id,true)) throw new Error('override used with none set'); cmdUserFlag('alpha',cal.id,'ov',true);
+    if(!cmdOrder('alpha','Stand down',9,9,cal.id,true) || cmdSorted(m)[0].t!=='Stand down' || !/OVERRIDE/.test(cmdCardLine(al))) throw new Error('override should jump the queue');
+    cmdOrderSet('alpha', m.orders.find(o=>o.t==='Stand down').id, 'done'); cmdOrderSet('alpha', m.orders.find(o=>o.t==='Hold position').id, 'ignored');
+    if(cmdSorted(m)[0].t!=='Move Principal to Cover' || cmdSorted(m).filter(o=>o.s==='active').length!==3) throw new Error('finished orders should drop below active ones');
+    cmdMacroRun('alpha', m.macros[0].id, kata.id); if(m.orders.filter(o=>o.mc==='Secure').length!==3) throw new Error('macro did not expand');
+    cmdUserMove('alpha', kata.id, -1); if(cmdUserName(m.users[0])!==cfg('kata').name) throw new Error('user priority move wrong'); cmdUserMove('alpha', kata.id, 1);
+    cmdModAdd('alpha','Starship Piloting'); cmdUserAdd('alpha','Greez'); cmdClearDone('alpha');
+    const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='alpha').sheet.cmd;
+    if(w.orders.length!==6 || w.users.length!==8 || w.users[7].n!=='Greez' || w.mods.length!==7 || w.macros[0].st.length!==3 || !w.users[2].ov) throw new Error('console lost on the wire');
+    al.sheet.cmd.orders = []; al.sheet.cmd.macros = []; const w2 = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='alpha').sheet.cmd; if(w2.macros.length || w2.orders.length || w2.users.length!==8) throw new Error('an emptied console list came back');
+    SHEET_UI.id = 'alpha'; render(); const h = cmdHtml(al); if(/undefined|NaN|\[object/.test(h) || !/Command Console/.test(document.getElementById('sheetBody').innerHTML)) throw new Error('console render broken');
+    print(`  command console: ${m.users.length} authorized users, orders sort by override / priority / urgency / user rank, macros expand, survives the wire`);
+    S = migrate(JSON.parse(keep));
   })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;

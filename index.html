@@ -779,7 +779,7 @@ const CHARS = [
   mods:{maintRate:0.9}, attr:{br:1,ag:2,int:3,cun:2,wil:1,pr:1},
   kit:[ ['Tool attachments','Tool',1,0] ],
   trait:'Small and power-thrifty. Well-loved and well-kept (wears 10% slower).'},
- {id:'alpha', name:'Alpha',       species:'KX-series security droid', h:`7'1"`, build:'Heavy', droid:true,
+ {id:'alpha', name:'Alpha',       species:'KX-series security droid', h:`7'1"`, build:'Heavy', droid:true, console:true,
   mods:{maintAdapt:0.75}, attr:{br:4,ag:2,int:3,cun:2,wil:1,pr:1},
   kit:[ ['Integrated systems','Gear',1,0] ],
   trait:'Big military frame — power-hungry. Sealed mil-spec chassis shrinks environmental wear 25%.'}
@@ -2192,6 +2192,7 @@ function organicCard(cs, c, div){
       <span class="gi">💉 <b title="Stimpacks carried — the Stimpack rows in the inventory; change the quantity on the Sheets tab">${stockOf(cs,'Stim')}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
       ${isFS(cs)?`<span class="gi" title="Morichro — the Jedi technique of turning the Force inward to slow the body's need for food, water, rest and air">✨ Morichro <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
+    ${cmdCardLine(cs)}
     ${invSection(cs)}
     ${organicEffects(cs, c, {dead, uncon, over})}`;
 }
@@ -2228,6 +2229,7 @@ function droidCard(cs, c, div){
       <span class="gi">🔋 charged <input type="number" min="0" value="${cs.packsCharged}" onchange="setStock('${cs.id}','packsCharged',this.value)" title="Charged spare packs"></span>
       <span class="gi">🪫 depleted <input type="number" min="0" value="${cs.packsDepleted}" onchange="setStock('${cs.id}','packsDepleted',this.value)" title="Depleted packs"></span>
     </div>
+    ${cmdCardLine(cs)}
     ${invSection(cs)}
     ${statusSection(cs, ex, t, {dead:wrecked, uncon:disabled, over})}`;
 }
@@ -2630,7 +2632,7 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs','morS','morW'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
@@ -2685,6 +2687,7 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
   if(!setBuild(c, sh.bio.build)){ sh.bio.build = c.build0; setBuild(c, c.build0); }   // the build drives water, hunger and pack life
   sh.sil = Number.isFinite(+sh.sil) && sh.sil!==undefined && sh.sil!==null ? clamp(Math.round(+sh.sil), 0, 4) : (c.sil===undefined ? 1 : c.sil);
   if(sh.fs!==undefined) sh.fs = +sh.fs ? 1 : 0;
+  if(c.console) normCmd(sh);
   if(sh.cc && (typeof sh.cc!=='object' || Array.isArray(sh.cc))) delete sh.cc;   // Character Creator in progress
   if(sh.cc) for(const g of ['fc','fs','fp']) if(!sh.cc[g] || typeof sh.cc[g]!=='object') sh.cc[g] = {};
   if(!sh.tr || typeof sh.tr!=='object' || Array.isArray(sh.tr)) sh.tr = {};
@@ -3048,6 +3051,7 @@ function renderSheet(){
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
     ${gearHtml(cs)}
     ${talentsHtml(cs)}
+    ${cmdHtml(cs)}
     ${moralityHtml(cs)}
     <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
 }
@@ -3089,11 +3093,11 @@ function nodeState(cs, t, n){   // own · can (buyable now) · lock, with the re
   return { s:'can' };
 }
 /* Talents that change the sheet's numbers the moment they are bought, and change them back on a refund:
-   Grit +1 strain threshold · Toughened +2 wound threshold · Force Rating +1 · Dedication +1 to one
+   Grit +1 strain threshold · Toughened +2 wound threshold · Enduring +1 soak · Force Rating +1 · Dedication +1 to one
    characteristic (the player picks; 6 is the ceiling). The owned box remembers what it did — 2 = applied,
    or the characteristic key for Dedication — so a refund only undoes what was really applied (a box bought
    before this existed holds 1 and is left alone). */
-const AUTO_TALENTS = { 'Grit':'+1 strain threshold', 'Toughened':'+2 wound threshold', 'Force Rating':'+1 Force rating', 'Dedication':'+1 to a characteristic of your choice (max 6)' };
+const AUTO_TALENTS = { 'Grit':'+1 strain threshold', 'Toughened':'+2 wound threshold', 'Force Rating':'+1 Force rating', 'Dedication':'+1 to a characteristic of your choice (max 6)', 'Enduring':'+1 soak' };
 function pickAttr(cs, want){   // which characteristic Dedication raises: given, or asked
   const open = ATTRS.filter(([k])=>cs.attr[k] < 6);
   if(!open.length){ alert('Every characteristic is already 6 — Dedication has nothing to raise.'); return null; }
@@ -3107,6 +3111,7 @@ function pickAttr(cs, want){   // which characteristic Dedication raises: given,
 function talentApply(cs, name, opt){   // returns the marker to store on the box, or null to cancel the purchase
   if(name==='Grit'){ cs.st = (+cs.st||0) + 1; return 2; }
   if(name==='Toughened'){ cs.wt = (+cs.wt||0) + 2; return 2; }
+  if(name==='Enduring'){ cs.sheet.soakMod = Math.min(SHEET_NUM.soakMod[1], cs.sheet.soakMod + 1); return 2; }
   if(name==='Force Rating'){ if(cs.sheet.fr >= SHEET_NUM.fr[1]) return 1; cs.sheet.fr++; return 2; }
   if(name==='Dedication'){
     const k = pickAttr(cs, opt); if(!k) return null;
@@ -3119,6 +3124,7 @@ function talentUnapply(cs, name, mark){
   if(mark===1 || mark===true || !mark) return;
   if(name==='Grit') cs.st = Math.max(0, (+cs.st||0) - 1);
   if(name==='Toughened') cs.wt = Math.max(0, (+cs.wt||0) - 2);
+  if(name==='Enduring') cs.sheet.soakMod = Math.max(SHEET_NUM.soakMod[0], cs.sheet.soakMod - 1);
   if(name==='Force Rating'){ cs.sheet.fr = Math.max(0, cs.sheet.fr - 1); if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs); }
   if(name==='Dedication' && cs.attr[mark]!==undefined){ cs.attr[mark] = Math.max(1, cs.attr[mark] - 1); if(mark==='br') cs.encThresh = cs.attr.br + 5; }
 }
@@ -3290,6 +3296,140 @@ function talentsHtml(cs){
     ${table}
     <div class="geartables">${folds}</div>
     <button class="mini" onclick="treesFor('${id}')" title="Open the Talents tab to add a specialization, a Force power or a signature ability">＋ browse &amp; add trees</button>
+  </details>`;
+}
+
+/* ================================================================
+   COMMAND CONSOLE — for a droid that takes orders (roster flag console:true).
+   From the Defender Droid operation manual: authorized users in priority
+   order, orders with a priority and an urgency flag (1 is highest, blank
+   means 1), macro commands, an override, and knowledge modules.
+   Lives in cs.sheet.cmd, so it syncs with the room and saves with the sheet:
+     users[]  { id, c roster id | n typed name, pr 1 principal, ov 1 override set }   (list order = priority)
+     orders[] { id, t text, p, u, by user id, s active|done|ignored, ov 1 override, at clock }
+     macros[] { id, n name, ph activation phrase, st[] steps }
+     mods[]   knowledge module names
+   ================================================================ */
+const CMD_MODS = ['Human Physiology and Needs','Food Preparation','Survival Skills','Language Translation (Basic)','Threat Analysis','Childhood Education (Age 12)'];
+const CMD_USERS = [['bode',0],['kata',1],['cal',0],['merrin',0],['tann',0],['gibbs',0],['pike',0]];   // priority order; Kata is the principal
+const cmdId = () => randomId().slice(0,6);
+function normCmd(sh){
+  let m = sh.cmd;
+  if(!m || typeof m!=='object' || Array.isArray(m)){   // first time: the protector package as shipped
+    m = sh.cmd = { v:1, users:CMD_USERS.filter(([c])=>cfg(c)).map(([c,pr])=>({ id:cmdId(), c, pr })), orders:[], mods:CMD_MODS.slice(),
+      macros:[{ id:cmdId(), n:'Secure', ph:'Secure The Room', st:['Check Room for Assailants','Check Room for Observation Devices','Report'] }] };
+  }
+  for(const k of ['users','orders','macros','mods']){ m[k] = arrayify(m[k]); if(!Array.isArray(m[k])) m[k] = []; }
+  m.users = m.users.filter(x=>x && typeof x==='object' && x.id); m.orders = m.orders.filter(x=>x && typeof x==='object' && x.id);
+  m.macros = m.macros.filter(x=>x && typeof x==='object' && x.id); m.mods = m.mods.filter(x=>typeof x==='string' && x);
+  for(const x of m.macros){ x.st = arrayify(x.st); if(!Array.isArray(x.st)) x.st = []; x.st = x.st.filter(y=>typeof y==='string' && y); }
+  for(const o of m.orders){ o.p = clamp(Math.round(+o.p)||1, 1, 9); o.u = clamp(Math.round(+o.u)||1, 1, 9); if(!['active','done','ignored'].includes(o.s)) o.s = 'active'; }
+  return m;
+}
+const cmdOf = cs => cfg(cs.id).console ? normCmd(cs.sheet) : null;
+const cmdUserName = u => !u ? 'unknown' : u.c && cfg(u.c) ? cfg(u.c).name : (u.n || 'unnamed');
+const cmdRank = (m, uid) => { const i = m.users.findIndex(u=>u.id===uid); return i<0 ? 99 : i+1; };
+function cmdSorted(m){   // what the unit does first: an override, then priority, then urgency, then the user's rank, then age
+  return m.orders.slice().sort((a,b)=> (a.s==='active'?0:1)-(b.s==='active'?0:1) || (b.ov?1:0)-(a.ov?1:0) || a.p-b.p || a.u-b.u || cmdRank(m,a.by)-cmdRank(m,b.by) || (a.at||0)-(b.at||0));
+}
+function cmdOrder(id, text, p, u, by, override){
+  const cs = st(id), m = cmdOf(cs); text = String(text||'').trim().slice(0,160); if(!m || !text) return false;
+  const user = m.users.find(x=>x.id===by) || m.users[0]; if(!user){ alert('Add an authorized user first.'); return false; }
+  const ov = override && user.ov ? 1 : 0;
+  if(override && !user.ov){ alert(`${cmdUserName(user)} has no override command set.`); return false; }
+  const o = { id:cmdId(), t:text, p:clamp(parseInt(p)||1,1,9), u:clamp(parseInt(u)||1,1,9), by:user.id, s:'active', at:S.hour };
+  if(ov) o.ov = 1;
+  m.orders.push(o);
+  logMsg(`🤖 ${cfg(id).name}, ${esc(text)}, ${o.p}, ${o.u}, Execute — ordered by ${cmdUserName(user)}${ov?' with their <b>override command</b>: obeyed at once and without question, moral centre bypassed':''}.`, ov?'lw':undefined);
+  render(); return true;
+}
+function cmdOrderForm(id){
+  const g = k => document.getElementById(`cmd_${k}_${id}`);
+  if(cmdOrder(id, g('t').value, g('p').value, g('u').value, g('by').value, g('ov').checked)){ g('t').value = ''; }
+}
+function cmdOrderSet(id, oid, status){
+  const m = cmdOf(st(id)), o = m && m.orders.find(x=>x.id===oid); if(!o) return;
+  o.s = status;
+  if(status==='ignored') logMsg(`🤖 ${cfg(id).name} ignores “${esc(o.t)}” (from ${cmdUserName(m.users.find(x=>x.id===o.by))}) — it contradicts a higher-priority order.${m.users[0] ? ` ${cmdUserName(m.users[0])} may be notified.` : ''}`);
+  if(status==='done') logMsg(`🤖 ${cfg(id).name} reports “${esc(o.t)}” complete.`);
+  render();
+}
+function cmdOrderDel(id, oid){ const m = cmdOf(st(id)); if(m){ m.orders = m.orders.filter(x=>x.id!==oid); render(); } }
+function cmdClearDone(id){ const m = cmdOf(st(id)); if(m){ m.orders = m.orders.filter(x=>x.s==='active'); render(); } }
+function cmdUserAdd(id, who){
+  const m = cmdOf(st(id)); who = String(who||'').trim(); if(!m || !who) return;
+  const u = cfg(who) ? { id:cmdId(), c:who } : { id:cmdId(), n:cleanName(who) };
+  if(u.c ? m.users.some(x=>x.c===u.c) : !u.n) return;
+  m.users.push(u); render();
+}
+function cmdUserDel(id, uid){ const m = cmdOf(st(id)); if(m){ m.users = m.users.filter(x=>x.id!==uid); render(); } }
+function cmdUserMove(id, uid, d){
+  const m = cmdOf(st(id)), i = m ? m.users.findIndex(x=>x.id===uid) : -1, j = i+d; if(i<0 || j<0 || j>=m.users.length) return;
+  [m.users[i], m.users[j]] = [m.users[j], m.users[i]]; render();
+}
+function cmdUserFlag(id, uid, k, on){ const m = cmdOf(st(id)), u = m && m.users.find(x=>x.id===uid); if(!u || !['pr','ov'].includes(k)) return; if(on) u[k] = 1; else delete u[k]; render(); }
+function cmdMacroAdd(id){
+  const g = k => document.getElementById(`cmd_m${k}_${id}`), m = cmdOf(st(id)); if(!m) return false;
+  const n = g('n').value.trim().slice(0,40), ph = g('ph').value.trim().slice(0,80), steps = g('st').value.split(/\n|;/).map(x=>x.trim().slice(0,160)).filter(Boolean);
+  if(!n || !steps.length){ alert('A macro needs a name and at least one order.'); return false; }
+  m.macros.push({ id:cmdId(), n, ph:ph||n, st:steps });
+  logMsg(`🤖 ${cfg(id).name}, Macro Command ${esc(n)} — activation phrase “${esc(ph||n)}”, ${steps.length} order${steps.length===1?'':'s'}. Learn.`);
+  render(); return true;
+}
+function cmdMacroDel(id, mid){ const m = cmdOf(st(id)); if(m){ m.macros = m.macros.filter(x=>x.id!==mid); render(); } }
+function cmdMacroRun(id, mid, by){
+  const m = cmdOf(st(id)), mac = m && m.macros.find(x=>x.id===mid); if(!mac) return false;
+  const user = m.users.find(x=>x.id===by) || m.users[0]; if(!user){ alert('Add an authorized user first.'); return false; }
+  logMsg(`🤖 “${esc(mac.ph)}” — ${cmdUserName(user)} activates macro ${esc(mac.n)}.`);
+  for(const t of mac.st) m.orders.push({ id:cmdId(), t, p:1, u:1, by:user.id, s:'active', at:S.hour, mc:mac.n });
+  render(); return true;
+}
+function cmdModAdd(id, name){ const m = cmdOf(st(id)); name = String(name||'').trim().slice(0,60); if(m && name && !m.mods.includes(name)){ m.mods.push(name); render(); } }
+function cmdModDel(id, i){ const m = cmdOf(st(id)); if(m){ m.mods.splice(i,1); render(); } }
+function cmdCardLine(cs){   // Tracker card: what the unit is doing right now
+  const m = cmdOf(cs); if(!m) return '';
+  const act = cmdSorted(m).filter(o=>o.s==='active'), o = act[0];
+  return `<div class="encline" title="Open the Sheets tab for the full Command Console">🤖 <b>Orders</b> ${o ? `<span style="color:${o.ov?'var(--bad)':'var(--text)'}">${o.ov?'⚠ OVERRIDE · ':''}${esc(o.t)}</span> <span style="color:var(--dim)">(${o.p}/${o.u} · ${esc(cmdUserName(m.users.find(x=>x.id===o.by)))})${act.length>1?` +${act.length-1} more`:''}</span>` : '<span style="color:var(--dim)">no standing orders</span>'}</div>`;
+}
+function cmdHtml(cs){
+  const m = cmdOf(cs); if(!m) return '';
+  const id = cs.id, name = esc(cfg(id).name), orders = cmdSorted(m), nAct = orders.filter(o=>o.s==='active').length;
+  const userOpts = m.users.map((u,i)=>`<option value="${u.id}">${i+1}. ${esc(cmdUserName(u))}</option>`).join('');
+  const others = S.chars.filter(x=>x.id!==id && !m.users.some(u=>u.c===x.id));
+  return `<details class="sfold crate" ${SHEET_UI.open.cmd?'open':''} ontoggle="sheetOpen('cmd',this.open)">
+    <summary>🤖 <b>Command Console</b> <span class="sub">· ${nAct} standing order${nAct===1?'':'s'} · ${m.users.length} authorized user${m.users.length===1?'':'s'} · ${m.mods.length} modules</span></summary>
+    <div class="tinfo">Orders are followed lowest number first: <b>priority</b>, then <b>urgency</b>, then the user's place in the list. An order that contradicts one from a higher-priority user is ignored. Blank flags count as 1.</div>
+    <div class="shead" style="align-items:flex-end">
+      <label>Order<input type="text" class="wide" id="cmd_t_${id}" placeholder="e.g. Move Principal to Cover" onkeydown="if(event.key==='Enter')cmdOrderForm('${id}')"></label>
+      <label title="1 is the highest priority">Priority<input type="number" id="cmd_p_${id}" min="1" max="9" value="1" style="width:52px"></label>
+      <label title="1 is the most urgent">Urgency<input type="number" id="cmd_u_${id}" min="1" max="9" value="1" style="width:52px"></label>
+      <label>Given by<select id="cmd_by_${id}">${userOpts}</select></label>
+      <label title="Use this user's override command: the unit obeys this order at once and without question. WARNING: this bypasses the unit's moral centre. Only works for a user who has an override set." style="color:var(--bad)">Override<input type="checkbox" id="cmd_ov_${id}"></label>
+      <button class="mini atk" onclick="cmdOrderForm('${id}')" title="${name}, [order], [priority], [urgency], Execute">Execute</button>
+    </div>
+    <table class="taltable"><tr><th>#</th><th>Order</th><th title="Priority / urgency">P / U</th><th>Given by</th><th>Status</th><th></th></tr>` +
+    (orders.length ? orders.map((o,i)=>`<tr style="${o.s==='active'?'':'opacity:.5'}"><td>${o.s==='active'?i+1:''}</td>
+      <td class="n" style="white-space:normal">${o.ov?'<span class="badge" style="background:#5a1616;color:#ffb3b3" title="Override command: obeyed without question, moral centre bypassed">OVERRIDE</span> ':''}${esc(o.t)}${o.mc?` <span class="badge b-cu" title="From a macro command">${esc(o.mc)}</span>`:''}</td>
+      <td>${o.p} / ${o.u}</td><td>${esc(cmdUserName(m.users.find(x=>x.id===o.by)))}</td><td>${o.s}</td>
+      <td style="white-space:nowrap">${o.s==='active' ? `<button class="mini" onclick="cmdOrderSet('${id}','${o.id}','done')" title="Order carried out">✓ done</button><button class="mini" onclick="cmdOrderSet('${id}','${o.id}','ignored')" title="Contradicts a higher-priority order: the unit ignores it">ignore</button>` : `<button class="mini" onclick="cmdOrderSet('${id}','${o.id}','active')">reactivate</button>`}<button class="mini" onclick="cmdOrderDel('${id}','${o.id}')" title="Remove">✕</button></td></tr>`).join('')
+      : `<tr><td colspan="6" class="e">No standing orders.</td></tr>`) +
+    `</table>${orders.some(o=>o.s!=='active') ? `<button class="mini" onclick="cmdClearDone('${id}')">clear finished and ignored orders</button>` : ''}
+    <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:10px">
+      <div><table class="taltable"><tr><th>Authorized users (priority order)</th><th title="This user is the unit's principal: the one it protects">Principal</th><th title="An override command has been assigned to this user">Override set</th><th></th></tr>` +
+      m.users.map((u,i)=>`<tr><td class="n">${i+1}. ${esc(cmdUserName(u))}</td>
+        <td><input type="checkbox" ${u.pr?'checked':''} onchange="cmdUserFlag('${id}','${u.id}','pr',this.checked)"></td>
+        <td><input type="checkbox" ${u.ov?'checked':''} onchange="cmdUserFlag('${id}','${u.id}','ov',this.checked)"></td>
+        <td style="white-space:nowrap"><button class="mini" onclick="cmdUserMove('${id}','${u.id}',-1)" ${i?'':'disabled'} title="Higher priority">▲</button><button class="mini" onclick="cmdUserMove('${id}','${u.id}',1)" ${i<m.users.length-1?'':'disabled'} title="Lower priority">▼</button><button class="mini" onclick="cmdUserDel('${id}','${u.id}')" title="Remove authorization">✕</button></td></tr>`).join('') +
+      `<tr><td colspan="4">${others.length ? `<select onchange="cmdUserAdd('${id}',this.value);this.value=''"><option value="">＋ authorize a crew member…</option>${others.map(x=>`<option value="${x.id}">${esc(cfg(x.id).name)}</option>`).join('')}</select> ` : ''}<input type="text" placeholder="or type a name" style="width:130px" onchange="cmdUserAdd('${id}',this.value);this.value=''"></td></tr></table></div>
+      <div><table class="taltable"><tr><th>Macro command</th><th>Activation phrase</th><th>Orders</th><th></th></tr>` +
+      m.macros.map(x=>`<tr><td class="n">${esc(x.n)}</td><td>“${esc(x.ph)}”</td><td class="e">${x.st.map(esc).join(' → ')}</td>
+        <td style="white-space:nowrap"><button class="mini atk" onclick="cmdMacroRun('${id}','${x.id}',document.getElementById('cmd_by_${id}').value)" title="Say the activation phrase: adds each order at priority 1, urgency 1, from the user chosen in the order form">run</button><button class="mini" onclick="cmdMacroDel('${id}','${x.id}')" title="Forget this macro">✕</button></td></tr>`).join('') +
+      `<tr><td><input type="text" id="cmd_mn_${id}" placeholder="name" style="width:90px"></td><td><input type="text" id="cmd_mph_${id}" placeholder="activation phrase" style="width:130px"></td>
+        <td><textarea id="cmd_mst_${id}" rows="2" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:12px;padding:3px 6px" placeholder="one order per line"></textarea></td><td><button class="mini" onclick="cmdMacroAdd('${id}')" title="${name}, Learn.">Learn</button></td></tr></table></div>
+    </div>
+    <div class="tinfo"><b>Knowledge modules:</b> ${m.mods.map((x,i)=>`<span class="badge b-cu">${esc(x)} <a style="cursor:pointer;color:inherit" onclick="cmdModDel('${id}',${i})" title="Uninstall">✕</a></span>`).join(' ') || 'none installed'}
+      <input type="text" placeholder="＋ install a module" style="width:160px" onchange="cmdModAdd('${id}',this.value);this.value=''"></div>
+    <div class="tinfo"><b>Armament:</b> programmed for any ranged blaster weapon; basic hand-to-hand routines. <b>Override:</b> each authorized user may be assigned an override command. Using it forces the next order through immediately and without question, and bypasses the unit's moral centre.</div>
   </details>`;
 }
 
@@ -3532,15 +3672,15 @@ function ccOther(id, k, v){   // a species or career that is not in the vault: j
    replaces that character's sheet and leaves their items exactly as they are. */
 function buildExport(id){
   const cs = st(id), sheet = JSON.parse(JSON.stringify(cs.sheet));
-  delete sheet.credits; delete sheet.cc;
+  delete sheet.credits; delete sheet.cc; delete sheet.cmd;   // orders and authorized users are live state, not part of a build
   return { kind:'st-build', v:1, name:cfg(id).name, droid:!!cfg(id).droid, attr:{...cs.attr}, wt:cs.wt, st:cs.st, sheet };
 }
 function buildApply(id, b){
   const cs = st(id), c = cfg(id);
   if(!cs || !b || b.kind!=='st-build' || !b.sheet || typeof b.sheet!=='object' || !b.attr) return 'That file is not a character build.';
   if(!!b.droid !== !!c.droid) return `That build is for ${b.droid?'a droid':'an organic character'} and ${c.name} is not.`;
-  const credits = cs.sheet.credits, sheet = JSON.parse(JSON.stringify(b.sheet));
-  delete sheet.cc; sheet.credits = credits;
+  const credits = cs.sheet.credits, cmd = cs.sheet.cmd, sheet = JSON.parse(JSON.stringify(b.sheet));
+  delete sheet.cc; delete sheet.cmd; sheet.credits = credits; if(cmd) sheet.cmd = cmd;
   for(const [k] of ATTRS) cs.attr[k] = clamp(Math.round(+b.attr[k])||1, 1, 7);
   cs.encThresh = cs.attr.br + 5;
   if(Number.isFinite(+b.wt)) cs.wt = clamp(Math.round(+b.wt), 0, 99);
