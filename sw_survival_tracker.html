@@ -86,6 +86,7 @@
   .gearitem .needrow{margin:5px 0 4px}
   .gearfx{margin-top:0;background:transparent;padding:0;font-size:11.5px;color:var(--dim)}
   .encline{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px;font-size:11.5px;color:var(--dim);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  details.invall{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px} details.invall > summary{font-size:12px} details.invall > summary .encsum{float:right;font-size:11.5px;color:var(--dim)} details.invall details.inv{margin-left:10px}
   .encline b{color:var(--text)} .encline button{margin-left:auto}
   .gearname input[type=checkbox]{vertical-align:middle;margin-right:3px}
   .gearempty{color:var(--dim);font-size:11.5px;padding:5px 2px;line-height:1.45}
@@ -2078,13 +2079,16 @@ function invSection(cs){
       <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
   const gearBody = listBody(gear), consBody = listBody(cons);
-  return `<div class="encline">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}
-      <span style="margin-left:auto" title="Who does the tune-ups and overhauls started from this card. They are busy for the job, then roll Mechanics for the result.">🔧 repairs by <select onchange="setMech('${id}',this.value)">${S.chars.map(x=>`<option value="${x.id===id?'':x.id}" ${(cs.mech||'')===(x.id===id?'':x.id)?'selected':''}>${esc(cfg(x.id).name)}${x.id===id?' (self)':''}</option>`).join('')}</select></span></div>
+  const nCarried = carried.filter(x=>!x.it.auto).length;
+  return `<details class="inv invall" ${cs.allInvOpen?'open':''} ontoggle="st('${id}').allInvOpen=this.open">
+    <summary>🎒 Inventory <b>${nCarried}</b><span class="encsum" title="Encumbrance carried / threshold">⚖ Enc <b style="color:${over>0?'var(--bad)':'var(--text)'}">${w.toFixed(1)}</b> / ${eff||'—'}${pb?` <span style="color:var(--gold)" title="${cs.encThresh} body + ${pb} from packs">(${cs.encThresh}+${pb} 🎒)</span>`:''}</span></summary>
+    <div class="encline" style="margin-top:4px;border-top:none;padding-top:0"><span title="Who does the tune-ups and overhauls started from this card. They are busy for the job, then roll Mechanics for the result.">🔧 repairs by <select onchange="setMech('${id}',this.value)">${S.chars.map(x=>`<option value="${x.id===id?'':x.id}" ${(cs.mech||'')===(x.id===id?'':x.id)?'selected':''}>${esc(cfg(x.id).name)}${x.id===id?' (self)':''}</option>`).join('')}</select></span></div>
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
     ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
     ${sect('consOpen', '🍞', 'Consumables', cons, consBody, 'No snacks, rations or meals carried.')}
-    ${sect('invOpen', '🎒', 'Gear', gear, gearBody, 'No gear carried.')}`;
+    ${sect('invOpen', '🎒', 'Gear', gear, gearBody, 'No gear carried.')}
+  </details>`;
 }
 
 /* Portraits are GM-set repo files at img/<id>.jpg (or .png). If neither exists the
@@ -4578,7 +4582,7 @@ function syncSubset(state){
   if(c.ship) delete c.ship.img;
   if(Array.isArray(c.chars)) c.chars.forEach(ch=>{
     delete ch.img;
-    delete ch.invOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen; delete ch.toolsOpen; delete ch.consOpen;   // per-player UI state stays local
+    delete ch.invOpen; delete ch.allInvOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen; delete ch.toolsOpen; delete ch.consOpen;   // per-player UI state stays local
     if(ch.invV===2){   // pre-overhaul counters from a browser that hasn't refreshed: ignore, don't echo, don't fight over them
       delete ch.rationsStock; delete ch.snacks; delete ch.stims;
       if(Array.isArray(ch.inv)) ch.inv = ch.inv.filter(it=>!(it && LEGACY_AUTO.includes(it.auto)));
@@ -4751,7 +4755,7 @@ function applyRemote(remote){
   for(const c of CHARS) if(next.visible[c.id]===undefined) next.visible[c.id]=true;
   for(const ch of next.chars){   // keep this player's own open panels open across remote updates
     const old = S && S.chars && S.chars.find(x=>x.id===ch.id);
-    if(old){ ch.invOpen=old.invOpen; ch.customOpen=old.customOpen; ch.gearOpen=old.gearOpen; ch.armorOpen=old.armorOpen; ch.toolsOpen=old.toolsOpen; ch.consOpen=old.consOpen; }
+    if(old){ ch.invOpen=old.invOpen; ch.allInvOpen=old.allInvOpen; ch.customOpen=old.customOpen; ch.gearOpen=old.gearOpen; ch.armorOpen=old.armorOpen; ch.toolsOpen=old.toolsOpen; ch.consOpen=old.consOpen; }
   }
   S = next;
   CLOUD.shadow = remoteSub;                 // server truth is the remote; preserved local diffs re-push below
