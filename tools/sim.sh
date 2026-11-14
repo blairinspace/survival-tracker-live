@@ -31,6 +31,7 @@ STUB
 [ -f items.js ] && cat items.js
 [ -f items-custom.js ] && cat items-custom.js
 [ -f rules.js ] && cat rules.js
+[ -f lore.js ] && cat lore.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -475,6 +476,21 @@ print('\n=== SMOKE TEST — UI code paths ===');
     SHEET_UI.id = 'alpha'; render(); const h = cmdHtml(al); if(/undefined|NaN|\[object/.test(h) || !/Command Console/.test(document.getElementById('sheetBody').innerHTML)) throw new Error('console render broken');
     print(`  command console: ${m.users.length} authorized users, orders sort by override / priority / urgency / user rank, macros expand, survives the wire`);
     S = migrate(JSON.parse(keep));
+  })();
+  // lore: the campaign book loads, links resolve, search finds, nothing private is in it
+  (()=>{
+    if(!LORE_DB || Object.keys(LORE_DB.notes).length<300 || !LORE_DB.notes[LORE_DB.home]) throw new Error('lore.js did not load');
+    const N = LORE_DB.notes, all = JSON.stringify(LORE_DB);
+    for(const id in N){ for(const m of N[id].h.matchAll(/loreGo\('([^']+)'\)/g)) if(!N[m[1]]) throw new Error('dead lore link on '+id+': '+m[1]); for(const b of N[id].back||[]) if(!N[b]) throw new Error('dead backlink on '+id); }
+    for(const sec of LORE_DB.sections) for(const g of sec.groups) for(const id of g.ids) if(!N[id]) throw new Error('nav lists a missing page: '+id);
+    if(/real_dates|Discord export|\(log\)\]\]|<script|onerror=/i.test(all) || Object.values(N).some(n=>n.type==='archive' || 'player' in n.fm)) throw new Error('private or unsafe text in lore.js');
+    showTab('lore'); loreGo(loreFind('Bode Akuna')); const pg = document.getElementById('lorePage').innerHTML;
+    if(!/Bode Akuna/.test(pg) || !/📄 sheet/.test(pg) || !/Mentioned on/.test(pg) || /undefined|NaN|\[object/.test(pg)) throw new Error('lore page render wrong');
+    loreGo(loreFind('Kata Akuna')); loreBack(); if(LORE_UI.id!==loreFind('Bode Akuna')) throw new Error('lore back button wrong');
+    const hits = loreSearch('centerpoint'); if(!hits.length || N[hits[0].id].t.toLowerCase().indexOf('centerpoint')<0) throw new Error('lore search should put title matches first');
+    loreSet('q','mantis'); if(!/lhit|class="on"|<button/.test(document.getElementById('loreNav').innerHTML)) throw new Error('lore search list empty'); loreSet('q','');
+    if(!/Active objectives/i.test(N[LORE_DB.home].h) || !/lbase|lempty/.test(N[LORE_DB.home].h)) throw new Error('home page lists did not generate');
+    print(`  lore: ${Object.keys(N).length} pages in ${LORE_DB.sections.length} sections, every link resolves, no private markers`); showTab('tracker');
   })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;

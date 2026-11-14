@@ -294,6 +294,22 @@
   /* ---- Items tab (catalog + homebrew) ---- */
   #items{display:none}
   #trees{display:none}
+  #lore{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+  #loreNav details > summary{cursor:pointer;font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;padding:5px 6px;user-select:none}
+  #loreNav .lhit{display:block;font-size:10.5px;color:var(--dim);padding:0 8px 4px;line-height:1.35}
+  #loreNav .ldot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:5px;vertical-align:middle}
+  #lorePage{line-height:1.6;max-width:900px} #lorePage h2{font-size:20px;color:var(--gold);margin:0 0 4px} #lorePage h3{font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin:16px 0 4px}
+  #lorePage h4,#lorePage h5{font-size:12.5px;color:var(--text);margin:12px 0 2px} #lorePage p,#lorePage li{font-size:13px;color:#c9d1d9} #lorePage ul,#lorePage ol{margin:2px 0 8px 20px;padding:0} #lorePage b{color:var(--text)}
+  #lorePage table{border-collapse:collapse;margin:6px 0 12px;font-size:12.5px} #lorePage th,#lorePage td{border:1px solid var(--border);padding:4px 8px;text-align:left;vertical-align:top} #lorePage th{background:var(--panel2);color:var(--accent)}
+  #lorePage a.ll{color:var(--accent);cursor:pointer;text-decoration:none;border-bottom:1px dotted #2f5f9a} #lorePage a.ll:hover{color:#9fd0ff}
+  #lorePage .callout{border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 8px 8px 0;padding:8px 12px;margin:8px 0} #lorePage .callout .ct{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:2px}
+  #lorePage .callout.c-quest{border-color:var(--gold)} #lorePage .callout.c-quest .ct{color:var(--gold)} #lorePage .callout.c-warning{border-color:var(--bad)} #lorePage .callout.c-warning .ct{color:var(--bad)}
+  #lorePage .callout.c-summary,#lorePage .callout.c-abstract{border-color:var(--good)} #lorePage .callout.c-summary .ct,#lorePage .callout.c-abstract .ct{color:var(--good)} #lorePage .callout p{margin:2px 0}
+  #lorePage blockquote{border-left:3px solid var(--border);margin:8px 0;padding:2px 12px;color:var(--dim)} #lorePage hr{border:none;border-top:1px dashed var(--border);margin:14px 0} #lorePage pre{background:var(--bg);padding:8px;border-radius:6px;font-size:11.5px;overflow:auto}
+  #lorePage .lcrumb{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px} #lorePage .lchips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+  #lorePage .lchip{font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:2px 10px;color:#c9d1d9} #lorePage .lchip i{color:var(--dim);font-style:normal;text-transform:uppercase;font-size:9.5px;letter-spacing:1px;margin-right:5px}
+  #lorePage .lst{font-size:10.5px;border-radius:9px;padding:0 7px;background:#30363d;color:#c9d1d9} #lorePage .limg{display:block;border-radius:8px;margin:8px 0} #lorePage .lsee{color:var(--dim);font-size:12px} #lorePage .lempty{color:var(--dim);font-style:italic}
+  #lorePage .lback{margin-top:18px;border-top:1px dashed var(--border);padding-top:8px;font-size:12px;color:var(--dim)} #lorePage .lback a.ll{margin-right:4px}
   #core{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 18px;line-height:1.55}
   #core details.csec{border:1px solid var(--border);border-radius:8px;background:var(--panel2);margin-bottom:8px;padding:6px 12px}
   #core details.csec > summary{cursor:pointer;color:var(--gold);font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:3px 0}
@@ -363,7 +379,7 @@
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
   }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -445,6 +461,7 @@
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabTr" onclick="showTab('trees')">Talents</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
+  <button id="tabL" onclick="showTab('lore')">Lore</button>
   <button id="tabK" onclick="showTab('core')">Core Rules</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Rules</button>
   <span id="destinyChip"></span>
@@ -531,6 +548,15 @@
     <div id="diceFeed"></div>
   </div>
 </div></div>
+
+<div id="lore"><div class="itembar">
+    <button class="mini" id="loreBackBtn" onclick="loreBack()" title="Back to the page you were on">← back</button>
+    <button class="mini" onclick="loreHome()" title="The campaign's front page: where things stand now">⌂ home</button>
+    <input type="text" id="loreQ" placeholder="search the campaign… (a name, a place, a word)" oninput="loreSet('q',this.value)">
+    <span class="tinfo" id="loreInfo" style="margin:0"></span>
+  </div>
+  <div class="treecols"><div class="treelist" id="loreNav" style="flex-basis:250px"></div><div class="treeview" id="lorePage"></div></div>
+</div>
 
 <div id="core"><div class="itembar">
     <input type="text" id="coreQ" placeholder="search the rules… (e.g. prone, stimpack, fear)" oninput="coreFilter(this.value)">
@@ -2565,13 +2591,14 @@ function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry ke
 let TAB = 'tracker';
 function showTab(t){
   TAB = t;
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['core','tabK'],['rules','tabR']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
   if(t==='dice'){ renderDice(); renderFeed(); }
   if(t==='trees') renderTrees();
   if(t==='core') renderCore();
+  if(t==='lore') loreLoad(renderLore);
 }
 
 /* ================================================================
@@ -3023,7 +3050,7 @@ function renderSheet(){
       ${g==='Custom' ? `<tr><td colspan="4"><button class="mini" onclick="sheetAddSkill('${id}')" title="Add a skill that is not on the standard list (homebrew, or from another book)">＋ add custom skill</button></td></tr>` : ''}</table>`;
   });
   document.getElementById('sheetBody').innerHTML = `
-    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the name, bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">👤 Character Creator</button>`}
+    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the name, bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">👤 Character Creator</button>`}<button class="mini" onclick="loreOpen('${id}')" title="This character's page in the campaign Lore">📖 lore</button>
       ${ro('Species', sh.species, 'Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
       ${ro('Career', sh.career, 'Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
@@ -4038,6 +4065,82 @@ function importState(inp){
   r.onload = e => { try{ S = migrate(JSON.parse(e.target.result)); rebuildLog(); render(); }catch(err){ alert('Invalid save file.'); } };
   r.readAsText(f);
   inp.value='';
+}
+
+/* ================================================================
+   LORE — the campaign book (lore.js, generated from the Obsidian vault by
+   tools/import-lore.py, which is also the privacy filter). Read-only here:
+   the vault is where it is written. lore.js is large, so it is only fetched
+   the first time the Lore tab is opened.
+   ================================================================ */
+let LORE_DB = typeof LORE!=='undefined' ? LORE : null, LORE_WAIT = null;
+const LORE_UI = { id:'', q:'', hist:[], open:{} };
+const LORE_STATUS = { alive:'var(--good)', active:'var(--good)', completed:'#6e7681', dead:'var(--bad)', failed:'var(--bad)', captive:'var(--warn)', missing:'var(--warn)', unknown:'#8b949e', dropped:'#6e7681' };
+function loreLoad(cb){
+  if(LORE_DB) return cb();
+  if(typeof LORE!=='undefined'){ LORE_DB = LORE; return cb(); }
+  const page = document.getElementById('lorePage');
+  if(LORE_WAIT){ LORE_WAIT.push(cb); return; }
+  LORE_WAIT = [cb]; if(page) page.innerHTML = '<p class="lempty">Opening the campaign book…</p>';
+  const sc = document.createElement('script'); sc.src = 'lore.js';
+  sc.onload = () => { LORE_DB = typeof LORE!=='undefined' ? LORE : null; const w = LORE_WAIT; LORE_WAIT = null; if(LORE_DB) w.forEach(f=>f()); else if(page) page.innerHTML = '<p class="lempty">The campaign book did not load.</p>'; };
+  sc.onerror = () => { LORE_WAIT = null; if(page) page.innerHTML = '<p class="lempty">The campaign book did not load (lore.js is missing).</p>'; };
+  document.head.appendChild(sc);
+}
+function loreSet(k, v){ LORE_UI[k] = v; renderLore(true); }
+function loreGo(id, noHist){
+  if(!LORE_DB || !LORE_DB.notes[id]) return;
+  if(!noHist && LORE_UI.id && LORE_UI.id!==id){ LORE_UI.hist.push(LORE_UI.id); if(LORE_UI.hist.length>60) LORE_UI.hist.shift(); }
+  LORE_UI.id = id; LORE_UI.open[LORE_DB.notes[id].sec] = true;
+  renderLore();
+  const page = document.getElementById('lorePage'); if(page && page.scrollIntoView && TAB==='lore') window.scrollTo && window.scrollTo(0, Math.max(0, page.getBoundingClientRect().top + window.scrollY - 70));
+}
+function loreBack(){ const id = LORE_UI.hist.pop(); if(id) loreGo(id, true); }
+function loreHome(){ LORE_UI.q = ''; const q = document.getElementById('loreQ'); if(q) q.value = ''; loreGo(LORE_DB && LORE_DB.home); }
+function loreFind(name){   // a note by its title, any case
+  const q = normName(name); if(!LORE_DB || !q) return '';
+  return Object.keys(LORE_DB.notes).find(id=>normName(LORE_DB.notes[id].t)===q) || '';
+}
+function loreOpen(charId){   // from a sheet: that character's page (by roster name, then current name)
+  showTab('lore');
+  loreLoad(()=>{ const c = cfg(charId), id = loreFind(c.name0) || loreFind(c.name);
+    if(id) loreGo(id); else { LORE_UI.q = c.name; const q = document.getElementById('loreQ'); if(q) q.value = c.name; renderLore(); } });
+}
+function loreSearch(q){
+  const words = normName(q).split(/\s+/).filter(Boolean), out = [];
+  for(const id in LORE_DB.notes){ const n = LORE_DB.notes[id];
+    if(n.x===undefined) n.x = (n.t + ' ' + Object.values(n.fm).join(' ') + ' ' + n.h).replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').toLowerCase();
+    const title = n.t.toLowerCase();
+    if(!words.every(w=>n.x.includes(w))) continue;
+    const i = n.x.indexOf(words[0], n.t.length), inTitle = words.every(w=>title.includes(w));
+    out.push({ id, score:(inTitle?0:1), snip: inTitle || i<0 ? '' : n.x.slice(Math.max(0,i-40), i+70).trim() });
+  }
+  return out.sort((a,b)=>a.score-b.score || LORE_DB.notes[a.id].t.localeCompare(LORE_DB.notes[b.id].t));
+}
+function renderLore(keepPage){
+  const nav = document.getElementById('loreNav'); if(!nav || !LORE_DB) return;
+  const N = LORE_DB.notes; if(!N[LORE_UI.id]) LORE_UI.id = LORE_DB.home || Object.keys(N)[0];
+  const dot = n => { const st = String(n.fm.status||'').replace(/<[^>]*>/g,'').toLowerCase(), col = LORE_STATUS[st]; return col && n.type!=='chapter' && n.type!=='session' ? `<span class="ldot" style="background:${col}" title="${esc(st)}"></span>` : ''; };
+  const item = (id, extra) => `<button class="${id===LORE_UI.id?'on':''}" onclick="loreGo('${id}')">${esc(N[id].t)}${dot(N[id])}</button>${extra||''}`;
+  const q = LORE_UI.q.trim();
+  document.getElementById('loreBackBtn').disabled = !LORE_UI.hist.length;
+  if(q){
+    const hits = loreSearch(q), shown = hits.slice(0, 80);
+    document.getElementById('loreInfo').textContent = `${hits.length} page${hits.length===1?'':'s'} match`;
+    nav.innerHTML = shown.map(h=>item(h.id, h.snip ? `<span class="lhit">…${esc(h.snip)}…</span>` : '')).join('') || '<div class="tgroup">nothing matches</div>';
+  } else {
+    document.getElementById('loreInfo').textContent = `${Object.keys(N).length} pages`;
+    nav.innerHTML = LORE_DB.sections.map(sec=>`<details ${LORE_UI.open[sec.n]?'open':''} ontoggle="LORE_UI.open[this.dataset.s]=this.open" data-s="${esc(sec.n)}"><summary>${esc(sec.n)} <span style="color:var(--dim)">${sec.groups.reduce((a,g)=>a+g.ids.length,0)}</span></summary>` +
+      sec.groups.map(g=>(g.n ? `<div class="tgroup">${esc(g.n)}</div>` : '') + g.ids.map(id=>item(id)).join('')).join('') + `</details>`).join('');
+  }
+  if(keepPage) return;
+  const n = N[LORE_UI.id], who = S.chars.find(x=>normName(cfg(x.id).name0)===normName(n.t) || normName(cfg(x.id).name)===normName(n.t));
+  const label = k => k.replace(/_/g,' ');
+  document.getElementById('lorePage').innerHTML = `<div class="lcrumb">${esc([n.sec, n.grp].filter(Boolean).join(' › ') || 'Through Darkness')}</div>
+    <h2>${esc(n.t)}${who ? ` <button class="mini" onclick="sheetPick('${who.id}');showTab('sheet')" title="Open this character's sheet">📄 sheet</button>` : ''}</h2>
+    ${Object.keys(n.fm).length ? `<div class="lchips">${Object.entries(n.fm).map(([k,v])=>`<span class="lchip"><i>${esc(label(k))}</i>${v}</span>`).join('')}</div>` : ''}
+    ${n.h}
+    ${n.back && n.back.length ? `<details class="lback" ${n.back.length<=14?'open':''}><summary>Mentioned on ${n.back.length} other page${n.back.length===1?'':'s'}</summary>${n.back.map(id=>N[id] ? `<a class="ll" onclick="loreGo('${id}')">${esc(N[id].t)}</a>` : '').join(' · ')}</details>` : ''}`;
 }
 
 /* ================================================================
