@@ -22,7 +22,7 @@ cp sw_survival_tracker.html index.html
   printf '];\n'; } > maps.js
 
 # Stage only the tracker files (junk is handled by .gitignore anyway).
-git add sw_survival_tracker.html index.html items.js items-custom.js rules.js lore.js species.js adversaries.js maps.js img/maps img/lore img/species homebrew tools
+git add sw_survival_tracker.html index.html items.js items-custom.js rules.js lore.js species.js adversaries.js ships.js maps.js img/maps img/lore img/species homebrew tools
 
 if git diff --cached --quiet; then
   echo "Nothing to deploy — index.html already matches the source."
