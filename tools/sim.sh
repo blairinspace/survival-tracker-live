@@ -34,6 +34,7 @@ STUB
 [ -f lore.js ] && cat lore.js
 [ -f species.js ] && cat species.js
 [ -f adversaries.js ] && cat adversaries.js
+[ -f ships.js ] && cat ships.js
 if [ -f maps.js ]; then cat maps.js; else echo 'const MAPS = [];'; fi
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
@@ -504,6 +505,18 @@ print('\n=== SMOKE TEST — UI code paths ===');
     gmSet('attr',''); gmSet('sort','xp'); const byXp = speciesFiltered(); if(byXp[0][0].xp < byXp[byXp.length-1][0].xp) throw new Error('species sort wrong'); gmSet('sort','name');
     { const aq = SPECIES_DB.find(s=>s.n==='Aqualish'); GM_UI.sel = SPECIES_DB.indexOf(aq); renderSpeciesDetail(); if(!/Subspecies/.test(document.getElementById('gmDetail').innerHTML) || aq.sub.length!==3) throw new Error('subspecies not shown'); GM_UI.sel = -1; }
     print(`  species: ${SPECIES_DB.length} in the guide, ${SPECIES_DB.filter(s=>s.sub).length} with subspecies; search, filter, sort and detail render`); showTab('tracker');
+    // GM tab: ship profiles and the campaign's own NPC templates
+    { showTab('gm'); gmMode(true); gmSec('ships');
+      if(!SHIPS_DB || SHIPS_DB.length<15 || SHIPS_DB.some(s=>!s.n || !s.grp || s.def.length!==4 || !(s.ht>0) || !(s.ss>0))) throw new Error('ships.js did not load');
+      if(GM_UI.sec!=='ships' || !/Ships \(/.test(document.getElementById('gmNav').innerHTML)) throw new Error('GM mode should show the Ships section');
+      GM_UI.shq = 'mantis'; renderShipList(); const one = shipsFiltered(); if(one.length!==1) throw new Error('ship search wrong');
+      shipPick(one[0][1]); const hd = document.getElementById('shipDetail').innerHTML;
+      if(!/The Mantis/.test(hd) || !/Proton torpedo/.test(hd) || !/HB/.test(hd) || /undefined|NaN|\[object/.test(hd)) throw new Error('ship detail render wrong');
+      GM_UI.shq = ''; renderShipList(); for(let i=0;i<SHIPS_DB.length;i++){ shipPick(i); if(/undefined|NaN|\[object/.test(document.getElementById('shipDetail').innerHTML)) throw new Error('ship detail render wrong: '+SHIPS_DB[i].n); }
+      const hb = ADV_DB.filter(a=>a.hb); if(hb.length<36 || !hb.some(a=>a.n==='Darth Vader, Rebuilt') || !hb.some(a=>a.n==='Murky')) throw new Error('campaign NPC templates missing');
+      const keep = JSON.stringify(S.npcs); for(const a of hb){ const n = npcNew(ADV_DB.indexOf(a)); const h = npcEditor(n); if(/undefined|NaN|\[object/.test(h)) throw new Error('campaign NPC editor render wrong: '+a.n); for(const w of n.w) if(!npcSkillDef(w.sk)) throw new Error('campaign NPC weapon skill unknown: '+a.n+' / '+w.sk); for(const k of n.sk) if(!npcSkillDef(k[0])) throw new Error('campaign NPC skill unknown: '+a.n+' / '+k[0]); }
+      S.npcs = JSON.parse(keep); GM_UI.npc = ''; gmSec('species'); gmMode(false);
+      print(`  ships: ${SHIPS_DB.length} profiles render; campaign NPCs: ${hb.length} templates copy into the builder`); showTab('tracker'); }
     // GM tab: GM mode, NPC builder (templates, species numbers, skills, weapons, minion groups), and the wire
     { showTab('gm'); const keepNpcs = JSON.stringify(S.npcs);
       if(!ADV_DB || ADV_DB.length<40 || ADV_DB.some(a=>a.a.length!==6 || !NPC_TYPES[a.type] || !(a.wt>0))) throw new Error('adversaries.js did not load');

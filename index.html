@@ -419,6 +419,14 @@
   .spdetail ul{margin:0 0 0 16px;padding:0} .spdetail li{margin-bottom:3px;color:#c4ccd6} .spdetail li b{color:var(--text)}
   .spsub{border-top:1px dotted var(--border);padding-top:6px;margin-top:6px} .spsub > b{color:var(--gold)} .spsub > small{color:var(--dim);margin-left:6px}
   @media(max-width:820px){ .spcols{grid-template-columns:1fr} .spdetail{position:static;max-height:none;order:-1} }
+  /* GM tab: ship profiles */
+  .shipgrp{grid-column:1/-1;color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:6px 0 -2px}
+  .shipgrp:first-child{margin-top:0}
+  .shipdef{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px;text-align:center;font-size:11px;color:var(--dim)}
+  .shipdef b{display:block;font-size:14px;color:var(--text)}
+  .shipw{width:100%;border-collapse:collapse;font-size:12px} .shipw td{padding:3px 6px 3px 0;vertical-align:top;border-top:1px solid var(--border)}
+  .shipw td.num{white-space:nowrap;font-variant-numeric:tabular-nums} .shipw small{display:block;color:var(--dim)}
+  .shipinfo{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;margin:0} .shipinfo dt{color:var(--dim)} .shipinfo dd{margin:0}
   /* Encounter tab */
   #enc{display:none}
   .enchead{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:10px}
@@ -709,6 +717,7 @@
   </div>
   <div id="gmNpcs" style="display:none"></div>
   <div id="gmScenes" style="display:none"></div>
+  <div id="gmShips" style="display:none"></div>
 </div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
@@ -5512,7 +5521,7 @@ async function roomCopyLink(){
                     wt, st, xp, ab [[name,text]], sub [{n, ab, a?, wt?, st?, xp?}] }
    ================================================================ */
 let SPECIES_DB = null, SPECIES_WAIT = null;
-const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3 };
+const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3, shq:'', ship:-1 };
 function speciesLoad(cb){
   if(SPECIES_DB) return cb();
   if(typeof SPECIES!=='undefined'){ SPECIES_DB = SPECIES; return cb(); }
@@ -5593,19 +5602,80 @@ function mapsLoad(cb){   // the list of map files in img/maps (maps.js, written 
   const sc = document.createElement('script'); sc.src = 'maps.js'; sc.onload = done; sc.onerror = done;
   document.head.appendChild(sc);
 }
-function gmLoad(cb){ speciesLoad(()=>advLoad(()=>mapsLoad(cb))); }
+let SHIPS_DB = null, SHIPS_WAIT = null;
+function shipsLoad(cb){   // ship profiles (ships.js, from the vault and homebrew/Ships by tools/import-ships.py); optional
+  if(SHIPS_DB) return cb();
+  if(typeof SHIPS!=='undefined'){ SHIPS_DB = SHIPS; return cb(); }
+  if(SHIPS_WAIT){ SHIPS_WAIT.push(cb); return; }
+  SHIPS_WAIT = [cb];
+  const done = () => { SHIPS_DB = typeof SHIPS!=='undefined' ? SHIPS : []; const w = SHIPS_WAIT; SHIPS_WAIT = null; w.forEach(f=>f()); };
+  const sc = document.createElement('script'); sc.src = 'ships.js'; sc.onload = done; sc.onerror = done;
+  document.head.appendChild(sc);
+}
+function gmLoad(cb){ speciesLoad(()=>advLoad(()=>mapsLoad(()=>shipsLoad(cb)))); }
 function gmMode(on){ GM_UI.gm = !!on; lsSet('st_gm', on?'1':'0'); if(!on) GM_UI.sec = 'species'; renderGM(); }
 function gmSec(s){ GM_UI.sec = s; renderGM(); }
 function renderGM(){
   const nav = document.getElementById('gmNav'); if(!nav || !SPECIES_DB) return;
   const u = GM_UI; if(!u.gm) u.sec = 'species';
-  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`]] : []);
+  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`], ['ships', `Ships${(SHIPS_DB||[]).length ? ' ('+SHIPS_DB.length+')' : ''}`]] : []);
   nav.innerHTML = secs.map(([k,l])=>`<button class="chip ${u.sec===k?'on':''}" onclick="gmSec('${k}')">${l}</button>`).join('') +
     `<label style="margin-left:auto" title="For whoever is running the game: shows the NPC builder and library on this device. Honor system — it hides the GM's tools, it does not lock them."><input type="checkbox" ${u.gm?'checked':''} onchange="gmMode(this.checked)"> 🎭 GM mode</label>`;
   document.getElementById('gmSpecies').style.display = u.sec==='species' ? '' : 'none';
   document.getElementById('gmNpcs').style.display    = u.sec==='npcs' ? '' : 'none';
   document.getElementById('gmScenes').style.display  = u.sec==='scenes' ? '' : 'none';
-  if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else renderSpecies();
+  document.getElementById('gmShips').style.display   = u.sec==='ships' ? '' : 'none';
+  if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else if(u.sec==='ships') renderShips(); else renderSpecies();
+}
+
+/* ---- Ships: read-only starship profiles for the GM (SHIPS_DB, ships.js) ----
+     { n, grp, hb homebrew, d description (homebrew only), sil, spd, hnd, def [fore,port,starboard,aft] (null = no such arc),
+       arm, ht hull trauma threshold, ss system strain threshold, info [[label,text]], w [{n, arc, dam, crit, rng, q}], ab [[name,text]] }
+   Weapon ranges are planetary scale. The Mantis here is its printed profile; the Ship tab tracks the live one. */
+const shipHay = s => s._h || (s._h = [s.n, s.grp, s.d||'', ...(s.info||[]).flat(), ...(s.w||[]).map(w=>w.n+' '+(w.q||'')), ...(s.ab||[]).flat()].join(' ').toLowerCase());
+function shipsFiltered(){
+  const words = GM_UI.shq.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return (SHIPS_DB||[]).map((s,i)=>[s,i]).filter(([s])=>words.every(w=>shipHay(s).includes(w)));
+}
+function renderShips(){
+  const box = document.getElementById('gmShips'); if(!box) return;
+  if(!document.getElementById('shipGrid')) box.innerHTML = `<div class="itembar">
+      <input type="text" id="shipQ" placeholder="search ships, weapons and abilities… (e.g. tractor, far outsider)" value="${esc(GM_UI.shq)}" oninput="GM_UI.shq=this.value;renderShipList()">
+      <span class="itemcount" id="shipCount" style="margin:0"></span></div>
+    <div class="spcols"><div class="spgrid" id="shipGrid"></div><div class="spdetail" id="shipDetail"></div></div>`;
+  renderShipList();
+}
+function renderShipList(){
+  const grid = document.getElementById('shipGrid'); if(!grid) return;
+  const list = shipsFiltered(); let grp = null;
+  document.getElementById('shipCount').innerHTML = `showing <b>${list.length}</b> of ${(SHIPS_DB||[]).length} ships`;
+  grid.innerHTML = list.map(([s,i])=>`${s.grp!==grp ? `<div class="shipgrp">${esc(grp = s.grp)}</div>` : ''}<button class="spcard ${GM_UI.ship===i?'on':''}" id="shc_${i}" onclick="shipPick(${i})"><span><b>${esc(s.n)}</b>
+    <small>Sil ${s.sil} · Speed ${s.spd} · Handling ${esc(s.hnd)}</small><small>Armor ${s.arm} · HT ${s.ht} · SS ${s.ss}</small></span></button>`).join('')
+    || `<p style="color:var(--dim)">${(SHIPS_DB||[]).length ? 'No ship matches — try fewer words.' : 'The ship profiles did not load (ships.js is missing).'}</p>`;
+  renderShipDetail();
+}
+function shipPick(i){
+  const old = document.getElementById('shc_'+GM_UI.ship); if(old) old.className = 'spcard';
+  GM_UI.ship = i;
+  const now = document.getElementById('shc_'+i); if(now) now.className = 'spcard on';
+  renderShipDetail();
+  const box = document.getElementById('shipDetail');
+  if(box && box.scrollIntoView && window.matchMedia && window.matchMedia('(max-width:820px)').matches) box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function renderShipDetail(){
+  const box = document.getElementById('shipDetail'); if(!box) return;
+  const s = (SHIPS_DB||[])[GM_UI.ship];
+  if(!s){ box.innerHTML = `<p style="color:var(--dim)">Pick a ship to see its profile. <b>HT</b> is the hull trauma threshold and <b>SS</b> the system strain threshold. Weapon ranges are planetary scale. Ships marked <span class="badge b-rival">HB</span> are the group's own numbers; the rest are from the Core Rulebook.</p>`; return; }
+  const cell = (v, l) => `<div><b>${esc(String(v))}</b><span>${l}</span></div>`;
+  const arcs = ['Fore','Port','Starboard','Aft'];
+  box.innerHTML = `<div class="sphead"><div><h3>${esc(s.n)} ${s.hb ? '<span class="badge b-rival" title="Homebrew: the group\'s own numbers">HB</span>' : ''}</h3><small>${esc(s.grp)}</small></div></div>
+    ${s.d ? `<p style="color:#c4ccd6;margin-bottom:8px">${esc(s.d)}</p>` : ''}
+    <div class="spattrs">${cell(s.sil,'Sil')}${cell(s.spd,'Speed')}${cell(s.hnd,'Handl')}${cell(s.arm,'Armor')}${cell(s.ht,'HT')}${cell(s.ss,'SS')}</div>
+    <div class="shipdef" title="Defense by arc: setback dice added to attacks from that side">${arcs.map((a,i)=>`<div><b>${s.def[i]==null ? '–' : s.def[i]}</b>${a} def</div>`).join('')}</div>
+    ${(s.w||[]).length ? `<h4>Weapons</h4><table class="shipw">${s.w.map(w=>`<tr><td><b>${esc(w.n)}</b><small>${esc([w.arc && 'Arc: '+w.arc, w.q].filter(Boolean).join(' · '))}</small></td>
+      <td class="num">Dmg ${esc(w.dam||'—')}</td><td class="num">Crit ${esc(w.crit||'—')}</td><td class="num">${esc(w.rng||'')}</td></tr>`).join('')}</table>` : '<h4>Weapons</h4><p style="color:var(--dim)">None.</p>'}
+    ${(s.ab||[]).length ? `<h4>Abilities</h4><ul>${s.ab.map(([n,t])=>`<li><b>${esc(n)}${t?':':''}</b> ${esc(t)}</li>`).join('')}</ul>` : ''}
+    ${(s.info||[]).length ? `<h4>Details</h4><dl class="shipinfo">${s.info.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}`;
 }
 
 /* ================================================================
