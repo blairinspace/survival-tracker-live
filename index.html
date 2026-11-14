@@ -107,7 +107,9 @@
   .tallies b{font-size:14px}
   .strain b{color:var(--warn)} .wounds b{color:var(--bad)}
   .steff{color:var(--muted);font-size:11px;cursor:help} .steff b{color:var(--warn);font-size:13px}
-  .log{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:14px}
+  .log{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 14px;margin-bottom:12px}
+  .log #logEntries{max-height:4.9em;overflow-y:auto} .log.open #logEntries{max-height:17em}
+  .log .loghead b{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--gold)!important;white-space:nowrap}
   .log .loghead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border)}
   .log .loghead b{color:var(--text)}
   .log .noteadd{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -465,6 +467,19 @@
 
 <div id="objectives"></div>
 
+<div class="log" id="log">
+  <div class="loghead">
+    <b id="logTitle" onclick="logToggle()" title="Show more or fewer entries" style="cursor:pointer;user-select:none">▸ Event log</b>
+    <div class="noteadd">
+      <input type="text" id="noteIn" placeholder="add a note to the log…" onkeydown="if(event.key==='Enter')addNote()">
+      <button class="mini" onclick="addNote()" title="Add this note to the event log at the current game time, signed with your name">📝 add note</button>
+      <button class="mini" onclick="exportLog()" title="Save the whole log, oldest first, plus the state of every objective, as a text file — drop it in the lore vault's Inbox after the session">⬇ export</button>
+      <button class="mini" onclick="clearLog()" title="Clear the event log (nothing else is affected). Export it first if you want it for the lore book.">⟳ clear</button>
+    </div>
+  </div>
+  <div id="logEntries"></div>
+</div>
+
 <div id="ambience">
   <img id="ambImg" alt="scene">
   <span class="cap"><span id="ambCap"></span><small id="ambEnv"></small></span>
@@ -496,17 +511,6 @@
   </div>
 </div>
 <div class="grid" id="cards"></div>
-<div class="log" id="log">
-  <div class="loghead">
-    <b>— Event log —</b>
-    <div class="noteadd">
-      <input type="text" id="noteIn" placeholder="add a note to the log…" onkeydown="if(event.key==='Enter')addNote()">
-      <button class="mini" onclick="addNote()" title="Add this note to the event log at the current game time">📝 add note</button>
-      <button class="mini" onclick="clearLog()" title="Clear the event log (nothing else is affected)">⟳ clear</button>
-    </div>
-  </div>
-  <div id="logEntries"></div>
-</div>
 </div>
 
 <div id="ship"></div>
@@ -2587,12 +2591,18 @@ function editWear(id,i){
 function logMsg(msg, cls){
   if(!Array.isArray(S.log)) S.log=[];   // belt & braces — see migrate()
   S.log.unshift({t:clockStr(), m:msg, c:cls||''});
-  S.log = S.log.slice(0,100);
+  S.log = S.log.slice(0, LOG_MAX);
   rebuildLog();
   scheduleSync();   // log-only changes (notes, etc.) don't run render(); push them to the room
 }
+const LOG_MAX = 500;   // entries kept: a whole session, so nothing rolls off before it is exported for the lore book
+const LOG_UI = { open:false }; try{ LOG_UI.open = localStorage.getItem('st_log_open')==='1'; }catch(e){}
+function logToggle(){ LOG_UI.open = !LOG_UI.open; try{ localStorage.setItem('st_log_open', LOG_UI.open?'1':'0'); }catch(e){} rebuildLog(); }
 const LOG_CLASSES = new Set(['', 'lw', 'lb', 'lg', 'ld', 'lf', 'ln']);
 function rebuildLog(){
+  const box = document.getElementById('log'), title = document.getElementById('logTitle'), n = (S.log||[]).length;
+  if(box) box.className = 'log' + (LOG_UI.open ? ' open' : '');
+  if(title) title.textContent = `${LOG_UI.open?'▾':'▸'} Event log · ${n}${n>=LOG_MAX?' (full: oldest entries are dropping off — export)':''}`;
   document.getElementById('logEntries').innerHTML =
     (S.log||[]).map(l=>`<p class="${LOG_CLASSES.has(l.c)?l.c:''}"><b>${esc(l.t)}</b> · ${l.m}</p>`).join('');
 }
@@ -2601,10 +2611,22 @@ function addNote(){   // freeform player/GM note, timestamped at the current gam
   const text = (inp.value||'').trim();
   if(!text) return;
   inp.value='';
-  logMsg('📝 '+esc(text), 'ln');
+  const by = CLOUD.player && CLOUD.player!=='Player' ? ` <span style="color:var(--dim);font-style:normal">— ${esc(CLOUD.player)}</span>` : '';
+  logMsg('📝 '+esc(text)+by, 'ln');
   inp.focus();
 }
-function clearLog(){ S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
+function logText(){   // the whole log as plain text, oldest first, with the objectives as they stand
+  const plain = h => String(h).replace(/<br\s*\/?>/gi, '\n    ').replace(/<[^>]*>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+  const lines = (S.log||[]).slice().reverse().map(l=>`${l.t} · ${plain(l.m)}`);
+  const obj = o => { const [d,n] = objProgress(o); return `  - [${o.st==='done'?'x':o.st==='failed'?'!':' '}] ${o.t}${n?` (${d}/${n})`:''}` + o.subs.map(x=>`\n      - [${x.d?'x':' '}] ${x.t}`).join(''); };
+  const objs = Object.keys(OBJ_CATS).map(c=>{ const list = S.obj.filter(o=>o.cat===c); return list.length ? `${OBJ_CATS[c][0]}\n${list.map(obj).join('\n')}` : ''; }).filter(Boolean);
+  return `Session log — exported at ${clockStr()}${S.location?` · ${S.location}`:''}\n(game time · entry; notes start with 📝)\n\n` + lines.join('\n') + (objs.length ? `\n\nObjectives as they stand\n${objs.join('\n')}` : '') + '\n';
+}
+function exportLog(){
+  const blob = new Blob([logText()], {type:'text/plain'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `session_log_day${dayNow()+1}.txt`; a.click();
+}
+function clearLog(){ if(!confirm('Clear the whole event log? Export it first if you want it for the lore book.')) return; S.log=[]; logMsg('🧹 Event log cleared.'); }  // entry keeps the synced array non-empty (RTDB drops empty arrays)
 
 let TAB = 'tracker';
 function showTab(t){
@@ -4908,7 +4930,7 @@ function buildRules(){
   <p><b>Portraits:</b> each card shows the image file the GM has placed at <code>img/&lt;id&gt;.jpg</code> (or <code>.png</code>) in the site's repository, tinted red as damage mounts — clear at 0 wounds up to a ${HURT_MAX_OPACITY*100}%-opacity red overlay at the wound threshold. A missing file simply shows no portrait.</p>
   <p><b>Scene:</b> if the GM has placed <code>img/scene.jpg</code> in the repository, an ambience banner shows it above the cards together with the <b>current location and environment</b>.</p>
   <p><b>Location &amp; travel:</b> type the current location, a destination, and travel hours. Every advanced step counts down the ETA; on arrival the destination becomes the current location and the log announces it.</p>
-  <p><b>Event log:</b> type in the note field and press Enter (or 📝 add note) to drop a freeform player/GM note into the log, timestamped at the current game time — handy for plot beats, rolls, or reminders. The ⟳ clear button empties the log without touching anything else. Notes are saved with everything else.</p>
+  <p><b>Event log:</b> it sits under the Objectives line on every tab (click its title for a taller view) and keeps the last ${LOG_MAX} entries. ⬇ export saves it all as a text file for the lore vault's Inbox. Type in the note field and press Enter (or 📝 add note) to drop a freeform player/GM note into the log, timestamped at the current game time — handy for plot beats, rolls, or reminders. The ⟳ clear button empties the log without touching anything else. Notes are saved with everything else.</p>
 
   <h2>💾 Saving &amp; sessions</h2>
   <p>The tracker <b>keeps itself on this device</b>: every change is stored in the browser, so closing the tab or reloading the page brings the session back where it was. <b>💾 Save</b> downloads a JSON file (a backup, or to hand the session to another device); <b>📂 Load</b> reads one back — saves from older builds are patched on the way in, and characters the current build doesn't know are dropped with a note in the log. <b>🆕 New</b> starts over at Day 1, 00:00 after asking (in a live room, it resets the room for everyone). Browser storage is per site and per browser; clearing site data clears the session, so Save before anything drastic.</p>

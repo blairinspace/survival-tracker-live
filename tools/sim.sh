@@ -511,6 +511,20 @@ print('\n=== SMOKE TEST — UI code paths ===');
     print(`  objectives: add, steps, pin, complete, from Lore and summary all log and survive the wire`);
     S = migrate(JSON.parse(keep)); OBJ_UI.open = false;
   })();
+  // event log: keeps a session's worth, signs notes, exports as plain text with the objectives
+  (()=>{
+    const keep = JSON.stringify(S), me = CLOUD.player; S.log = []; S.obj = []; CLOUD.player = 'Tester';
+    for(let i=0;i<LOG_MAX+20;i++) logMsg('filler '+i); if(S.log.length!==LOG_MAX) throw new Error('log should keep '+LOG_MAX+' entries');
+    S.log = S.log.slice(0,3);
+    document.getElementById('noteIn').value = 'Thrass has a <sister>?'; addNote();
+    if(!/Thrass has a &lt;sister>\?/.test(S.log[0].m) || !/Tester/.test(S.log[0].m) || S.log[0].c!=='ln') throw new Error('note not signed or not escaped');
+    const o = objAdd('main','Reach the control room'); objSubAdd(o.id,'Find uniforms'); objSubTick(o.id,o.subs[0].id,true);
+    const txt = logText();
+    if(!/📝 Thrass has a <sister>\? — Tester/.test(txt) || /<span|<b>|&lt;/.test(txt) || !/Objectives as they stand/.test(txt) || !/- \[x\] Find uniforms/.test(txt) || txt.indexOf('Thrass') < txt.indexOf('filler')) throw new Error('log export wrong:\n'+txt);
+    rebuildLog(); if(!/Event log · 7/.test(document.getElementById('logTitle').textContent)) throw new Error('log title count wrong: '+document.getElementById('logTitle').textContent);
+    print(`  event log: keeps ${LOG_MAX} entries, notes are signed, export is plain text oldest-first with the objectives`);
+    CLOUD.player = me; S = migrate(JSON.parse(keep));
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
