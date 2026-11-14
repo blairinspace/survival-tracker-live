@@ -296,6 +296,10 @@
   /* ---- Items tab (catalog + homebrew) ---- */
   #items{display:none}
   #trees{display:none}
+  .talbox{border:1px solid #3b3566;background:#17152a;border-radius:8px;padding:6px 10px;margin:8px 0;font-size:12px;color:#c9c4ee;line-height:1.5}
+  .talbox > b{color:var(--force);text-transform:uppercase;letter-spacing:1px;font-size:10.5px} .talbox span.hit{color:var(--good)} .talbox label{display:block;margin-top:2px;cursor:pointer} .talbox label i{color:var(--dim)}
+  .rtal{font-size:11px;color:var(--force);margin:2px 0}
+  .sktable .tdtag{font-size:10px;color:var(--force);margin-left:5px;white-space:nowrap}
   #objectives{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 14px;margin-bottom:12px}
   #objectives .ohead{display:flex;gap:10px;align-items:center;cursor:pointer;user-select:none;font-size:12.5px}
   #objectives .ohead .label{color:var(--gold);text-transform:uppercase;letter-spacing:1px;font-size:11px;white-space:nowrap}
@@ -1977,6 +1981,7 @@ function rollRepair(id){
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:noKit?1:0, d:diff, c:0, F:0});
   Object.assign(DICE_UI, { who:roller.id, ch:s.cv, rk:s.rank, label:`Mechanics — ${j.kind==='overhaul'?'overhaul':'tune-up'}`, weapon:null,
     repair:{ holder:id, note:`${j.kind==='overhaul'?'Overhaul':'Tune-up'} of ${repairTargetLabel(holder, j)} (wear ${Math.round(wear)}): ${DIFFS[diff][0]} difficulty${noKit?', +1 Setback for no tools carried':''}. Add Setback yourself for no bench or bad conditions.` } });
+  tdLoad(roller, 'mechanics');
   document.getElementById('diceLabel').value = DICE_UI.label;
   showTab('dice');
 }
@@ -2937,6 +2942,7 @@ function rollAttack(id, i){
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
     weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng,
              note: t.setb ? `${t.name} weapon: ${t.setb} Setback${upg?' and an upgraded difficulty':''} already added` : '', src:{id, i, name:it.name} } });
+  tdLoad(cs, w.skill.k);
   document.getElementById('diceLabel').value = w.skill.n;
   showTab('dice');
 }
@@ -3028,11 +3034,78 @@ function gearHtml(cs){
 
 function sheetPick(id){ SHEET_UI.id = id; render(); }
 // Load a skill into the Dice tab: Ability/Proficiency from the sheet, Average difficulty to start from.
+/* ---- talents on the dice. rules.js gives some talents dice effects (d[]): add Boost, ignore Setback,
+   upgrade the pool, downgrade or shorten the difficulty — always, or under a condition. For one skill:
+     auto   Boost dice that always apply (already in the pool the sheet shows)
+     ign    Setback dice the roll ignores (they only matter once the GM adds Setback)
+     opts   situational effects: tick boxes on the Dice tab, off until the player says they apply */
+const TD_WORD = { b:'Boost', k:'Setback ignored', up:'upgrade', dn:'difficulty downgrade', df:'fewer Difficulty' };
+function tdSkillKeys(name){
+  if(name==='*') return SKILLS.map(x=>x.k);
+  if(name==='combat') return SKILLS.filter(x=>x.g==='Combat').map(x=>x.k);
+  if(name==='Knowledge') return SKILLS.filter(x=>x.g==='Knowledge').map(x=>x.k);
+  if(name==='Piloting') return ['pilot_planet','pilot_space'];
+  if(name==='Ranged') return ['ranged_light','ranged_heavy'];
+  const k = skillKeyByName(name); return k ? [k] : [];
+}
+function talentDice(cs, key){
+  const out = { key, auto:0, ign:0, notes:[], opts:[] };
+  if(!cs || !RULES_DB.trees.length) return out;
+  for(const r of talentRanks(cs)){
+    const fx = (RULES_DB.talents[r.n]||{}).d; if(!fx) continue;
+    fx.forEach((e, i)=>{
+      if(!e.sk.some(n=>tdSkillKeys(n).includes(key))) return;
+      const amt = e.n * (e.r ? r.rank : 1), who = r.n + (r.rank>1 && e.r ? ` ×${r.rank}` : '');
+      if(e.c) out.opts.push({ id:r.n+'#'+i, n:r.n, t:e.t, amt, c:e.c });
+      else if(e.t==='b'){ out.auto += amt; out.notes.push(`${who}: +${amt} Boost`); }
+      else if(e.t==='k'){ out.ign += amt; out.notes.push(`${who}: ignores ${amt} Setback`); }
+    });
+  }
+  return out;
+}
+function tdLoad(cs, key){   // attach a skill's talents to the pool being built; the always-on Boost goes straight in
+  const td = talentDice(cs, key);
+  DICE_UI.tal = (td.auto || td.ign || td.opts.length) ? { ...td, on:{}, undo:{} } : null;
+  if(td.auto) DICE_UI.pool.b = clamp(DICE_UI.pool.b + td.auto, 0, POOL_MAX);
+}
+function tdToggle(id, on){   // a situational talent ticked or unticked on the Dice tab
+  const T = DICE_UI.tal, o = T && T.opts.find(x=>x.id===id), p = DICE_UI.pool; if(!o || !!T.on[id]===!!on) return;
+  if(on){
+    const done = [];
+    for(let i=0;i<o.amt;i++){
+      if(o.t==='b'){ if(p.b<POOL_MAX){ p.b++; done.push('b'); } }
+      else if(o.t==='k'){ T.ign++; done.push('k'); }
+      else if(o.t==='up'){ if(p.a>0){ p.a--; p.p++; done.push('conv'); } else { p.a++; done.push('add'); } }
+      else if(o.t==='dn'){ if(p.c>0){ p.c--; p.d++; done.push('dn'); } }
+      else if(o.t==='df'){ if(p.d>0){ p.d--; done.push('df'); } }
+    }
+    T.on[id] = 1; T.undo[id] = done;
+  } else {
+    for(const step of (T.undo[id]||[]).slice().reverse()){
+      if(step==='b') p.b = Math.max(0, p.b-1);
+      if(step==='k') T.ign = Math.max(0, T.ign-1);
+      if(step==='conv' && p.p>0){ p.p--; p.a++; }
+      if(step==='add') p.a = Math.max(0, p.a-1);
+      if(step==='dn' && p.d>0){ p.d--; p.c++; }
+      if(step==='df') p.d++;
+    }
+    delete T.on[id]; delete T.undo[id];
+  }
+  renderDice();
+}
+function tdSummary(ignored){   // one line for the roll feed: which talents shaped this roll
+  const T = DICE_UI.tal; if(!T) return '';
+  const parts = T.notes.filter(n=>/Boost/.test(n));
+  if(ignored) parts.push(`${ignored} Setback ignored` + (T.notes.filter(n=>/Setback/.test(n)).length ? ` (${T.notes.filter(n=>/Setback/.test(n)).map(n=>n.split(':')[0]).join(', ')})` : ''));
+  for(const o of T.opts) if(T.on[o.id]) parts.push(`${o.n}: ${o.t==='b'?'+'+o.amt+' Boost':o.t==='k'?'ignores '+o.amt+' Setback':o.amt+' '+TD_WORD[o.t]}`);
+  return parts.join(' · ').slice(0, 240);
+}
 function rollSkill(id, key){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
   const s = skillState(cs, sk);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null });
+  tdLoad(cs, key);
   document.getElementById('diceLabel').value = sk.n;
   showTab('dice');
 }
@@ -3062,12 +3135,15 @@ function skillRowHtml(cs, sk){
   const name = sk.cust
     ? `<input type="text" value="${esc(sk.n)}" placeholder="skill name" onchange="sheetCust('${id}','${sk.cust}','n',this.value)"><button class="mini" onclick="sheetDelSkill('${id}','${sk.cust}')" title="Remove this custom skill">✕</button>`
     : esc(sk.n);
-  const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
+  const td = talentDice(cs, sk.k);
+  const pool = `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a) + `<span class="die sm d6 t-b"></span>`.repeat(Math.min(td.auto, POOL_MAX));
+  const tdTag = (td.ign ? `<span class="tdtag" title="Ignores up to ${td.ign} Setback on this skill">−${td.ign} ■</span>` : '') + (td.opts.length ? `<span class="tdtag" title="${esc(td.opts.map(o=>o.n+': '+o.c).join('\n'))}">+${td.opts.length} option${td.opts.length===1?'':'s'}</span>` : '');
+  const tdTip = td.notes.concat(td.opts.map(o=>`${o.n} (when it applies): ${o.c}`)).join('\n');
   return `<tr class="${s.career?'career':''}">
     <td class="skn" title="${esc(sk.tip)}">${name} ${chSel}</td>
     <td class="c"><input type="checkbox" ${s.career?'checked':''} onchange="sheetSkill('${id}','${sk.k}','c',this.checked)" title="Career skill — granted by your career and specializations. Career skills are 5 XP cheaper per rank."></td>
     <td class="c"><input type="number" min="0" max="${SKILL_RANK_MAX}" value="${s.rank}" onchange="sheetSkill('${id}','${sk.k}','r',this.value)" title="${rankCostTip(s)}">${s.rank<SKILL_RANK_MAX ? `<button class="mini" onclick="skillBuy('${id}','${sk.k}')" ${cs.sheet.xp>=skillCost(s)?'':'disabled'} title="Buy rank ${s.rank+1} for ${skillCost(s)} XP (${s.career?'career skill':'non-career: +5'}). You have ${cs.sheet.xp} XP. Typing in the box changes the rank without spending XP.">▲${skillCost(s)}</button>` : ''}</td>
-    <td><button class="skroll" onclick="rollSkill('${id}','${sk.k}')" title="${ATTRS.find(a=>a[0]===s.ch)[1]} ${s.cv} + rank ${s.rank} → ${s.p} Proficiency, ${s.a} Ability. Click to load this pool into the Dice tab.">${pool || '—'}</button></td>
+    <td><button class="skroll" onclick="rollSkill('${id}','${sk.k}')" title="${ATTRS.find(a=>a[0]===s.ch)[1]} ${s.cv} + rank ${s.rank} → ${s.p} Proficiency, ${s.a} Ability${td.auto?`, ${td.auto} Boost from talents`:''}. Click to load this pool into the Dice tab.${tdTip ? '\n\nTalents:\n'+esc(tdTip) : ''}">${pool || '—'}</button>${tdTag}</td>
   </tr>`;
 }
 function renderSheet(){
@@ -3164,7 +3240,7 @@ function nodeState(cs, t, n){   // own · can (buyable now) · lock, with the re
    characteristic (the player picks; 6 is the ceiling). The owned box remembers what it did — 2 = applied,
    or the characteristic key for Dedication — so a refund only undoes what was really applied (a box bought
    before this existed holds 1 and is left alone). */
-const AUTO_TALENTS = { 'Grit':'+1 strain threshold', 'Toughened':'+2 wound threshold', 'Force Rating':'+1 Force rating', 'Dedication':'+1 to a characteristic of your choice (max 6)', 'Enduring':'+1 soak' };
+const AUTO_TALENTS = { 'Grit':'+1 strain threshold', 'Toughened':'+2 wound threshold', 'Force Rating':'+1 Force rating', 'Dedication':'+1 to a characteristic of your choice (max 6)', 'Enduring':'+1 soak', 'Sixth Sense':'+1 ranged defense', 'Superior Reflexes':'+1 melee defense', 'Secrets of the Jedi':'Lightsaber becomes a career skill', 'Insight':'Perception and Discipline become career skills', 'Well Rounded':'two skills of your choice become career skills' };
 function pickAttr(cs, want){   // which characteristic Dedication raises: given, or asked
   const open = ATTRS.filter(([k])=>cs.attr[k] < 6);
   if(!open.length){ alert('Every characteristic is already 6 — Dedication has nothing to raise.'); return null; }
@@ -3179,6 +3255,15 @@ function talentApply(cs, name, opt){   // returns the marker to store on the box
   if(name==='Grit'){ cs.st = (+cs.st||0) + 1; return 2; }
   if(name==='Toughened'){ cs.wt = (+cs.wt||0) + 2; return 2; }
   if(name==='Enduring'){ cs.sheet.soakMod = Math.min(SHEET_NUM.soakMod[1], cs.sheet.soakMod + 1); return 2; }
+  if(name==='Sixth Sense'){ cs.sheet.defRMod = Math.min(SHEET_NUM.defRMod[1], cs.sheet.defRMod + 1); return 2; }
+  if(name==='Superior Reflexes'){ cs.sheet.defMMod = Math.min(SHEET_NUM.defMMod[1], cs.sheet.defMMod + 1); return 2; }
+  if(name==='Secrets of the Jedi'){ skCareer(cs.sheet, 'lightsaber', true); return 1; }          // career skills stay if the talent is refunded
+  if(name==='Insight'){ skCareer(cs.sheet, 'perception', true); skCareer(cs.sheet, 'discipline', true); return 1; }
+  if(name==='Well Rounded'){   // two skills of the player's choice; skipping the question still buys the talent
+    const v = opt!==undefined ? opt : prompt('Well Rounded: which two skills become career skills? (two names, separated by a comma — or leave blank and tick them on the sheet)', '');
+    for(const n of String(v||'').split(',').slice(0,2)){ const q = normName(n), hit = q && SKILLS.find(x=>normName(x.n)===q || skillNorm(x.n)===skillNorm(n) || normName(x.n).startsWith(q)); if(hit) skCareer(cs.sheet, hit.k, true); }
+    return 1;
+  }
   if(name==='Force Rating'){ if(cs.sheet.fr >= SHEET_NUM.fr[1]) return 1; cs.sheet.fr++; return 2; }
   if(name==='Dedication'){
     const k = pickAttr(cs, opt); if(!k) return null;
@@ -3192,6 +3277,8 @@ function talentUnapply(cs, name, mark){
   if(name==='Grit') cs.st = Math.max(0, (+cs.st||0) - 1);
   if(name==='Toughened') cs.wt = Math.max(0, (+cs.wt||0) - 2);
   if(name==='Enduring') cs.sheet.soakMod = Math.max(SHEET_NUM.soakMod[0], cs.sheet.soakMod - 1);
+  if(name==='Sixth Sense') cs.sheet.defRMod = Math.max(SHEET_NUM.defRMod[0], cs.sheet.defRMod - 1);
+  if(name==='Superior Reflexes') cs.sheet.defMMod = Math.max(SHEET_NUM.defMMod[0], cs.sheet.defMMod - 1);
   if(name==='Force Rating'){ cs.sheet.fr = Math.max(0, cs.sheet.fr - 1); if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs); }
   if(name==='Dedication' && cs.attr[mark]!==undefined){ cs.attr[mark] = Math.max(1, cs.attr[mark] - 1); if(mark==='br') cs.encThresh = cs.attr.br + 5; }
 }
@@ -3913,7 +4000,7 @@ const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${face
 
 /* ---- pool builder ---- */
 function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
-function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.tal=null; renderDice(); }
 function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; renderDice(); }
 function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
   const p = DICE_UI.pool;
@@ -3934,7 +4021,9 @@ function diceWhoName(){
 function rollPool(){
   const p = DICE_UI.pool;
   if(!DICE_ORDER.some(t=>p[t]>0)) return;
-  const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(p) };
+  const ignored = DICE_UI.tal ? Math.min(p.k, DICE_UI.tal.ign) : 0;   // talents that remove Setback
+  const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(ignored ? {...p, k:p.k-ignored} : p) };
+  const talNote = tdSummary(ignored); if(talNote) e.tal = talNote;
   if(DICE_UI.weapon){
     const {src, note, ...card} = DICE_UI.weapon; e.w = card;
     const it = src && st(src.id) && st(src.id).inv[src.i];   // the attack wears the weapon a little
@@ -4005,7 +4094,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    ${weaponCardHtml(e.w, dice)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice)}</div></div>`;
 }
 function renderFeed(){
@@ -4083,6 +4172,9 @@ function renderDice(){
     </div>
     ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     ${DICE_UI.repair ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.repair.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the repair">✕</button></div>` : ''}
+    ${DICE_UI.tal ? (()=>{ const T = DICE_UI.tal, ig = Math.min(p.k, T.ign);
+      return `<div class="talbox"><b>✦ Talents</b>${T.notes.length ? ` <span>${T.notes.map(esc).join(' · ')}</span>` : ''}${T.ign ? ` <span class="${ig?'hit':''}">${ig ? `${ig} of ${p.k} Setback will be ignored` : `up to ${T.ign} Setback will be ignored when added`}</span>` : ''}
+        ${T.opts.map(o=>`<label title="${esc(o.c)}"><input type="checkbox" ${T.on[o.id]?'checked':''} onchange="tdToggle('${esc(o.id).replace(/'/g,"\\'")}',this.checked)"> <b>${esc(o.n)}</b>: ${o.t==='b'?`+${o.amt} Boost`:o.t==='k'?`ignore ${o.amt} Setback`:o.t==='up'?`upgrade ${o.amt}×`:o.t==='dn'?`downgrade difficulty ${o.amt}×`:`${o.amt} fewer Difficulty`} <i>— ${esc(o.c)}</i></label>`).join('')}</div>`; })() : ''}
     <div class="poolprev">${total ? DICE_ORDER.map(t=>`<span class="die ${DICE[t].cls} t-${t}" title="${DICE[t].name}"></span>`.repeat(p[t])).join('') : 'Empty pool — click the dice above to add them.'}</div>
     <button class="primary rollbtn" onclick="rollPool()" ${total?'':'disabled'}>🎲 Roll${total?` ${total} ${total===1?'die':'dice'}`:''}</button>`;
   const lg = document.getElementById('diceLegend');

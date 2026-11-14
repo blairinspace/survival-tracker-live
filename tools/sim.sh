@@ -525,6 +525,34 @@ print('\n=== SMOKE TEST — UI code paths ===');
     print(`  event log: keeps ${LOG_MAX} entries, notes are signed, export is plain text oldest-first with the objectives`);
     CLOUD.player = me; S = migrate(JSON.parse(keep));
   })();
+  // talents on the dice: always-on Boost, ignored Setback, situational tick boxes, and the feed note
+  (()=>{
+    const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet, n0 = ROLLS.length;
+    const nd = Object.values(RULES_DB.talents).filter(t=>t.d); if(nd.length<40) throw new Error('talent dice did not import');
+    for(const t of nd) for(const e of t.d){ if(!TD_WORD[e.t] || !(e.n>0) || !e.sk.length) throw new Error('bad talent dice entry'); for(const n of e.sk) if(!tdSkillKeys(n).length) throw new Error('talent dice names an unknown skill: '+n); }
+    sh.tr = {}; sh.sk = { stealth:{r:2}, mechanics:{r:1}, ranged_light:{r:2} }; sh.xp = 900; cal.attr.ag = 3; cal.attr.int = 2;
+    specAdd('cal','padawan-survivor-universal',true); for(const n of ['r1c1','r2c1','r2c2','r2c3']) treeBuy('cal','padawan-survivor-universal',n);   // Sleight of Mind: +1 Boost to Stealth
+    specAdd('cal','mechanic-technician',true); for(const n of ['r1c1','r2c1','r2c2','r2c3']) treeBuy('cal','mechanic-technician',n);                 // Gearhead ×2: ignore 2 Setback on Mechanics
+    specAdd('cal','gunslinger-smuggler',true); for(const n of ['r1c2','r1c3','r2c3']) treeBuy('cal','gunslinger-smuggler',n);                       // Quick Strike ×2: situational
+    const tS = talentDice(cal,'stealth'), tM = talentDice(cal,'mechanics'), tR = talentDice(cal,'ranged_light');
+    if(tS.auto!==1 || tM.ign!==2 || tM.auto || tR.opts.length!==1 || tR.opts[0].amt!==2 || tR.auto) throw new Error('talent dice wrong: '+JSON.stringify([tS,tM,tR]));
+    SHEET_UI.id = 'cal'; render(); const row = skillRowHtml(cal, SKILLS.find(x=>x.k==='stealth')), rowM = skillRowHtml(cal, SKILLS.find(x=>x.k==='mechanics')), rowR = skillRowHtml(cal, SKILLS.find(x=>x.k==='ranged_light'));
+    if(!/die sm d6 t-b/.test(row) || !/−2 ■/.test(rowM) || !/\+1 option/.test(rowR) || /undefined|NaN/.test(row+rowM+rowR)) throw new Error('skill rows should show talent dice');
+    rollSkill('cal','stealth'); if(DICE_UI.pool.b!==1 || !DICE_UI.tal) throw new Error('always-on Boost should load with the pool'); rollPool(); if(!/Sleight of Mind/.test(ROLLS[ROLLS.length-1].tal||'')) throw new Error('feed should name the talent');
+    rollSkill('cal','mechanics'); poolAdj('k',1); poolAdj('k',1); poolAdj('k',1); rollPool(); const rm = ROLLS[ROLLS.length-1];
+    if(!/2 Setback ignored/.test(rm.tal||'') || parseRoll(rm.r).filter(d=>d[0]==='k').length!==1) throw new Error('two of three Setback should be ignored: '+JSON.stringify(rm));
+    rollSkill('cal','ranged_light'); const p0 = JSON.stringify(DICE_UI.pool), oid = DICE_UI.tal.opts[0].id; tdToggle(oid,true); if(DICE_UI.pool.b!==2) throw new Error('ticking Quick Strike should add 2 Boost');
+    tdToggle(oid,false); if(JSON.stringify(DICE_UI.pool)!==p0) throw new Error('unticking should put the pool back');
+    DICE_UI.tal = { key:'x', auto:0, ign:0, notes:[], opts:[{id:'u',n:'True Aim',t:'up',amt:2,c:'test'},{id:'d',n:'Confidence',t:'df',amt:1,c:'test'}], on:{}, undo:{} }; Object.assign(DICE_UI.pool,{p:0,a:1,b:0,k:0,d:2,c:0,F:0});
+    tdToggle('u',true); if(DICE_UI.pool.p!==1 || DICE_UI.pool.a!==1) throw new Error('upgrade twice from one Ability should give 1 Proficiency + 1 Ability'); tdToggle('d',true); if(DICE_UI.pool.d!==1) throw new Error('fewer Difficulty wrong');
+    tdToggle('u',false); tdToggle('d',false); if(DICE_UI.pool.p!==0 || DICE_UI.pool.a!==1 || DICE_UI.pool.d!==2) throw new Error('undoing upgrades wrong');
+    poolClear(); if(DICE_UI.tal) throw new Error('clearing the pool should drop the talents');
+    const dr0 = sh.defRMod; specAdd('cal','nightsister-universal',true); for(const n of ['r1c4','r2c4','r3c4']) treeBuy('cal','nightsister-universal',n); if(sh.defRMod!==dr0+1) throw new Error('Sixth Sense should add ranged defense'); treeRefund('cal','nightsister-universal','r3c4'); if(sh.defRMod!==dr0) throw new Error('Sixth Sense refund');
+    treeBuy('cal','padawan-survivor-universal','r2c4'); if(!sh.sk.lightsaber || !sh.sk.lightsaber.c) throw new Error('Secrets of the Jedi should make Lightsaber a career skill');
+    specAdd('cal','sleeper-agent-spy',true); treeBuy('cal','sleeper-agent-spy','r1c4','Astrogation, medicine'); if(!sh.sk.astrogation.c || !sh.sk.medicine.c) throw new Error('Well Rounded should tick two chosen skills');
+    print(`  talent dice: ${nd.length} talents carry dice effects; Boost loads with the pool, Setback is ignored on the roll, tick boxes apply and undo`);
+    ROLLS.length = n0; S = migrate(JSON.parse(keep)); showTab('tracker');
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);
