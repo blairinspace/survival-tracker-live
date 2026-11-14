@@ -253,7 +253,13 @@ def creation_data():
             if sil:
                 sp['sil'] = int(sil.group(1))
             sp['ab'].append({'n': name, 'e': short(body, 320)})
-        if hb:
+        fm = frontmatter(text)
+        for key, out in (('career_free', 'careerFree'), ('spec_free', 'specFree'), ('soak', 'soak')):
+            if fm.get(key, '').isdigit():
+                sp[out] = int(fm[key])
+        if fm.get('droid') == 'true':
+            sp['droid'] = 1
+        if hb and fm.get('published') != 'true':
             sp['hb'] = 1
         species.append(sp)
     species.sort(key=lambda x: x['n'])

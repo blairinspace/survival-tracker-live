@@ -369,7 +369,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   // guided character creation: species, career, specialization, free ranks, characteristics
   (()=>{
     const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet;
-    if(RULES_DB.species.length<9 || RULES_DB.careers.length<20) throw new Error('species / careers did not load');
+    if(RULES_DB.species.length<10 || RULES_DB.careers.length<20) throw new Error('species / careers did not load');
     ccStart('cal'); ccBlank('cal'); if(!sh.cc || sh.species || Object.keys(sh.tr).length) throw new Error('blank sheet failed');
     ccBonus('cal','xp'); ccSetSpecies('cal','Cerean');
     if(cal.attr.int!==3 || cal.attr.ag!==1 || cal.wt!==12 || cal.st!==15 || sh.xp!==100 || sh.xpTotal!==100 || (sh.sk.vigilance||{}).r!==1) throw new Error('Cerean not applied');
@@ -393,6 +393,12 @@ print('\n=== SMOKE TEST — UI code paths ===');
       ccSetCareer('cal','Smuggler'); if(sh.fr!==0 || !sh.sk.streetwise.c || ccPickLimit(cal,'fc')!==4 || sh.sk.cool && sh.sk.cool.c && !TREE_BY[spec1].skills.includes('Cool')) throw new Error('Edge career not applied');
       for(const k of ['coordination','deception','perception','streetwise']) if(!ccPick('cal','fc',k)) throw new Error('four free career ranks expected'); if(ccPick('cal','fc','skulduggery')) throw new Error('fifth free rank allowed');
       if(!RULES_DB.trees.some(t=>t.k==='spec' && t.career==='Smuggler')) throw new Error('no Smuggler trees'); ccSetCareer('cal',car1); if(sh.fr!==1) throw new Error('Force rating not restored'); sh.fr = fr1; }
+    { const dr = RULES_DB.species.find(x=>x.n==='Droid'); if(!dr || dr.hb || !dr.droid || dr.careerFree!==6 || dr.specFree!==3 || dr.soak!==1 || dr.xp!==175) throw new Error('Droid species did not import');
+      const kb = JSON.stringify(S); ccStart('bd1'); const bd = st('bd1'), bs = bd.sheet; ccSetSpecies('bd1','Droid'); ccSetCareer('bd1','Explorer');
+      if(bd.attr.int!==1 || bd.wt!==11 || bs.xp!==175 || bs.soakMod!==1 || ccPickLimit(bd,'fc')!==6 || ccPickLimit(bd,'fs')!==3 || !/Droid/.test(creationHtml(bd)) && false) throw new Error('Droid species not applied');
+      ccStep('bd1',4); const sp4 = creationHtml(bd); if(/Twi'lek|Human</.test(sp4) || !/>Droid</.test(sp4)) throw new Error('a droid should be offered only the Droid species');
+      ccStep('cal',4); if(/>Droid</.test(creationHtml(st('cal')))) throw new Error('an organic was offered the Droid species');
+      ccOther('bd1','species','Probe'); if(bs.soakMod!==0) throw new Error('leaving Droid should take its soak away'); const i = S.chars.findIndex(x=>x.id==='bd1'); S.chars[i] = JSON.parse(kb).chars[i]; normSheet(S.chars[i], cfg('bd1')); }
     ccBonus('cal','cr'); ccCredits('cal'); if(sh.credits!==3000) throw new Error('starting credits wrong');
     const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(!w.cc || w.cc.sp!=='Human' || !w.cc.fp.stealth || typeof w.cc.fc!=='object') throw new Error('creation progress lost on the wire');
     let bad = 0; SHEET_UI.id = 'cal'; for(let i=1;i<=CC_STEPS.length;i++){ ccStep('cal',i); bad += (creationHtml(cal).match(/undefined|NaN|\[object/g)||[]).length; }

@@ -3476,7 +3476,9 @@ function ccBonus(id, v){
 function ccUnpick(sh, group){ const cc = sh.cc; for(const k in cc[group]) skBump(sh, k, -1); cc[group] = {}; }
 function ccPickLimit(cs, group){
   const sp = ccSpecies(cs), car = ccCareer(cs);
-  return group==='fp' ? (sp && sp.free ? sp.free.n : 0) : group==='fc' ? (car ? car.free : 0) : 2;
+  if(group==='fp') return sp && sp.free ? sp.free.n : 0;
+  if(group==='fc') return car ? Math.min(car.skills.length, (sp && sp.careerFree) || car.free) : 0;   // droids pick six career ranks
+  return (sp && sp.specFree) || 2;                                                                // and three specialization ranks
 }
 function ccPick(id, group, key){   // toggle one free skill rank
   const cs = st(id), sh = cs.sheet, cc = sh.cc; if(!cc || !SKILLS.some(x=>x.k===key)) return false;
@@ -3490,6 +3492,7 @@ function ccSetSpecies(id, name){
   cs.attr = Object.assign({}, sp.attr); cs.encThresh = cs.attr.br + 5;
   cs.wt = sp.wt + sp.attr.br; cs.st = sp.st + sp.attr.wil;
   sh.species = sp.n; sh.xp = sh.xpTotal = sp.xp + CC_BONUS[cc.bonus||''].xp;
+  sh.soakMod -= (+cc.spSoak||0); cc.spSoak = sp.soak||0; sh.soakMod += cc.spSoak;   // a species' built-in Enduring (droids)
   Object.assign(cc, { sp:sp.n, wtB:sp.wt, stB:sp.st });
   sh.sil = sp.sil===undefined ? 1 : sp.sil;
   const f = sp.free;
@@ -3519,7 +3522,7 @@ function ccSetSpec(id, tid){
 }
 function ccOther(id, k, v){   // a species or career that is not in the vault: just the name; the numbers are set by hand
   const sh = st(id).sheet, cc = sh.cc; v = String(v).trim().slice(0,120); if(!cc || !v) return;
-  if(k==='species'){ ccUnpick(sh, 'fp'); delete cc.sp; delete cc.wtB; delete cc.stB; sh.species = v; }
+  if(k==='species'){ ccUnpick(sh, 'fp'); sh.soakMod -= (+cc.spSoak||0); delete cc.spSoak; delete cc.sp; delete cc.wtB; delete cc.stB; sh.species = v; }
   if(k==='career'){ ccUnpick(sh, 'fc'); delete cc.car; sh.career = v; }
   render();
 }
@@ -3597,20 +3600,20 @@ function creationHtml(cs){
     <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">${tallyHtml(cs,'obl')}${tallyHtml(cs,'duty')}</div>
     <p>Bonus XP or credits from these trades are not added automatically — type them into the XP or Credits box.</p>`;
   else if(step===4) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
-    <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}${x.hb?' <span class="badge b-hb" title="Homebrew species">HB</span>':''}</b>
+    <div class="cccards">${RULES_DB.species.filter(x=>!!x.droid===!!cfg(id).droid).map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}${x.hb?' <span class="badge b-hb" title="Homebrew species">HB</span>':''}</b>
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>
     ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : ''}
     <div class="shead"><label title="A species that is not in the list: type its name, then set characteristics, thresholds and XP by hand on the sheet.">Other species (not listed)<input type="text" value="${esc(sp ? '' : sh.species)}" placeholder="species name" onchange="ccOther('${id}','species',this.value)"></label></div>`;
   else if(step===5) body = `<p>Your <b>career</b> never changes. It gives your career skills (cheaper to raise forever) and decides which specializations are cheap. <b>Force and Destiny</b> careers have six skills, three free ranks and start at Force rating 1; <b>Edge of the Empire</b>, <b>Age of Rebellion</b> and Clone Soldier careers have eight skills, four free ranks and no Force rating. Each card's hover says what that career gives.</p>
     ${[...new Set(RULES_DB.careers.map(x=>x.book))].map(book=>`<h4 style="color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">${esc(book)}</h4>
     <div class="cccards">${RULES_DB.careers.filter(x=>x.book===book).map(x=>`<div class="tnode ${car&&car.n===x.n?'own':'can'}" onclick="ccSetCareer('${id}','${x.n}')" title="${x.fr?'Starts at Force rating '+x.fr+'. ':''}${x.free} free ranks among these ${x.skills.length} career skills."><b>${esc(x.n)}${x.fr?' <span style="color:var(--force)">✦</span>':''}</b><small>${esc(x.skills.join(', '))}</small></div>`).join('')}</div>`).join('')}
-    ${car ? `<p><b>Free career ranks:</b> one free rank in ${car.free} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : ''}
+    ${car ? `<p><b>Free career ranks:</b> one free rank in ${ccPickLimit(cs,'fc')} of the ${car.skills.length} career skills.</p>` + picks('fc', car.skills.map(skillKeyByName)) : ''}
     <div class="shead"><label title="A career that is not listed (homebrew, or from another book): type its name, then tick its career skills by hand in the skill list.">Other career (not listed)<input type="text" value="${esc(car ? '' : sh.career)}" placeholder="career name" onchange="ccOther('${id}','career',this.value)"></label></div>`;
   else if(step===6){
     const opts = RULES_DB.trees.filter(t=>t.k==='spec' && car && t.career===car.n);
     body = `<p>Your first <b>specialization</b> is free. It adds four more career skills and a talent tree to spend XP in.</p>` +
       (car ? `<div class="cccards">${opts.map(t=>`<div class="tnode ${spec&&spec.id===t.id?'own':'can'}" onclick="ccSetSpec('${id}','${t.id}')"><b>${esc(t.n)}</b><small>${esc(t.skills.join(', '))}</small></div>`).join('')}</div>` : `<p>Choose a career first.</p>`) +
-      (spec ? `<p><b>Free specialization ranks:</b> one free rank in 2 of its 4 skills. <button class="mini" onclick="treesFor('${id}','${spec.id}')">view the ${esc(spec.n)} tree →</button></p>` + picks('fs', spec.skills.map(skillKeyByName)) : '') +
+      (spec ? `<p><b>Free specialization ranks:</b> one free rank in ${ccPickLimit(cs,'fs')} of its 4 skills. <button class="mini" onclick="treesFor('${id}','${spec.id}')">view the ${esc(spec.n)} tree →</button></p>` + picks('fs', spec.skills.map(skillKeyByName)) : '') +
       (sp && sp.free && sp.free.of==='noncareer' ? `<p><b>${esc(sp.n)} free ranks:</b> one rank each in ${sp.free.n} different <b>non-career</b> skills.</p>` + picks('fp', SKILLS.filter(x=>!(sh.sk[x.k]||{}).c || cc.fp[x.k]).map(x=>x.k)) : '');
   }
   else if(step===7) body = `<p>You have <b>${sh.xp} XP</b> to spend. This is the <b>only</b> time XP can raise a characteristic (later only the Dedication talent can), and characteristics drive every dice pool, so most players spend heavily here.</p>
