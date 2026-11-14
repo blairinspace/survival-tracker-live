@@ -492,6 +492,25 @@ print('\n=== SMOKE TEST — UI code paths ===');
     if(!/Active objectives/i.test(N[LORE_DB.home].h) || !/lbase|lempty/.test(N[LORE_DB.home].h)) throw new Error('home page lists did not generate');
     print(`  lore: ${Object.keys(N).length} pages in ${LORE_DB.sections.length} sections, every link resolves, no private markers`); showTab('tracker');
   })();
+  // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
+  (()=>{
+    const keep = JSON.stringify(S), log0 = S.log.length; S.obj = []; OBJ_UI.open = true;
+    const a = objAdd('main','Reach the Central Control Room'), b = objAdd('side','Find worker uniforms'), c = objAdd('threat','Who is following us?');
+    if(!a.pin || b.pin || S.obj.length!==3 || objAdd('main','   ') || objAdd('nope','x')) throw new Error('adding objectives wrong');
+    objSubAdd(a.id,'Change into uniforms'); objSubAdd(a.id,'Cross the hub'); objSubTick(a.id, a.subs[0].id, true);
+    render(); const oh = document.getElementById('objectives').innerHTML;
+    if(!/next: Cross the hub/.test(oh) || !/\(1\/2\)/.test(oh) || !/Side quests/.test(oh) || !/Threats &amp; mysteries|Threats & mysteries/.test(oh) || /undefined|NaN|\[object/.test(oh)) throw new Error('objectives panel render wrong');
+    objPin(b.id); if(a.pin || !b.pin) throw new Error('pinning should move'); objSet(b.id,'done'); if(b.pin || b.st!=='done') throw new Error('a finished objective should drop its pin');
+    const logged = S.log.slice(0, 12).map(x=>x.m).join('|'); if(!/New main objective/.test(logged) || !/new step/.test(logged) || !/done \(1 of 2\)/.test(logged) || !/Objective complete/.test(logged) || !/Now tracking/.test(logged)) throw new Error('objective changes should reach the event log');
+    const q = Object.keys(LORE_DB.notes).find(id=>LORE_DB.notes[id].type==='quest' && objLoreCat(LORE_DB.notes[id])==='main' && objLoreList('main').includes(id));
+    if(!q) throw new Error('no open main quest found in the Lore'); const lo = objAddFromLore('main', q); if(!lo || lo.lore!==q || lo.t!==LORE_DB.notes[q].t || objLoreList('main').includes(q)) throw new Error('adding from the Lore wrong');
+    objSummary(); if(!/Objectives summary/.test(S.log[0].m) || !/Completed/.test(S.log[0].m)) throw new Error('objectives summary wrong');
+    const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).obj; if(w.length!==4 || w[0].subs.length!==2 || !w[0].subs[0].d || w[0].subs[1].d || w[1].st!=='done' || w[3].lore!==q) throw new Error('objectives lost on the wire');
+    const stripped = JSON.parse(JSON.stringify(syncSubset(S))); delete stripped.obj; stripped.obj = { 0:{ id:'x1', cat:'side', t:'From the room' } }; const w2 = migrate(stripped).obj; if(w2.length!==1 || !Array.isArray(w2[0].subs) || w2[0].st!=='active') throw new Error('a bare objective from the room should be repaired');
+    objDel(c.id); objClearFinished('side'); if(S.obj.length!==2) throw new Error('removing objectives wrong');
+    print(`  objectives: add, steps, pin, complete, from Lore and summary all log and survive the wire`);
+    S = migrate(JSON.parse(keep)); OBJ_UI.open = false;
+  })();
   const rules = document.getElementById('rules').innerHTML;
   const bad = (rules.match(/undefined|NaN|\[object/g)||[]).length;
   print(`  advanced to ${clockStr()} · ${S.log.length} log entries · rules reference ${rules.length} chars, ${bad} broken interpolations`);

@@ -294,6 +294,20 @@
   /* ---- Items tab (catalog + homebrew) ---- */
   #items{display:none}
   #trees{display:none}
+  #objectives{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 14px;margin-bottom:12px}
+  #objectives .ohead{display:flex;gap:10px;align-items:center;cursor:pointer;user-select:none;font-size:12.5px}
+  #objectives .ohead .label{color:var(--gold);text-transform:uppercase;letter-spacing:1px;font-size:11px;white-space:nowrap}
+  #objectives .otrack{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim)} #objectives .otrack b{color:var(--text)}
+  #objectives .ocols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
+  #objectives .ocol{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;min-width:0}
+  #objectives .ocol > h4{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:1px} #objectives .ocol.main > h4{color:var(--gold)} #objectives .ocol.side > h4{color:var(--accent)} #objectives .ocol.threat > h4{color:var(--bad)}
+  #objectives .oitem{border-top:1px dashed var(--border);padding:6px 0} #objectives .oitem.pin{border-left:3px solid var(--gold);padding-left:8px;margin-left:-11px}
+  #objectives .otitle{display:flex;gap:6px;align-items:baseline;font-size:13px;font-weight:600} #objectives .otitle .n{flex:1;min-width:0;cursor:text} #objectives .otitle small{color:var(--dim);font-weight:400;white-space:nowrap}
+  #objectives .osub{display:flex;gap:6px;align-items:flex-start;font-size:12px;color:#c4ccd6;padding:1px 0 1px 4px} #objectives .osub.done{color:var(--dim);text-decoration:line-through} #objectives .osub span{flex:1;min-width:0}
+  #objectives .osub .x{visibility:hidden;cursor:pointer;color:var(--dim);text-decoration:none} #objectives .osub:hover .x{visibility:visible}
+  #objectives .oadd{display:flex;gap:4px;margin-top:4px} #objectives .oadd input[type=text]{flex:1;min-width:0;font-size:11.5px;padding:2px 6px}
+  #objectives details.ofin{margin-top:6px;font-size:11.5px;color:var(--dim)} #objectives details.ofin summary{cursor:pointer} #objectives .ofin .done{color:var(--good)} #objectives .ofin .failed{color:var(--bad)}
+  #objectives .obar{height:3px;background:#30363d;border-radius:2px;margin:3px 0 2px;overflow:hidden} #objectives .obar i{display:block;height:100%;background:var(--good)}
   #lore{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
   #loreNav details > summary{cursor:pointer;font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;padding:5px 6px;user-select:none}
   #loreNav .lhit{display:block;font-size:10.5px;color:var(--dim);padding:0 8px 4px;line-height:1.35}
@@ -448,6 +462,8 @@
     <button class="mini" onclick="counterAdd()" title="Start this countdown">＋ add</button>
   </div>
 </div>
+
+<div id="objectives"></div>
 
 <div id="ambience">
   <img id="ambImg" alt="scene">
@@ -1116,7 +1132,7 @@ function newCharState(c){
   return cs;
 }
 function freshState(){
-  return { hour:0, env:'temperate', ambImg:'', location:'', counters:[],
+  return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
     chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], destiny: {light:0, dark:0} };
 }
@@ -1153,6 +1169,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   }
   for(const k of ['ambImg','location']) if(s[k]===undefined) s[k]='';
   // countdowns (RTDB drops the key when the list is empty). The old single travel timer becomes one of them.
+  s.obj = normObjectives(s.obj);
   s.counters = arrayify(s.counters); if(!Array.isArray(s.counters)) s.counters = [];
   s.counters = s.counters.filter(c=>c && typeof c==='object' && c.id).map(c=>({ id:String(c.id), label:String(c.label||'Countdown').slice(0,60), hrs:Math.max(0, +c.hrs||0), total:Math.max(0, +c.total||+c.hrs||0) }));
   if(s.travelDest && s.travelEta>0 && !s.counters.some(c=>c.label==='Travel to '+s.travelDest))
@@ -2268,6 +2285,7 @@ function render(){
   const loc=document.getElementById('locIn');
   if(document.activeElement!==loc) loc.value = S.location;
   renderCounters();
+  renderObjectives();
   const amb=document.getElementById('ambience');
   amb.style.display = SCENE_IMG_OK ? 'block' : 'none';
   if(SCENE_IMG_OK){
@@ -4065,6 +4083,130 @@ function importState(inp){
   r.onload = e => { try{ S = migrate(JSON.parse(e.target.result)); rebuildLog(); render(); }catch(err){ alert('Invalid save file.'); } };
   r.readAsText(f);
   inp.value='';
+}
+
+/* ================================================================
+   OBJECTIVES — a video-game quest menu for the session, between the clock
+   and the scene image. Three columns (main objectives, side quests, threats
+   & mysteries); each objective has tickable sub-tasks; one objective can be
+   pinned so it shows on the collapsed line. This is the LIVE list for play:
+   the Lore vault's Quest Log stays the record, and "from Lore" seeds an
+   objective from a quest there (title, link, and any checklist on its page).
+   S.obj[] = { id, cat main|side|threat, t title, st active|done|failed, pin 1,
+               lore noteId, subs[] { id, t, d 1 } }
+   Every change is written to the event log with who made it.
+   ================================================================ */
+const OBJ_CATS = { main:['Main objectives','🎯'], side:['Side quests','🧭'], threat:['Threats & mysteries','⚠'] };
+const OBJ_UI = { open:false, lorePick:'' };
+try{ OBJ_UI.open = localStorage.getItem('st_obj_open')==='1'; }catch(e){}
+function normObjectives(list){
+  list = arrayify(list); if(!Array.isArray(list)) return [];
+  return list.filter(o=>o && typeof o==='object' && o.id).map(o=>{
+    let subs = arrayify(o.subs); if(!Array.isArray(subs)) subs = [];
+    const out = { id:String(o.id), cat:OBJ_CATS[o.cat] ? o.cat : 'main', t:String(o.t||'Objective').slice(0,120), st:['active','done','failed'].includes(o.st) ? o.st : 'active',
+      subs:subs.filter(x=>x && typeof x==='object' && x.id).map(x=>{ const y = { id:String(x.id), t:String(x.t||'').slice(0,160) }; if(x.d) y.d = 1; return y; }) };
+    if(o.pin) out.pin = 1; if(o.lore) out.lore = String(o.lore);
+    return out;
+  });
+}
+const objWho = () => CLOUD.player && CLOUD.player!=='Player' ? ` <span style="color:var(--dim)">(${esc(CLOUD.player)})</span>` : '';
+const objFind = id => S.obj.find(o=>o.id===id);
+const objProgress = o => [o.subs.filter(x=>x.d).length, o.subs.length];
+function objToggle(){ OBJ_UI.open = !OBJ_UI.open; try{ localStorage.setItem('st_obj_open', OBJ_UI.open?'1':'0'); }catch(e){} renderObjectives(); }
+function objAdd(cat, title, lore, subs){
+  title = String(title||'').trim().slice(0,120); if(!OBJ_CATS[cat] || !title) return null;
+  const o = { id:randomId().slice(0,8), cat, t:title, st:'active', subs:(subs||[]).map(t=>({ id:randomId().slice(0,6), t:String(t).slice(0,160) })) };
+  if(lore) o.lore = lore;
+  if(!S.obj.some(x=>x.pin && x.st==='active') && cat==='main') o.pin = 1;   // the first main objective is tracked by default
+  S.obj.push(o);
+  logMsg(`${OBJ_CATS[cat][1]} New ${cat==='main'?'main objective':cat==='side'?'side quest':'threat or mystery'}: <b>${esc(title)}</b>${o.subs.length?` — ${o.subs.length} step${o.subs.length===1?'':'s'}`:''}.${objWho()}`, 'ld');
+  render(); return o;
+}
+function objAddForm(cat){ const el = document.getElementById('objNew_'+cat); if(el && objAdd(cat, el.value)) el.value = ''; }
+function objRename(id){ const o = objFind(id); if(!o) return; const t = prompt('Rename this objective:', o.t); if(t && t.trim()){ o.t = t.trim().slice(0,120); render(); } }
+function objSet(id, st){
+  const o = objFind(id); if(!o || o.st===st) return;
+  o.st = st; if(st!=='active') delete o.pin;
+  logMsg(st==='done' ? `✅ Objective complete: <b>${esc(o.t)}</b>.${objWho()}` : st==='failed' ? `❌ Objective failed: <b>${esc(o.t)}</b>.${objWho()}` : `↩ Objective reopened: <b>${esc(o.t)}</b>.${objWho()}`, st==='done'?'lg':st==='failed'?'lb':'ld');
+  render();
+}
+function objDel(id){ const o = objFind(id); if(!o) return; S.obj = S.obj.filter(x=>x.id!==id); logMsg(`🗑 Objective removed: ${esc(o.t)}.${objWho()}`); render(); }
+function objPin(id){
+  const o = objFind(id); if(!o || o.st!=='active') return;
+  const was = o.pin; for(const x of S.obj) delete x.pin;
+  if(!was){ o.pin = 1; logMsg(`📌 Now tracking: <b>${esc(o.t)}</b>.${objWho()}`, 'ld'); }
+  render();
+}
+function objSubAdd(id, text){
+  const o = objFind(id); text = String(text||'').trim().slice(0,160); if(!o || !text) return false;
+  o.subs.push({ id:randomId().slice(0,6), t:text });
+  logMsg(`➕ ${esc(o.t)}: new step “${esc(text)}”.${objWho()}`, 'ld'); render(); return true;
+}
+function objSubForm(id){ const el = document.getElementById('objSub_'+id); if(el && objSubAdd(id, el.value)) el.value = ''; }
+function objSubTick(id, sid, on){
+  const o = objFind(id), x = o && o.subs.find(y=>y.id===sid); if(!x) return;
+  if(on) x.d = 1; else delete x.d;
+  const [d, n] = objProgress(o);
+  logMsg(on ? `☑ ${esc(o.t)}: “${esc(x.t)}” done (${d} of ${n}).${objWho()}` : `☐ ${esc(o.t)}: “${esc(x.t)}” reopened.${objWho()}`, on?'lg':undefined);
+  render();
+}
+function objSubDel(id, sid){ const o = objFind(id); if(o){ o.subs = o.subs.filter(y=>y.id!==sid); render(); } }
+function objClearFinished(cat){ S.obj = S.obj.filter(o=>!(o.cat===cat && o.st!=='active')); render(); }
+function objSummary(){   // one log entry to copy into the vault's Inbox after the session
+  const line = o => { const [d,n] = objProgress(o); return `${esc(o.t)}${n?` (${d}/${n}${o.subs.filter(x=>!x.d).length?`; next: ${esc(o.subs.find(x=>!x.d).t)}`:''})`:''}`; };
+  const part = (label, list) => list.length ? `<br><b>${label}:</b> ${list.map(line).join(' · ')}` : '';
+  logMsg(`📋 <b>Objectives summary</b>` + Object.keys(OBJ_CATS).map(c=>part(OBJ_CATS[c][0]+' — active', S.obj.filter(o=>o.cat===c && o.st==='active'))).join('') +
+    part('Completed', S.obj.filter(o=>o.st==='done')) + part('Failed', S.obj.filter(o=>o.st==='failed')), 'ld');
+}
+/* seeding from the Lore vault's Quest Log */
+const objLoreKind = n => String(n.fm.kind||'').replace(/<[^>]*>/g,'').toLowerCase();
+const objLoreCat = n => { const k = objLoreKind(n); return k==='main' ? 'main' : k==='side' ? 'side' : (k==='threat' || k==='mystery') ? 'threat' : ''; };
+function objLoreList(cat){   // quests in the vault that are still open and not on the board yet
+  if(!LORE_DB) return [];
+  return Object.keys(LORE_DB.notes).filter(id=>{ const n = LORE_DB.notes[id], st = String(n.fm.status||'').replace(/<[^>]*>/g,'').toLowerCase();
+    return n.type==='quest' && objLoreCat(n)===cat && !['completed','failed','dropped'].includes(st) && !S.obj.some(o=>o.lore===id); })
+    .sort((a,b)=>LORE_DB.notes[a].t.localeCompare(LORE_DB.notes[b].t));
+}
+function objLorePick(cat){ loreLoad(()=>{ OBJ_UI.lorePick = OBJ_UI.lorePick===cat ? '' : cat; renderObjectives(); }); }
+function objAddFromLore(cat, noteId){
+  const n = LORE_DB && LORE_DB.notes[noteId]; if(!n) return null;
+  const steps = [...n.h.matchAll(/<li>☐ ([\s\S]*?)<\/li>/g)].map(m=>m[1].replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim()).filter(Boolean).slice(0,12);
+  OBJ_UI.lorePick = '';
+  return objAdd(cat, n.t, noteId, steps);
+}
+function renderObjectives(){
+  const el = document.getElementById('objectives'); if(!el) return;
+  const active = S.obj.filter(o=>o.st==='active'), pinned = active.find(o=>o.pin) || active.find(o=>o.cat==='main') || active[0];
+  const next = pinned && pinned.subs.find(x=>!x.d), [pd, pn] = pinned ? objProgress(pinned) : [0,0];
+  const track = pinned ? `📌 <b>${esc(pinned.t)}</b>${next ? ` — next: ${esc(next.t)}` : pn ? ' — all steps done' : ''}${pn ? ` <span>(${pd}/${pn})</span>` : ''}` : 'No objectives yet — open this to add one.';
+  let body = '';
+  if(OBJ_UI.open){
+    body = `<div class="ocols">` + Object.keys(OBJ_CATS).map(cat=>{
+      const mine = S.obj.filter(o=>o.cat===cat), act = mine.filter(o=>o.st==='active'), fin = mine.filter(o=>o.st!=='active');
+      const items = act.map(o=>{ const [d,n] = objProgress(o);
+        return `<div class="oitem ${o.pin?'pin':''}">
+          <div class="otitle"><span class="n" ondblclick="objRename('${o.id}')" title="Double-click to rename">${esc(o.t)}</span>${n?`<small>${d}/${n}</small>`:''}
+            ${o.lore ? `<button class="mini" onclick="showTab('lore');loreLoad(()=>loreGo('${o.lore}'))" title="This quest's page in the Lore tab">📖</button>` : ''}
+            <button class="mini" onclick="objPin('${o.id}')" title="${o.pin?'Stop tracking':'Track this objective on the collapsed line'}" style="${o.pin?'border-color:var(--gold);color:var(--gold)':''}">📌</button>
+            <button class="mini" onclick="objSet('${o.id}','done')" title="Objective complete">✓</button>
+            <button class="mini" onclick="objSet('${o.id}','failed')" title="Objective failed">✗</button>
+            <button class="mini" onclick="if(confirm('Remove this objective and its steps?'))objDel('${o.id}')" title="Remove">🗑</button></div>
+          ${n ? `<div class="obar"><i style="width:${Math.round(100*d/n)}%"></i></div>` : ''}
+          ${o.subs.map(x=>`<label class="osub ${x.d?'done':''}"><input type="checkbox" ${x.d?'checked':''} onchange="objSubTick('${o.id}','${x.id}',this.checked)"><span>${esc(x.t)}</span><a class="x" onclick="event.preventDefault();objSubDel('${o.id}','${x.id}')" title="Remove this step">✕</a></label>`).join('')}
+          <div class="oadd"><input type="text" id="objSub_${o.id}" placeholder="add a step…" onkeydown="if(event.key==='Enter')objSubForm('${o.id}')"><button class="mini" onclick="objSubForm('${o.id}')">＋</button></div>
+        </div>`; }).join('');
+      const lore = OBJ_UI.lorePick===cat ? (()=>{ const ids = objLoreList(cat);
+        return ids.length ? `<select style="width:100%;margin-top:4px" onchange="if(this.value)objAddFromLore('${cat}',this.value)"><option value="">choose an open quest from the Lore…</option>${ids.map(id=>`<option value="${id}">${esc(LORE_DB.notes[id].t)}</option>`).join('')}</select>`
+          : `<div class="tinfo" style="margin:4px 0 0">Every open ${OBJ_CATS[cat][0].toLowerCase()} entry in the Lore is already here.</div>`; })() : '';
+      return `<div class="ocol ${cat}"><h4>${OBJ_CATS[cat][1]} ${OBJ_CATS[cat][0]} <span style="color:var(--dim)">${act.length}</span></h4>
+        ${items || `<div class="tinfo" style="margin:0 0 4px">Nothing active.</div>`}
+        <div class="oadd" style="margin-top:8px"><input type="text" id="objNew_${cat}" placeholder="new ${cat==='main'?'objective':cat==='side'?'side quest':'threat or mystery'}…" onkeydown="if(event.key==='Enter')objAddForm('${cat}')"><button class="mini atk" onclick="objAddForm('${cat}')">add</button><button class="mini" onclick="objLorePick('${cat}')" title="Start from an open quest in the Lore vault's Quest Log">from Lore</button></div>
+        ${lore}
+        ${fin.length ? `<details class="ofin"><summary>${fin.length} finished</summary>${fin.map(o=>`<div><span class="${o.st}">${o.st==='done'?'✓':'✗'} ${esc(o.t)}</span> <a style="cursor:pointer" onclick="objSet('${o.id}','active')" title="Reopen">↩</a></div>`).join('')}<button class="mini" onclick="objClearFinished('${cat}')">clear finished</button></details>` : ''}
+      </div>`; }).join('') + `</div>
+      <div style="margin-top:8px"><button class="mini" onclick="objSummary()" title="Write the state of every objective to the event log — handy to copy into your notes after the session">📋 summary to log</button></div>`;
+  }
+  el.innerHTML = `<div class="ohead" onclick="objToggle()" title="${OBJ_UI.open?'Collapse':'Open the objectives menu'}"><span class="label">${OBJ_UI.open?'▾':'▸'} 🎯 Objectives</span><span class="otrack">${track}</span><span style="color:var(--dim);font-size:11px;white-space:nowrap">${active.length} active</span></div>${body}`;
 }
 
 /* ================================================================
