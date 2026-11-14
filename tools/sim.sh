@@ -400,6 +400,8 @@ print('\n=== SMOKE TEST — UI code paths ===');
     const wbb = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(wbb.bio.build!=='Small' || cc0.waterOz!==40) throw new Error('build lost on the wire');
     const old = JSON.parse(JSON.stringify(syncSubset(S))); old.chars.find(x=>x.id==='cal').sheet.bio.build = 'Slender/Muscular'; migrate(old); if(cc0.build!=='Athletic' || cc0.waterOz!==65) throw new Error('an old free-text build should fall back to the roster default');
     sheetBio('bd1','build','Heavy'); if(cfg('bd1').packHrs!==20) throw new Error('droid build'); sheetBio('bd1','build','Compact');
+    print('  daily needs by build: '+Object.keys(BUILDS).map(b=>{ const c = CHARS.find(x=>!!x.droid===!!BUILDS[b].droid), was = c.build; setBuild(c,b); const t = b+' '+needsText(c); setBuild(c,was); return t; }).join(' · '));
+    if(!(dailyNeeds(cfg('tann')).rations>0) || dailyNeeds(cfg('bd1')).pack!==40 || /undefined|NaN/.test(needsText(cfg('cal')))) throw new Error('daily needs wrong');
     sheetSil('cal',0); if(sh.sil!==0 || st('pike').sheet.sil!==0 || st('bode').sheet.sil!==1) throw new Error('silhouette wrong'); sheetSil('cal',1);
     sheetName('cal',"  Cal <b>O'Kestis  "); if(cfg('cal').name!=='Cal bO’Kestis' || sh.name!=='Cal bO’Kestis') throw new Error('name not cleaned: '+cfg('cal').name);
     sheetName('cal','Prauf'); render(); if(!/Prauf/.test(document.getElementById('sheetChips').innerHTML) || !/Character Creator/.test(creationHtml(cal))) throw new Error('rename not shown');

@@ -441,10 +441,10 @@
   <button id="tabC" onclick="showTab('sheet')">Sheets</button>
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
-  <button id="tabTr" onclick="showTab('trees')">Trees</button>
+  <button id="tabTr" onclick="showTab('trees')">Talents</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
   <button id="tabK" onclick="showTab('core')">Core Rules</button>
-  <button id="tabR" onclick="showTab('rules')">Tracker Reference</button>
+  <button id="tabR" onclick="showTab('rules')">Tracker Rules</button>
   <span id="destinyChip"></span>
 </div>
 
@@ -545,7 +545,7 @@
 <script src="items.js"></script>
 <!-- Hand-maintained extra entries (kit items the workbook lacks, food types) -->
 <script src="items-custom.js"></script>
-<!-- Talent trees, Force powers and talent effects, generated from the rules vault by tools/import-rules.py (the Trees tab is empty if this fails) -->
+<!-- Talent trees, Force powers and talent effects, generated from the rules vault by tools/import-rules.py (the Talents tab is empty if this fails) -->
 <script src="rules.js"></script>
 
 <script>
@@ -2626,6 +2626,15 @@ function sheetBio(id, k, v){
   render();
 }
 function sheetName(id, v){ const sh = st(id).sheet, c = cfg(id), was = c.name; sh.name = cleanName(v); setName(c, sh.name); if(c.name!==was) logMsg(`🪪 ${was} is now called ${c.name}.`); render(); }
+/* What a build costs per day of light activity, worked out from the simulation's own rates so the
+   figure on the sheet always matches what the Tracker does: water from c.waterOz, rations from the
+   baseline hunger rate × the build's multiplier ÷ what one ration restores. */
+function dailyNeeds(c){
+  if(c.droid) return { pack:c.packHrs };
+  const perDay = 24 * NEEDS.hunger.tiers[0].rate * (c.mods.hungerRate||1) * (ACTS.light.hunger||1);
+  return { water:c.waterOz, canteens:c.waterOz/OZ_PER_CANTEEN, rations:Math.round(perDay / -STATUSES.ration.deltas.hunger * 10) / 10 };
+}
+function needsText(c){ const n = dailyNeeds(c); return c.droid ? `1 power pack ≈ ${n.pack} hrs light operation` : `${n.water} oz water (${n.canteens.toFixed(1)} canteens) and ${n.rations} ration${n.rations===1?'':'s'} a day`; }
 function sheetSil(id, v){ st(id).sheet.sil = clamp(parseInt(v)||0, 0, 4); render(); }
 function sheetFS(id, v){ const cs = st(id); cs.sheet.fs = +v ? 1 : 0; if(!cs.sheet.fs && cs.force) cs.force = 0; render(); }
 function newSheet(c){
@@ -3001,6 +3010,7 @@ function renderSheet(){
       ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
       ${c.droid ? '' : ro('Force sensitive', isFS(cs) ? 'Yes' : 'No', 'Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.')}
       ${BIO_FIELDS.filter(([k])=>sh.bio[k]).map(([k,lab])=>ro(lab, sh.bio[k], k==='build' ? 'Build sets food, water or power needs. ' + BUILDS[sh.bio.build].tip : 'Set in the Character Creator, step 1.')).join('')}
+      ${c.droid ? ro('Power pack', `≈ ${dailyNeeds(c).pack} hrs`, 'How long one power pack lasts on light operation. Set by the build.') : ro('Water / day', `${dailyNeeds(c).water} oz`, 'Water a day of light activity costs. Set by the build; heat and hard work raise it.') + ro('Rations / day', String(dailyNeeds(c).rations), 'Rations a day of light activity burns. Set by the build; cold and hard work raise it.')}
       ${ro('Silhouette', String(sh.sil), 'Size in the rules: attacks against a target 2+ sizes larger are one step easier, 2+ smaller one step harder. Most characters are 1.')}
     </div>
     ${creationHtml(cs)}
@@ -3262,7 +3272,7 @@ function talentsHtml(cs){
     <summary>🌿 <b>Talents &amp; Force Powers</b> <span class="sub">· ${ranks.length} talent${ranks.length===1?'':'s'} · ${tids.length} tree${tids.length===1?'':'s'} · ${xpSpentOnTrees(cs)} XP spent</span></summary>
     ${table}
     <div class="geartables">${folds}</div>
-    <button class="mini" onclick="treesFor('${id}')" title="Open the Trees tab to add a specialization, a Force power or a signature ability">＋ browse &amp; add trees</button>
+    <button class="mini" onclick="treesFor('${id}')" title="Open the Talents tab to add a specialization, a Force power or a signature ability">＋ browse &amp; add trees</button>
   </details>`;
 }
 
@@ -3518,7 +3528,7 @@ function creationHtml(cs){
       ${BIO_FIELDS.map(([k,lab,ph])=>k==='build' ? `<label title="Build sets this character's needs on the Tracker tab. ${esc(BUILDS[sh.bio.build].tip)}">Build<select onchange="sheetBio('${id}','build',this.value)">${buildsFor(cfg(id)).map(b=>`<option ${b===sh.bio.build?'selected':''} title="${esc(BUILDS[b].tip)}">${b}</option>`).join('')}</select></label>` : `<label>${lab}<input type="text" ${k==='feat'||k==='home'?'class="wide" style="width:200px"':''} value="${esc(sh.bio[k])}" placeholder="${esc(ph)}" onchange="sheetBio('${id}','${k}',this.value)"></label>`).join('')}
       ${cfg(id).droid ? '' : `<label title="Force-sensitive characters can meditate and hold Morichro on the Tracker tab, and use Force talents and powers.">Force sensitive<select onchange="sheetFS('${id}',this.value)"><option value="1" ${isFS(cs)?'selected':''}>Yes</option><option value="0" ${isFS(cs)?'':'selected'}>No</option></select></label>`}
       <label title="Size in the rules. Most characters are 1; Jawa-sized characters and small droids are 0.">Silhouette<select onchange="sheetSil('${id}',this.value)">${SILHOUETTES.map((t,i)=>`<option value="${i}" ${i===sh.sil?'selected':''}>${t}</option>`).join('')}</select></label></div>
-    <p class="tinfo"><b>Build: ${esc(sh.bio.build)}.</b> ${esc(BUILDS[sh.bio.build].tip)} Changing it changes this character's needs on the Tracker tab from now on.</p>
+    <p class="tinfo"><b>Build: ${esc(sh.bio.build)}</b> — needs ${needsText(cfg(id))}. ${esc(BUILDS[sh.bio.build].tip)} Changing it changes this character's needs on the Tracker tab from now on.</p>
     <p>The species, career and specializations shown beside the name are set by the steps below. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
     <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
@@ -4026,7 +4036,7 @@ function coreSections(){
     <h4>Selling</h4><p>Same skills. ${Y.s} a quarter of its value · ${Y.s}${Y.s} half · ${Y.s}${Y.s}${Y.s} three quarters. ${Y.t}${Y.t}${Y.t} or ${Y.y}: the deal goes sour.</p>
     <h4>Trading between worlds</h4><p>Multiply the price by the difference in the item's rarity between where it was bought and where it is sold, then make the selling check.</p>
     <h4>Repairing gear (Mechanics)</h4>${CT(['Damage','Cost','Difficulty','Until fixed'],[['Minor','25% of price',D('d'),D('k') + ' when used'],['Moderate','50%',D('dd'),'+1 difficulty when used'],['Major','100%',D('ddd'),'Unusable']])}
-    <p>Each ${Y.a} takes 10% off the cost. The tracker's own wear, tune-up and overhaul rules are on the Tracker Reference tab.</p></div></div>`],
+    <p>Each ${Y.a} takes 10% off the cost. The tracker's own wear, tune-up and overhaul rules are on the Tracker Rules tab.</p></div></div>`],
 
   ['ships', '12 · Starships and vehicles', 'maneuvers, actions, damage, travel', `<div class="cols"><div>
     <h4>Basics</h4>${CL([`One free pilot maneuver a round; a second costs 2 system strain (silhouette 5+ ships get only one).`,`Defense zones: fore and aft; silhouette 5+ adds port and starboard. Weapons have fire arcs.`,`Vehicle weapons and armor are on a scale <b>ten times</b> personal scale.`,
