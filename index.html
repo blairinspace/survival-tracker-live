@@ -3004,7 +3004,6 @@ function renderSheet(){
       ${ro('Silhouette', String(sh.sil), 'Size in the rules: attacks against a target 2+ sizes larger are one step easier, 2+ smaller one step harder. Most characters are 1.')}
     </div>
     ${creationHtml(cs)}
-    <div class="sdesc"><b>${[sh.bio.h, sh.bio.build].filter(Boolean).map(esc).join(' · ')}${sh.bio.h || sh.bio.build ? ' · ' : ''}${c.droid ? `1 pack ≈ ${c.packHrs} hrs light operation` : `${c.waterOz} oz water/day`}</b><br>${c.trait}</div>
     <div class="sboxes">
       ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
       ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
