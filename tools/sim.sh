@@ -402,6 +402,13 @@ print('\n=== SMOKE TEST — UI code paths ===');
     sheetBio('bd1','build','Heavy'); if(cfg('bd1').packHrs!==20) throw new Error('droid build'); sheetBio('bd1','build','Compact');
     print('  daily needs by build: '+Object.keys(BUILDS).map(b=>{ const c = CHARS.find(x=>!!x.droid===!!BUILDS[b].droid), was = c.build; setBuild(c,b); const t = b+' '+needsText(c); setBuild(c,was); return t; }).join(' · '));
     if(!(dailyNeeds(cfg('tann')).rations>0) || dailyNeeds(cfg('bd1')).pack!==40 || /undefined|NaN/.test(needsText(cfg('cal')))) throw new Error('daily needs wrong');
+    const keepB = S; S = freshState();
+    for(const b of buildsFor(cfg('tann'))){ const c = cfg('tann'), t = st('tann'), was = c.build; setBuild(c, b); t.hunger = 0; t.status = null; t.water = 0; t.inv = [];
+      for(let h=0; h<6; h++){ t.water = 0; t.sleep = 0; t.rest = 0; tick(t,1); } const day = t.hunger*4, per = foodPts(c,'ration');
+      if(Math.abs(day - per*BUILDS[b].rations) > 0.6) throw new Error(`${b}: a fed day of light activity is ${day.toFixed(1)} hunger but ${BUILDS[b].rations} rations give back ${(per*BUILDS[b].rations).toFixed(1)}`);
+      setBuild(c, was); t.hunger = 0; }
+    S = keepB; migrate(JSON.parse(JSON.stringify(syncSubset(S))));   // put the roster's builds back to this state's
+    if(Math.abs(foodPts(cfg('tann'),'snack')*3 - foodPts(cfg('tann'),'ration')) > 1e-9 || foodPts(cfg('tann'),'meal') <= foodPts(cfg('tann'),'ration')) throw new Error('snack / meal sizes wrong');
     sheetSil('cal',0); if(sh.sil!==0 || st('pike').sheet.sil!==0 || st('bode').sheet.sil!==1) throw new Error('silhouette wrong'); sheetSil('cal',1);
     sheetName('cal',"  Cal <b>O'Kestis  "); if(cfg('cal').name!=='Cal bO’Kestis' || sh.name!=='Cal bO’Kestis') throw new Error('name not cleaned: '+cfg('cal').name);
     sheetName('cal','Prauf'); render(); if(!/Prauf/.test(document.getElementById('sheetChips').innerHTML) || !/Character Creator/.test(creationHtml(cal))) throw new Error('rename not shown');

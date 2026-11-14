@@ -610,8 +610,8 @@ const HURT_MAX_OPACITY = 0.75;
 
 // Timed statuses: dur (hrs), forced activity, payload delivered evenly across duration
 const STATUSES = {
-  ration: {label:'🍽 Eating (ration)', dur:0.25, act:'resting', deltas:{hunger:-25},          costMult:1},
-  meal:   {label:'🍲 Eating (meal)',   dur:0.5,  act:'resting', deltas:{hunger:-30, rest:-5}, costMult:1.25},
+  ration: {label:'🍽 Eating (ration)', dur:0.25, act:'resting', deltas:{hunger:-5},           costMult:1},   // hunger here is the Average-build figure; foodPts() sizes it to the eater
+  meal:   {label:'🍲 Eating (meal)',   dur:0.5,  act:'resting', deltas:{hunger:-6.25, rest:-5}, costMult:1.25},
   rest15: {label:'🪑 Resting (15 min)', dur:0.25, act:'resting', deltas:{rest:-3}},
   rest30: {label:'🪑 Resting (30 min)', dur:0.5,  act:'resting', deltas:{rest:-6}},
   med15:  {label:'🧘 Meditating (15 min)', dur:0.25, act:'resting', deltas:{rest:-8},  fs:true},
@@ -622,7 +622,8 @@ const STATUSES = {
   tuneup:  {label:'🔧 Tune-up',  dur:0.25, act:'light', deltas:{}, repair:true},
   overhaul:{label:'🔧 Overhaul', dur:1,    act:'light', deltas:{}, repair:true}
 };
-const SNACK_HUNGER=5;                     // snack: instant bite on the move (≈ a third of a day on the trail)
+const SNACK_FRAC = 1/3;                   // snack: an instant bite on the move, a third of a ration
+const MEAL_MULT = 1.25;                   // a cooked meal fills a quarter more than a ration (and eases fatigue)
 const TUNEUP = 20;                        // droid tune-up wear relief (30 min with tools — DROID_REPAIR_HRS)
 
 /* Conditions. mult: need-accrual multipliers (value or fn(lvl));
@@ -786,19 +787,27 @@ const CHARS = [
    simulation keeps reading c.waterOz / c.mods.hungerRate / c.packHrs as before. Traits that are not
    about size (heat or cold adaptation, a child's sleep, tirelessness) stay in the roster's mods. */
 const BUILDS = {
-  Athletic: { waterOz:65, hunger:1.10, tip:'Lean and active: a little more water and food than average.' },
-  Muscular: { waterOz:75, hunger:1.20, tip:'Heavy muscle burns hot: the most water, and hunger runs 20% fast.' },
-  Average:  { waterOz:60, hunger:1.00, tip:'The baseline: 60 oz of water a day, hunger at the normal rate.' },
-  Small:    { waterOz:40, hunger:1.25, tip:'Small frame: least water, but a fast burn and thin reserves — hunger runs 25% fast.' },
+  Athletic: { waterOz:65, hunger:1.10, rations:3.5, tip:'Lean and active: a little more water and food than average (3.5 rations a day).' },
+  Muscular: { waterOz:75, hunger:1.20, rations:4, tip:'Heavy muscle burns hot: the most water and food (4 rations a day), and hunger runs 20% fast.' },
+  Average:  { waterOz:60, hunger:1.00, rations:3, tip:'The baseline: 60 oz of water and 3 rations a day.' },
+  Small:    { waterOz:40, hunger:1.25, rations:2, tip:'Small frame: least water and food (2 rations a day), but a fast burn and thin reserves — hunger runs 25% fast.' },
   Compact:  { droid:true, packHrs:40, tip:'Small, power-thrifty chassis: a pack lasts about 40 hours of light operation.' },
   Heavy:    { droid:true, packHrs:20, tip:'Large, power-hungry chassis: a pack lasts about 20 hours of light operation.' },
 };
+/* A ration is ONE MEAL. The build says how many a day of light activity takes (c.rationsDay); what a
+   ration takes off this character's hunger meter is that day's hunger divided by that number, so
+   eating on schedule holds the meter level for every build. A cooked meal is a bit more, a snack a third. */
+function foodPts(c, kind){
+  const perDay = 24 * NEEDS.hunger.tiers[0].rate * (c.mods.hungerRate||1) * (ACTS.light.hunger||1), ration = perDay / (c.rationsDay||3);
+  return kind==='meal' ? ration*MEAL_MULT : kind==='snack' ? ration*SNACK_FRAC : ration;
+}
+const pts1 = v => Math.round(v*10)/10;
 const buildsFor = c => Object.keys(BUILDS).filter(k=>!!BUILDS[k].droid===!!c.droid);
 function setBuild(c, name){
   const b = BUILDS[name]; if(!b || !!b.droid!==!!c.droid) return false;
   c.build = name;
   if(b.droid) c.packHrs = b.packHrs;
-  else { c.waterOz = b.waterOz; if(b.hunger!==1) c.mods.hungerRate = b.hunger; else delete c.mods.hungerRate; }
+  else { c.waterOz = b.waterOz; c.rationsDay = b.rations; if(b.hunger!==1) c.mods.hungerRate = b.hunger; else delete c.mods.hungerRate; }
   return true;
 }
 for(const c of CHARS){ c.build0 = c.build; c.name0 = c.name; setBuild(c, c.build); }
@@ -846,8 +855,8 @@ const NEEDS = {
   hunger: { label:'🍞 Hunger', tiers:[
     {min:0,   name:'Satisfied', color:'#3fb950', rate:0.63,
      fx:'Fed and steady. No effects.'},
-    {min:6,   name:'Hungry',    color:'#9acd32', rate:0.63,
-     fx:'Stomach growling, thoughts drifting to food. No dice penalty — narrative "should eat soon." A daily meal resets you here or below.'},
+    {min:4,   name:'Hungry',    color:'#9acd32', rate:0.63,
+     fx:'Stomach growling, thoughts drifting to food. No dice penalty — narrative "should eat soon": about one missed meal. Three meals a day keep you below this.'},
     {min:16,  name:'Gnawing',   color:'#d29922', rate:0.21,
      fx:'More than a day without food; concentration slips. Add <span class="dice setb">1 Setback ■</span> to Intellect and Cunning checks (poor focus). No physical penalty, no stat loss — eat and it clears.'},
     {min:26,  name:'Famished',  color:'#e8590c', rate:0.12, stMod:-2,
@@ -1525,7 +1534,7 @@ function startStatus(id, kind, dur){
     const food = kind==='meal' ? 'Meal' : 'Ration';
     if(!takeStock(cs, food)){ logMsg(`${c.name} has no ${STOCK[food].label}s to eat — add some to the inventory on the Sheets tab.`,'lw'); render(); return; }
     cost = 1;
-    let pts = -deltas.hunger; const notes = [];
+    let pts = foodPts(c, kind); const notes = [];
     if(cs.water >= REHYDRATE.thresh){ pts = pts/2; notes.push('dehydrated — the body absorbs only half the nourishment'); }
     if(cs.hunger >= REFEED.thresh && pts > REFEED.capPts){
       pts = REFEED.capPts;
@@ -1588,10 +1597,10 @@ function refill(id){
 function eatSnack(id){
   const cs = st(id), c = cfg(id);
   if(!takeStock(cs, 'Snack')){ logMsg(`${c.name} is out of snacks.`, 'lw'); render(); return; }
-  let pts = SNACK_HUNGER, note = '';
+  let pts = foodPts(c, 'snack'), note = '';
   if(cs.water >= REHYDRATE.thresh){ pts /= 2; note = ' — dehydrated, only half absorbed'; }
   cs.hunger = clamp(cs.hunger - pts, 0, 100);
-  logMsg(`${c.name} eats a snack on the move (−${pts} hunger${note}).`);
+  logMsg(`${c.name} eats a snack on the move (−${pts1(pts)} hunger${note}).`);
   render();
 }
 /* ---- hygiene ---- */
@@ -2631,8 +2640,7 @@ function sheetName(id, v){ const sh = st(id).sheet, c = cfg(id), was = c.name; s
    baseline hunger rate × the build's multiplier ÷ what one ration restores. */
 function dailyNeeds(c){
   if(c.droid) return { pack:c.packHrs };
-  const perDay = 24 * NEEDS.hunger.tiers[0].rate * (c.mods.hungerRate||1) * (ACTS.light.hunger||1);
-  return { water:c.waterOz, canteens:c.waterOz/OZ_PER_CANTEEN, rations:Math.round(perDay / -STATUSES.ration.deltas.hunger * 10) / 10 };
+  return { water:c.waterOz, canteens:c.waterOz/OZ_PER_CANTEEN, rations:c.rationsDay };
 }
 function needsText(c){ const n = dailyNeeds(c); return c.droid ? `1 power pack ≈ ${n.pack} hrs light operation` : `${n.water} oz water (${n.canteens.toFixed(1)} canteens) and ${n.rations} ration${n.rations===1?'':'s'} a day`; }
 function sheetSil(id, v){ st(id).sheet.sil = clamp(parseInt(v)||0, 0, 4); render(); }
@@ -4310,7 +4318,7 @@ function buildRules(){
   <p>Recovery actions are <b>statuses tied to the party clock</b> — benefits arrive gradually as time advances, and any status can be <b>canceled</b> (✖ on its badge), keeping only what was already gained — a meal abandoned before the halfway point goes back in the pack; the character returns to normal. Starting a new status replaces the current one, and <b>picking a new activity from the dropdown also cancels the status</b> — you stop eating when you start running.</p>
   <table><tr><th>Status</th><th>Takes</th><th>Total effect</th><th>Cost</th></tr>
   ${statusRows}
-  <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>−${SNACK_HUNGER} hunger</td><td>1 snack</td></tr>
+  <tr><td>🍪 Snack (instant, on the move)</td><td>—</td><td>a third of a ration</td><td>1 snack</td></tr>
   <tr><td>😴 Sleep (typed hours)</td><td>as typed</td><td>sleep debt −${sleepRecovery(cal)}/hr (−${sleepRecovery(kata)}/hr for Kata); fatigue ${ACTS.sleeping.rest}/hr; auto-ends when the time has passed</td><td>—</td></tr></table>
   <p><b>Eating caps:</b> while <b>Dehydrated+ (thirst ≥ ${REHYDRATE.thresh})</b> the body can't process food — meals and snacks restore only <b>half</b> their points. At <b>Starving+ (hunger ≥ ${REFEED.thresh})</b> refeeding is gradual and dangerous: only ~<b>${REFEED.capPts} pts</b> absorbed per careful meal, spaced hours apart — gorging triggers <b>refeeding shock</b> (a 🤒 Sick stack, GM's call; the food is wasted). Climbing out of Emaciated takes days of careful eating and rest.</p>
 
@@ -4413,7 +4421,7 @@ function buildRules(){
   <p>Reaches Collapse in <b>~${hungerDays} days</b> for a default frame walking in a temperate climate — roughly a month, the realistic low end for a lean, active adult with water. Appetite hits fast (Hungry within a workday, Gnawing after a day, Famished by day ${Math.round(tierAt('hunger','Famished')/24)}) to encourage daily eating, then a long slow burn as the body rations reserves: Starving around day ${Math.round(tierAt('hunger','Starving')/24)}, Emaciated around day ${Math.round(tierAt('hunger','Emaciated')/24)}. One ration a day holds the line at Hungry or below.</p>
   <p><b>Build matters:</b> a character's build (set on the sheet) is a multiplier on the whole ladder — ${Object.keys(BUILDS).filter(k=>!BUILDS[k].droid).map(k=>`<b>${k}</b> ×${BUILDS[k].hunger}`).join(', ')}. A Small frame reaches Collapse in ~${days(ladderHours('hunger', BUILDS.Small.hunger))} days without food.</p>
   ${ladderTable('hunger')}
-  <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration removes ~${-STATUSES.ration.deltas.hunger} pts (one tier), a snack ~${SNACK_HUNGER}. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
+  <p><b>Recovery:</b> food pulls the meter down, but slower than water pulls thirst — you can't undo weeks of starvation with one meal. A ration is one meal: it removes a third of an Average build's daily hunger (~${pts1(-STATUSES.ration.deltas.hunger)} pts), sized to each build so ${Object.keys(BUILDS).filter(k=>!BUILDS[k].droid).map(k=>`${k} ${BUILDS[k].rations}`).join(', ')} rations a day hold the meter level at light activity. A cooked meal is a quarter more; a snack is a third of a ration. See the eating caps above for the <b>refeeding</b> and <b>hunger–thirst</b> rules. <b>Spoiled or contaminated food</b> forces a Resilience check; failure adds a 🤒 Sick stack.</p>
 
   <h2>🧼 Hygiene ladder</h2>
   <p>Reaches Diseased in <b>~${hygDays} days</b>. Grime is decelerating — you feel grubby within days, but genuine disease takes a month. Hygiene never threatens life on its own: its teeth are the 🤒 Sick stacks and social penalties — with one upside: filth makes you scarier (Coercion stays Boosted at every dirty tier).</p>
