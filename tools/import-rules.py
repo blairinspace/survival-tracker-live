@@ -227,11 +227,13 @@ def creation_data():
     base = os.path.join(VAULT, '02 - Character Creation')
     keys = {'Brawn': 'br', 'Agility': 'ag', 'Intellect': 'int', 'Cunning': 'cun', 'Willpower': 'wil', 'Presence': 'pr'}
     species, careers = [], []
-    sdir = os.path.join(base, 'Species')
-    for fn in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+    sfiles = [(os.path.join(d, fn), hb) for d, hb in ((os.path.join(base, 'Species'), False), (os.path.join(HOMEBREW, 'Species'), True))
+              if os.path.isdir(d) for fn in sorted(os.listdir(d))]
+    for spath, hb in sfiles:
+        fn = os.path.basename(spath)
         if not fn.endswith('.md'):
             continue
-        text = open(os.path.join(sdir, fn), encoding='utf-8').read()
+        text = open(spath, encoding='utf-8').read()
         if '## Species Abilities' not in text:
             continue
         sec = text.split('## Species Abilities', 1)[1].split('\n## ', 1)[0]
@@ -246,8 +248,14 @@ def creation_data():
                     sp['free'] = {'n': 2, 'of': 'noncareer'}
                 elif links:
                     sp['free'] = {'n': 1 if 'either' in body else len(links), 'of': links}
+            sil = re.match(r'Silhouette (\d)', name)
+            if sil:
+                sp['sil'] = int(sil.group(1))
             sp['ab'].append({'n': name, 'e': short(body, 320)})
+        if hb:
+            sp['hb'] = 1
         species.append(sp)
+    species.sort(key=lambda x: x['n'])
     cdir = os.path.join(base, 'Careers')
     for name in sorted(os.listdir(cdir)) if os.path.isdir(cdir) else []:
         path = os.path.join(cdir, name, name + ' Overview.md')

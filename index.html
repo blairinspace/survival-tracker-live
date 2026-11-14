@@ -3489,6 +3489,7 @@ function ccSetSpecies(id, name){
   cs.wt = sp.wt + sp.attr.br; cs.st = sp.st + sp.attr.wil;
   sh.species = sp.n; sh.xp = sh.xpTotal = sp.xp + CC_BONUS[cc.bonus||''].xp;
   Object.assign(cc, { sp:sp.n, wtB:sp.wt, stB:sp.st });
+  sh.sil = sp.sil===undefined ? 1 : sp.sil;
   const f = sp.free;
   if(f && Array.isArray(f.of) && f.of.length===f.n) for(const n of f.of){ const k = skillKeyByName(n); if(k){ cc.fp[k] = 1; skBump(sh, k, 1); } }
   render();
@@ -3556,7 +3557,7 @@ function creationHtml(cs){
     <div class="geartables" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">${tallyHtml(cs,'obl')}${tallyHtml(cs,'duty')}</div>
     <p>Bonus XP or credits from these trades are not added automatically — type them into the XP or Credits box.</p>`;
   else if(step===4) body = `<p><b>Species</b> sets your six characteristics, wound and strain thresholds, starting XP and a special ability. Picking one <b>replaces</b> the characteristics and thresholds on the sheet and sets XP to the species' starting amount.</p>
-    <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}</b>
+    <div class="cccards">${RULES_DB.species.map(x=>`<div class="tnode ${sp&&sp.n===x.n?'own':'can'}" onclick="ccSetSpecies('${id}','${esc(x.n).replace(/'/g,"\\'")}')" title="${esc(x.ab.map(a=>a.n+': '+a.e).join('\n\n'))}"><b>${esc(x.n)}${x.hb?' <span class="badge b-hb" title="Homebrew species">HB</span>':''}</b>
       <small>${ATTRS.map(([k,n])=>n.slice(0,2)+' '+x.attr[k]).join(' · ')}</small><small>Wounds ${x.wt}+Br · Strain ${x.st}+Wil · ${x.xp} XP</small></div>`).join('')}</div>
     ${sp ? `<p>${sp.ab.map(a=>`<b>${esc(a.n)}:</b> ${esc(a.e)}`).join('<br>')}</p>` + (sp.free && Array.isArray(sp.free.of) ? `<p><b>Free species rank${sp.free.n>1?'s':''}:</b></p>` + picks('fp', sp.free.of.map(skillKeyByName)) : sp.free ? `<p>You choose the free skill ranks at the <b>Specialization</b> step, once you know which skills are non-career.</p>` : '') : ''}
     <div class="shead"><label title="A species that is not in the list: type its name, then set characteristics, thresholds and XP by hand on the sheet.">Other species (not listed)<input type="text" value="${esc(sp ? '' : sh.species)}" placeholder="species name" onchange="ccOther('${id}','species',this.value)"></label></div>`;

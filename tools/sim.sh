@@ -368,7 +368,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   // guided character creation: species, career, specialization, free ranks, characteristics
   (()=>{
     const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet;
-    if(RULES_DB.species.length<8 || RULES_DB.careers.length<6) throw new Error('species / careers did not load');
+    if(RULES_DB.species.length<9 || RULES_DB.careers.length<6) throw new Error('species / careers did not load');
     ccStart('cal'); ccBlank('cal'); if(!sh.cc || sh.species || Object.keys(sh.tr).length) throw new Error('blank sheet failed');
     ccBonus('cal','xp'); ccSetSpecies('cal','Cerean');
     if(cal.attr.int!==3 || cal.attr.ag!==1 || cal.wt!==12 || cal.st!==15 || sh.xp!==100 || sh.xpTotal!==100 || (sh.sk.vigilance||{}).r!==1) throw new Error('Cerean not applied');
@@ -385,6 +385,9 @@ print('\n=== SMOKE TEST — UI code paths ===');
     ccSetSpecies('cal','Human'); if(sh.sk.charm || ccPickLimit(cal,'fp')!==2 || !ccPick('cal','fp','stealth') || !ccPick('cal','fp','mechanics') || ccPick('cal','fp','charm')) throw new Error('Human non-career ranks wrong');
     const xp0 = sh.xp, wt0 = cal.wt;
     if(!ccAttr('cal','br',1) || cal.attr.br!==3 || sh.xp!==xp0-30 || cal.wt!==wt0+1 || !ccAttr('cal','br',-1) || sh.xp!==xp0 || cal.wt!==wt0 || ccAttr('cal','br',-1)) throw new Error('characteristic purchase wrong');
+    { const sq = RULES_DB.species.find(x=>x.n==='Squib'); if(!sq || !sq.hb || sq.sil!==0 || sq.attr.cun!==3) throw new Error('Squib did not import'); const sk0 = JSON.stringify(sh.sk), a0 = {...cal.attr}, w0 = cal.wt, s0 = cal.st, x0 = sh.xp, xt0 = sh.xpTotal;
+      ccSetSpecies('cal','Squib'); if(sh.sil!==0 || cal.wt!==10 || cal.st!==13 || (sh.sk.negotiation||{}).r!==1) throw new Error('Squib not applied');
+      ccSetSpecies('cal','Human'); if(sh.sil!==1 || (sh.sk.negotiation||{}).r) throw new Error('leaving Squib left traits behind'); ccPick('cal','fp','stealth'); ccPick('cal','fp','mechanics'); }
     ccBonus('cal','cr'); ccCredits('cal'); if(sh.credits!==3000) throw new Error('starting credits wrong');
     const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet; if(!w.cc || w.cc.sp!=='Human' || !w.cc.fp.stealth || typeof w.cc.fc!=='object') throw new Error('creation progress lost on the wire');
     let bad = 0; SHEET_UI.id = 'cal'; for(let i=1;i<=CC_STEPS.length;i++){ ccStep('cal',i); bad += (creationHtml(cal).match(/undefined|NaN|\[object/g)||[]).length; }
