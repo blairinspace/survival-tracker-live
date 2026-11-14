@@ -419,6 +419,26 @@
   .spdetail ul{margin:0 0 0 16px;padding:0} .spdetail li{margin-bottom:3px;color:#c4ccd6} .spdetail li b{color:var(--text)}
   .spsub{border-top:1px dotted var(--border);padding-top:6px;margin-top:6px} .spsub > b{color:var(--gold)} .spsub > small{color:var(--dim);margin-left:6px}
   @media(max-width:820px){ .spcols{grid-template-columns:1fr} .spdetail{position:static;max-height:none;order:-1} }
+  /* GM tab: NPC library and editor */
+  .npccols{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
+  .npcside{display:flex;flex-direction:column;gap:6px} .npcside input[type=text],.npcside select{width:100%}
+  .npcitem{display:flex;gap:8px;align-items:center;text-align:left;padding:5px 8px;border-radius:8px;width:100%}
+  .npcitem.on{background:#1f3a5f;border-color:var(--accent)} .npcitem img{width:24px;height:32px;object-fit:contain;flex:none}
+  .npcitem b{display:block;font-size:12.5px;font-weight:600;overflow-wrap:anywhere} .npcitem small{display:block;font-size:10.5px;color:var(--dim)}
+  .npced{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12.5px}
+  .npced h4{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:12px 0 4px}
+  .npced .hint{color:var(--dim);font-size:11.5px;margin:4px 0}
+  .npchead{display:flex;flex-wrap:wrap;gap:8px;align-items:center} .npchead img{width:40px;height:56px;object-fit:contain;flex:none}
+  .npchead input.npcname{flex:1 1 180px;font-size:16px;font-weight:600;color:var(--gold)}
+  .npcrow{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:8px}
+  .npcrow label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px} .npcrow input[type=text]{width:170px}
+  .npcattrs{margin:10px 0 0;max-width:420px} .npcattrs input{width:100%;border:none;background:none;text-align:center;font-size:17px;font-weight:700;padding:0}
+  .npctable{width:100%;border-collapse:collapse} .npctable td{padding:2px 4px 2px 0;vertical-align:middle} .npctable td.pool{white-space:nowrap}
+  .npctable input[type=text]{width:100%;min-width:70px} .npctable input.sm{width:48px;min-width:0} .npctable td.x{width:1%}
+  .npced textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:12px;padding:4px 6px;resize:vertical}
+  .npced input.wide{width:100%}
+  .b-minion{background:#22303c;color:#9fc3e6} .b-rival{background:#3d3212;color:#ffd97a} .b-nemesis{background:#3a1010;color:#ff9c9c}
+  @media(max-width:820px){ .npccols{grid-template-columns:1fr} }
   @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#gm,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
@@ -519,7 +539,7 @@
   <button id="tabL" onclick="showTab('lore')">Lore</button>
   <button id="tabK" onclick="showTab('core')">Core Rules</button>
   <button id="tabR" onclick="showTab('rules')">Tracker Rules</button>
-  <button id="tabG" onclick="showTab('gm')" title="Game Master tools: the species browser">GM</button>
+  <button id="tabG" onclick="showTab('gm')" title="Game Master tools: the species browser, and with GM mode on, the NPC builder">GM</button>
   <span id="destinyChip"></span>
 </div>
 
@@ -612,6 +632,8 @@
 <div id="rules"></div>
 
 <div id="gm"><div class="itemswrap">
+  <div class="itembar" id="gmNav"></div>
+  <div id="gmSpecies">
   <div class="itembar">
     <input type="text" id="gmQ" placeholder="search species and abilities… (e.g. aquatic, claws)" oninput="gmSet('q',this.value)">
     <label title="Only species (or a subspecies) with 3 or more in this characteristic">strong in <select id="gmAttr" onchange="gmSet('attr',this.value)"></select></label>
@@ -619,6 +641,8 @@
     <span class="itemcount" id="gmCount" style="margin:0"></span>
   </div>
   <div class="spcols"><div class="spgrid" id="gmGrid"></div><div class="spdetail" id="gmDetail"></div></div>
+  </div>
+  <div id="gmNpcs" style="display:none"></div>
 </div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
@@ -1173,7 +1197,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], destiny: {light:0, dark:0} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], destiny: {light:0, dark:0} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1221,6 +1245,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.homebrew = arrayify(s.homebrew); if(!Array.isArray(s.homebrew)) s.homebrew=[];
   s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
   for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
+  s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
@@ -2347,6 +2372,7 @@ function render(){
   renderDestiny();
   renderSheet();
   renderTrees();
+  if(TAB==='gm' && SPECIES_DB && !isEditing()) renderGM();
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -2675,7 +2701,7 @@ function showTab(t){
   if(t==='trees') renderTrees();
   if(t==='core') renderCore();
   if(t==='lore') loreLoad(renderLore);
-  if(t==='gm') speciesLoad(renderSpecies);
+  if(t==='gm') gmLoad(renderGM);
 }
 
 /* ================================================================
@@ -5246,8 +5272,8 @@ function loadLocalState(){
 function resetAll(){
   const shared = CLOUD.db && CLOUD.room;
   if(!confirm(`Start a fresh session? Clock back to Day 1, 00:00, every need at 0.${shared?' This resets the shared room for everyone in it.':''} (💾 Save first to keep this one.)`)) return;
-  const homebrew = S.homebrew || [];   // homebrew items are catalog entries, not session state — they survive a new session
-  S = freshState(); S.homebrew = homebrew;
+  const homebrew = S.homebrew || [], npcs = S.npcs || [];   // homebrew items and the GM's NPC library are not session state — they survive a new session
+  S = freshState(); S.homebrew = homebrew; S.npcs = npcs;
   logMsg('🆕 New session — Day 1, 00:00. All needs at 0, canteens full, droid packs charged.');
   rebuildLog(); render();
 }
@@ -5398,14 +5424,15 @@ async function roomCopyLink(){
 }
 
 /* ================================================================
-   GM TAB — tools for the Game Master. So far: the species browser.
+   GM TAB — tools for the Game Master: the species browser (everyone) and,
+   with GM mode on, the NPC builder and library (see further down).
    species.js is generated from the vault by tools/import-species.py and
    loaded the first time the tab opens (like lore.js).
    SPECIES entry: { n, k icon key (img/species/k.png), a [br,ag,int,cun,wil,pr],
                     wt, st, xp, ab [[name,text]], sub [{n, ab, a?, wt?, st?, xp?}] }
    ================================================================ */
 let SPECIES_DB = null, SPECIES_WAIT = null;
-const GM_UI = { q:'', attr:'', sort:'name', sel:-1 };
+const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3 };
 function speciesLoad(cb){
   if(SPECIES_DB) return cb();
   if(typeof SPECIES!=='undefined'){ SPECIES_DB = SPECIES; return cb(); }
@@ -5463,6 +5490,229 @@ function renderSpeciesDetail(){
     ${s.sub ? `<h4>Subspecies</h4><small style="color:var(--dim)">Each replaces only what it lists; the rest stays as above.</small>${s.sub.map(sub).join('')}` : ''}`;
 }
 
+/* ---- GM mode and the tab's sections --------------------------------
+   GM mode is an honor-system switch kept on this device (localStorage st_gm).
+   It only shows or hides the GM's tools; S.npcs still syncs to the whole room. */
+let ADV_DB = null, ADV_WAIT = null;
+function advLoad(cb){   // NPC templates (adversaries.js); the builder works without them
+  if(ADV_DB) return cb();
+  if(typeof ADVERSARIES!=='undefined'){ ADV_DB = ADVERSARIES; return cb(); }
+  if(ADV_WAIT){ ADV_WAIT.push(cb); return; }
+  ADV_WAIT = [cb];
+  const done = () => { ADV_DB = typeof ADVERSARIES!=='undefined' ? ADVERSARIES : []; const w = ADV_WAIT; ADV_WAIT = null; w.forEach(f=>f()); };
+  const sc = document.createElement('script'); sc.src = 'adversaries.js'; sc.onload = done; sc.onerror = done;
+  document.head.appendChild(sc);
+}
+function gmLoad(cb){ speciesLoad(()=>advLoad(cb)); }
+function gmMode(on){ GM_UI.gm = !!on; lsSet('st_gm', on?'1':'0'); if(!on) GM_UI.sec = 'species'; renderGM(); }
+function gmSec(s){ GM_UI.sec = s; renderGM(); }
+function renderGM(){
+  const nav = document.getElementById('gmNav'); if(!nav || !SPECIES_DB) return;
+  const u = GM_UI; if(!u.gm) u.sec = 'species';
+  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`]] : []);
+  nav.innerHTML = secs.map(([k,l])=>`<button class="chip ${u.sec===k?'on':''}" onclick="gmSec('${k}')">${l}</button>`).join('') +
+    `<label style="margin-left:auto" title="For whoever is running the game: shows the NPC builder and library on this device. Honor system — it hides the GM's tools, it does not lock them."><input type="checkbox" ${u.gm?'checked':''} onchange="gmMode(this.checked)"> 🎭 GM mode</label>`;
+  document.getElementById('gmSpecies').style.display = u.sec==='species' ? '' : 'none';
+  document.getElementById('gmNpcs').style.display    = u.sec==='npcs' ? '' : 'none';
+  if(u.sec==='npcs') renderNpcs(); else renderSpecies();
+}
+
+/* ================================================================
+   NPC BUILDER — the GM's library of NPCs, S.npcs (synced; survives 🆕 New).
+     { id, n name, type minion|rival|nemesis, sp species, sub subspecies, k icon key,
+       a [br,ag,int,cun,wil,pr], soak, wt, st (0 = not tracked), dm / dr defense,
+       sk [[skill name, rank]], w [{n, sk, dam, crit, rng, q}],
+       tal / ab / gear / notes text, tpl template it started from }
+   Templates are ADV_DB (adversaries.js, from the vault by tools/import-adversaries.py).
+   Minions list skills without ranks: a group has one rank per member beyond the first.
+   Field edits save without rebuilding the form (so the cursor stays put); only
+   structural changes (type, species, rows added or removed) redraw the editor.
+   ================================================================ */
+const NPC_TYPES = { minion:'Minion', rival:'Rival', nemesis:'Nemesis' };
+const NPC_RANGES = ['Engaged','Short','Medium','Long','Extreme'];
+const NPC_TEXT = ['n','sp','sub','k','tal','ab','gear','notes','tpl'];
+const npcInt = (v, lo, hi, d) => { const n = Math.round(+v); return isNaN(n) ? d : clamp(n, lo, hi); };
+function normNpcs(v){
+  v = arrayify(v); if(!Array.isArray(v)) return [];
+  return v.filter(n=>n && typeof n==='object').map(n=>{
+    const o = { id: String(n.id || randomId().slice(0,10)), type: NPC_TYPES[n.type] ? n.type : 'rival' };
+    for(const k of NPC_TEXT) o[k] = typeof n[k]==='string' ? n[k].slice(0, 4000) : '';
+    const a = arrayify(n.a); o.a = ATTRS.map((_,i)=>npcInt(Array.isArray(a) ? a[i] : undefined, 0, 9, 2));
+    o.soak = npcInt(n.soak, 0, 99, o.a[0]); o.wt = npcInt(n.wt, 1, 999, 10); o.st = npcInt(n.st, 0, 999, 0);
+    o.dm = npcInt(n.dm, 0, 9, 0); o.dr = npcInt(n.dr, 0, 9, 0);
+    const sk = arrayify(n.sk); o.sk = (Array.isArray(sk) ? sk : []).map(arrayify).filter(x=>Array.isArray(x) && x[0]).map(x=>[String(x[0]).slice(0,60), npcInt(x[1], 0, 6, 0)]);
+    const w = arrayify(n.w); o.w = (Array.isArray(w) ? w : []).filter(x=>x && typeof x==='object').map(x=>Object.fromEntries(['n','sk','dam','crit','rng','q'].map(k=>[k, x[k]==null ? '' : String(x[k]).slice(0,400)])));
+    return o;
+  });
+}
+const npcGet = id => (S.npcs||[]).find(n=>n.id===id);
+const npcSpecies = n => (SPECIES_DB && n.sp) ? SPECIES_DB.find(s=>s.n.toLowerCase()===n.sp.trim().toLowerCase()) || null : null;
+const npcSub = (n, sp) => (sp && sp.sub && sp.sub.find(x=>x.n===n.sub)) || null;
+// template and catalog skill names ("Ranged (Heavy)", "Knowledge (Lore)") → this tracker's skill list
+function npcSkillDef(name){
+  const t = String(name).trim().toLowerCase().replace(/^knowledge \((.+)\)$/, '$1').replace(/^(ranged|piloting) \((.+)\)$/, '$1: $2');
+  return SKILLS.find(s=>s.n.toLowerCase()===t) || null;
+}
+const npcSkillName = s => (npcSkillDef(s) || {n:String(s).trim()}).n;
+const npcRank = (n, name) => { const row = n.sk.find(x=>npcSkillName(x[0])===npcSkillName(name)); return !row ? 0 : n.type==='minion' ? Math.max(0, GM_UI.grp-1) : row[1]; };
+function npcPool(n, name){   // dice for a skill check: characteristic and rank, the higher is the pool size
+  const def = npcSkillDef(name); if(!def) return '';
+  const c = n.a[ATTRS.findIndex(a=>a[0]===def.ch)] || 0, r = npcRank(n, name), p = Math.min(c, r), a = Math.max(c, r) - p;
+  return `<span class="die sm d12 t-p"></span>`.repeat(p) + `<span class="die sm d8 t-a"></span>`.repeat(a) || '<span style="color:var(--dim)">—</span>';
+}
+const npcDamage = (n, w) => /^\+\d+$/.test(w.dam) ? `= ${n.a[0] + +w.dam}` : '';   // "+2" adds Brawn (Brawl and Melee)
+function npcPoolsRefresh(n){
+  const put = (id, h) => { const el = document.getElementById(id); if(el) el.innerHTML = h; };
+  n.sk.forEach((s,i)=>put('npcp_s'+i, npcPool(n, s[0])));
+  n.w.forEach((w,i)=>{ put('npcp_w'+i, npcPool(n, w.sk)); put('npcd_w'+i, npcDamage(n, w)); });
+}
+const npcLines = arr => (arr||[]).map(([a,b])=>b ? `${a}: ${b}` : a).join('\n');
+function npcTouch(redraw){ if(redraw) renderGM(); else renderNpcList(); scheduleSync(); }
+
+function npcNew(tplIdx){
+  const t = tplIdx!=='' && tplIdx!=null && ADV_DB ? ADV_DB[+tplIdx] : null;
+  const n = normNpcs([ t ? { n:t.n, type:t.type, a:t.a, soak:t.soak, wt:t.wt, st:t.st||0, dm:t.dm, dr:t.dr, sk:(t.sk||[]).map(([s,r])=>[npcSkillName(s), r]),
+      w:(t.w||[]).map(w=>Object.assign({}, w, {sk:npcSkillName(w.sk)})), tal:npcLines(t.tal), ab:npcLines(t.ab), gear:t.gear||'', tpl:t.n } : { type:'rival', soak:2, wt:12 } ])[0];
+  if(!Array.isArray(S.npcs)) S.npcs = [];
+  S.npcs.push(n); GM_UI.npc = n.id; GM_UI.nq = ''; npcTouch(true);
+  return n;
+}
+function npcDup(id){
+  const n = npcGet(id); if(!n) return;
+  const c = normNpcs([JSON.parse(JSON.stringify(n))])[0]; c.id = randomId().slice(0,10); c.n = n.n ? n.n+' (copy)' : '';
+  S.npcs.splice(S.npcs.indexOf(n)+1, 0, c); GM_UI.npc = c.id; npcTouch(true);
+}
+function npcDel(id){
+  const i = (S.npcs||[]).findIndex(n=>n.id===id); if(i<0) return;
+  if(!confirm(`Delete ${S.npcs[i].n || 'this unnamed NPC'} from the library?`)) return;
+  S.npcs.splice(i,1); if(GM_UI.npc===id) GM_UI.npc = ''; npcTouch(true);
+}
+function npcSet(id, k, v){
+  const n = npcGet(id); if(!n) return;
+  if(['soak','wt','st','dm','dr'].includes(k)) n[k] = npcInt(v, k==='wt'?1:0, k==='dm'||k==='dr'?9:999, n[k]);
+  else n[k] = String(v).slice(0, 4000);
+  npcTouch(false);
+}
+function npcAttr(id, i, v){
+  const n = npcGet(id); if(!n) return;
+  const old = n.a[i]; n.a[i] = npcInt(v, 0, 9, old);
+  if(i===0){ n.soak = Math.max(0, n.soak + n.a[0] - old); const el = document.getElementById('npc_soak'); if(el) el.value = n.soak; }   // soak follows Brawn
+  npcPoolsRefresh(n); npcTouch(false);
+}
+function npcType(id, v){
+  const n = npcGet(id); if(!n || !NPC_TYPES[v]) return;
+  n.type = v; if(v==='nemesis' && !n.st) n.st = n.wt; if(v!=='nemesis' && !n.tpl) n.st = 0;
+  npcTouch(true);
+}
+// Sensible starting numbers from a species; the GM adjusts from there. Minions get about a third of a PC's wounds.
+function npcSpeciesNumbers(id, ask){
+  const n = npcGet(id), sp = n && npcSpecies(n); if(!sp) return;
+  if(ask && !confirm(`Replace ${n.n || 'this NPC'}'s characteristics, soak and thresholds with the ${sp.n} starting numbers?`)) return;
+  const sub = npcSub(n, sp), a = ((sub && sub.a) || sp.a).slice(), wtB = (sub && sub.wt) ?? sp.wt, stB = (sub && sub.st) ?? sp.st;
+  n.a = a; n.soak = a[0];
+  n.wt = n.type==='minion' ? Math.max(3, Math.ceil((wtB + a[0]) / 3)) : wtB + a[0] + (n.type==='nemesis' ? 5 : 0);
+  n.st = n.type==='nemesis' ? stB + a[4] : 0;
+  npcTouch(true);
+}
+function npcSetSpecies(id, name){
+  const n = npcGet(id); if(!n) return;
+  n.sp = String(name).trim().slice(0, 60); n.sub = '';
+  const sp = npcSpecies(n); n.k = (sp && sp.k) || ''; if(sp) n.sp = sp.n;
+  if(sp && !n.tpl) npcSpeciesNumbers(id); else npcTouch(true);   // a template keeps its own numbers unless asked
+}
+function npcSetSub(id, name){
+  const n = npcGet(id); if(!n) return;
+  n.sub = name; if(!n.tpl) npcSpeciesNumbers(id); else npcTouch(true);
+}
+function npcSkillAdd(id, name){ const n = npcGet(id); if(!n || !name.trim()) return; n.sk.push([npcSkillName(name).slice(0,60), n.type==='minion' ? 0 : 1]); npcTouch(true); }
+function npcSkillRank(id, i, v){ const n = npcGet(id); if(!n || !n.sk[i]) return; n.sk[i][1] = npcInt(v, 0, 6, n.sk[i][1]); npcPoolsRefresh(n); npcTouch(false); }
+function npcSkillDel(id, i){ const n = npcGet(id); if(!n) return; n.sk.splice(i,1); npcTouch(true); }
+const npcWeaponItems = () => CATALOG.filter(it=>WEAPON_GROUPS.includes(it.g)).concat(hbList().filter(it=>WEAPON_GROUPS.includes(it.g)));
+function npcWeaponAdd(id, name){
+  const n = npcGet(id); name = String(name).trim(); if(!n || !name) return;
+  const it = npcWeaponItems().find(x=>x.n.toLowerCase()===name.toLowerCase());
+  n.w.push(normNpcs([{ w:[ it ? { n:it.n, sk:npcSkillName(it.sk||''), dam:it.dam, crit:it.crit, rng:it.rng, q:it.q } : { n:name, sk:'Ranged: Light', rng:'Medium' } ] }])[0].w[0]);
+  npcTouch(true);
+}
+function npcWeaponSet(id, i, k, v){ const n = npcGet(id); if(!n || !n.w[i]) return; n.w[i][k] = String(v).trim().slice(0,400); npcPoolsRefresh(n); npcTouch(false); }
+function npcWeaponDel(id, i){ const n = npcGet(id); if(!n) return; n.w.splice(i,1); npcTouch(true); }
+const NAME_BITS = [['Ka','Jo','Ve','Tor','Zan','Mi','Dra','Sol','Ren','Bri','Ky','Or','Tal','Nu','Sha','Dex','Vo','Lan','Qui','Ry','Hal','Ix','Mar','Ce','Tev','Pol','Gar','El','Ash','Dor','Bo','Si','Nar','Jek','Ume'],
+  ['','','ra','len','ro','ss','nik','da','vin','th','li','mar','ko','ren','x','la','dun','ris','vo','n','sa','tik','bel'],
+  ['Vas','Tarn','Kel','Dray','Ors','Ven','Mad','Syl','Kor','Bax','Tre','Hox','Lum','Pry','Zev','Qor','Dal','Nym','Rhen','Sar','Tog','Ul','Wex','Yar'],
+  ['','','','o','a','ik','an','eth','ar','us','i','ane','ek','ol','yn','is']];
+function npcRandomName(id){
+  const n = npcGet(id); if(!n) return;
+  const pick = a => a[Math.floor(Math.random()*a.length)], B = NAME_BITS;
+  n.n = pick(B[0]) + pick(B[1]) + ' ' + pick(B[2]) + pick(B[3]); npcTouch(true);
+}
+function npcGroup(v){ GM_UI.grp = npcInt(v, 1, 12, 3); const n = npcGet(GM_UI.npc); if(n){ npcPoolsRefresh(n); const el = document.getElementById('npc_grpwt'); if(el) el.textContent = n.wt * GM_UI.grp; } }
+
+const npcIcon = n => n.k ? `<img src="img/species/${esc(n.k)}.png" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : '';
+function npcFiltered(){
+  const words = GM_UI.nq.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return (S.npcs||[]).filter(n=>{ const hay = [n.n, n.sp, n.sub, NPC_TYPES[n.type], n.tpl, n.notes].join(' ').toLowerCase(); return words.every(w=>hay.includes(w)); });
+}
+function renderNpcList(){
+  const el = document.getElementById('npcList'); if(!el) return;
+  const list = npcFiltered();
+  el.innerHTML = list.map(n=>`<button class="npcitem ${GM_UI.npc===n.id?'on':''}" onclick="GM_UI.npc='${n.id}';renderGM()">${npcIcon(n)}<span><b>${esc(n.n) || '<i style="color:var(--dim)">unnamed</i>'}</b>
+      <small><span class="badge b-${n.type}">${NPC_TYPES[n.type]}</span>${esc(n.sp || n.tpl || '')}</small></span></button>`).join('')
+    || `<p class="hint" style="color:var(--dim);font-size:12px">${(S.npcs||[]).length ? 'No NPC matches.' : 'No NPCs yet. Start a new one, or pick a template to copy.'}</p>`;
+}
+function renderNpcs(){
+  const box = document.getElementById('gmNpcs'); if(!box) return;
+  const u = GM_UI, n = npcGet(u.npc), groups = [...new Set((ADV_DB||[]).map(a=>a.grp))];
+  box.innerHTML = `<div class="npccols"><div class="npcside">
+      <button class="primary" onclick="npcNew()" title="A blank Rival. Pick a species to fill in its numbers.">＋ New NPC</button>
+      <select onchange="npcNew(this.value);this.value=''" title="Copy a ready-made adversary into the library, then change whatever you like">
+        <option value="">from a template…</option>${groups.map(g=>`<optgroup label="${esc(g)}">${ADV_DB.map((a,i)=>a.grp===g ? `<option value="${i}">${esc(a.n)} (${NPC_TYPES[a.type]})</option>` : '').join('')}</optgroup>`).join('')}</select>
+      <input type="text" placeholder="search the library…" value="${esc(u.nq)}" oninput="GM_UI.nq=this.value;renderNpcList()">
+      <div class="npcside" id="npcList"></div>
+    </div>
+    <div class="npced" id="npcEdit">${n ? npcEditor(n) : `<p class="hint">The NPC library is shared with the room and kept across sessions. Pick an NPC on the left to edit it, start a new one, or copy a template.</p>
+      <p class="hint"><b>Minions</b> fight in groups and have no skill ranks of their own. <b>Rivals</b> take strain as wounds. <b>Nemeses</b> track wounds and strain like a player character.</p>`}</div></div>
+    <datalist id="npcSpeciesList">${SPECIES_DB.map(s=>`<option value="${esc(s.n)}">`).join('')}</datalist>
+    <datalist id="npcWeaponList">${npcWeaponItems().map(it=>`<option value="${esc(it.n)}">`).join('')}</datalist>`;
+  renderNpcList();
+}
+function npcEditor(n){
+  const id = n.id, sp = npcSpecies(n), sub = npcSub(n, sp), minion = n.type==='minion';
+  const num = (k, label, tip, max=999) => `<label title="${tip}">${label} <input type="number" min="${k==='wt'?1:0}" max="${max}" value="${n[k]}" ${k==='soak'?'id="npc_soak"':''} onchange="npcSet('${id}','${k}',this.value)"></label>`;
+  const combat = SKILLS.filter(s=>s.g==='Combat').map(s=>s.n);
+  const have = new Set(n.sk.map(s=>npcSkillName(s[0])));
+  const spAb = sp ? sp.ab.concat(sub ? sub.ab : []) : [];
+  return `<div class="npchead">${npcIcon(n)}
+      <input type="text" class="npcname" value="${esc(n.n)}" placeholder="NPC name" onchange="npcSet('${id}','n',this.value)">
+      <button class="mini" onclick="npcRandomName('${id}')" title="Roll a random name">🎲 name</button>
+      <select onchange="npcType('${id}',this.value)" title="Minion: fights in groups, no strain, no skill ranks alone. Rival: strain becomes wounds. Nemesis: wounds and strain like a PC.">${Object.entries(NPC_TYPES).map(([k,l])=>`<option value="${k}"${n.type===k?' selected':''}>${l}</option>`).join('')}</select>
+      <button class="mini" onclick="npcDup('${id}')" title="Make a copy of this NPC">⧉ copy</button><button class="mini" onclick="npcDel('${id}')" title="Delete this NPC from the library">✕ delete</button></div>
+    ${n.tpl ? `<p class="hint">Started from the template <b>${esc(n.tpl)}</b>.</p>` : ''}
+    <div class="npcrow"><label title="Type to search the species guide. A species not in the guide is fine: its numbers are then yours to set.">species <input type="text" list="npcSpeciesList" value="${esc(n.sp)}" placeholder="any species" onchange="npcSetSpecies('${id}',this.value)"></label>
+      ${sp && sp.sub ? `<label>subspecies <select onchange="npcSetSub('${id}',this.value)"><option value="">—</option>${sp.sub.map(x=>`<option${n.sub===x.n?' selected':''}>${esc(x.n)}</option>`).join('')}</select></label>` : ''}
+      ${sp ? `<button class="mini" onclick="npcSpeciesNumbers('${id}',true)" title="Set characteristics, soak and thresholds from this species (replaces the current numbers)">↺ use ${esc(sp.n)} numbers</button>` : ''}</div>
+    <div class="spattrs npcattrs">${n.a.map((v,i)=>`<div><input type="number" min="0" max="9" value="${v}" title="${ATTRS[i][1]}" onchange="npcAttr('${id}',${i},this.value)"><span>${ATTRS[i][1].slice(0,3)}</span></div>`).join('')}</div>
+    <div class="npcrow">${num('soak','Soak','Damage taken off every hit. Starts at Brawn and follows it; add armor by hand.',99)}${num('wt','Wounds',minion?'Wound threshold of ONE minion. A group shares the sum.':'Wound threshold')}
+      ${minion ? '' : num('st','Strain',n.type==='rival'?'0 = not tracked: strain a rival would suffer becomes wounds.':'Strain threshold')}${num('dm','Defense melee','Setback dice added to melee attacks against this NPC',9)}${num('dr','ranged','Setback dice added to ranged attacks against this NPC',9)}</div>
+    ${minion ? `<p class="hint">Preview a group of <input type="number" min="1" max="12" value="${GM_UI.grp}" style="width:46px" onchange="npcGroup(this.value)">: shared wound threshold <b id="npc_grpwt">${n.wt*GM_UI.grp}</b>, and one rank in each listed skill per member beyond the first. A group loses a member for every ${n.wt} wounds.</p>` : ''}
+    <h4>Skills</h4>
+    <table class="npctable">${n.sk.map((s,i)=>`<tr><td>${esc(s[0])}</td><td>${minion ? '<span style="color:var(--dim)">group</span>' : `<input type="number" class="sm" min="0" max="6" value="${s[1]}" title="Ranks" onchange="npcSkillRank('${id}',${i},this.value)">`}</td>
+      <td class="pool" id="npcp_s${i}">${npcPool(n, s[0])}</td><td class="x"><button class="mini" onclick="npcSkillDel('${id}',${i})" title="Remove">✕</button></td></tr>`).join('')}</table>
+    <div class="npcrow" style="margin-top:4px"><select onchange="npcSkillAdd('${id}',this.value);this.value=''"><option value="">＋ add a skill…</option>${[...new Set(SKILLS.map(s=>s.g))].map(g=>`<optgroup label="${esc(g)}">${SKILLS.filter(s=>s.g===g && !have.has(s.n)).map(s=>`<option>${esc(s.n)}</option>`).join('')}</optgroup>`).join('')}</select></div>
+    <h4>Weapons</h4>
+    <table class="npctable">${n.w.map((w,i)=>{ const inp = (k, ph, cls='') => `<input type="text" class="${cls}" value="${esc(w[k])}" placeholder="${ph}" title="${ph}" onchange="npcWeaponSet('${id}',${i},'${k}',this.value)">`;
+      return `<tr><td>${inp('n','weapon')}</td><td><select title="Skill" onchange="npcWeaponSet('${id}',${i},'sk',this.value)">${(combat.includes(w.sk) ? combat : combat.concat(w.sk||'—')).map(s=>`<option${w.sk===s?' selected':''}>${esc(s)}</option>`).join('')}</select></td>
+        <td style="white-space:nowrap">${inp('dam','damage','sm')} <small id="npcd_w${i}" style="color:var(--dim)">${npcDamage(n, w)}</small></td><td>${inp('crit','crit','sm')}</td>
+        <td><select title="Range" onchange="npcWeaponSet('${id}',${i},'rng',this.value)">${(NPC_RANGES.includes(w.rng) ? NPC_RANGES : NPC_RANGES.concat(w.rng||'—')).map(r=>`<option${w.rng===r?' selected':''}>${esc(r)}</option>`).join('')}</select></td>
+        <td class="pool" id="npcp_w${i}">${npcPool(n, w.sk)}</td><td class="x"><button class="mini" onclick="npcWeaponDel('${id}',${i})" title="Remove">✕</button></td></tr>
+        <tr><td colspan="7">${inp('q','qualities and notes (Pierce 2, Stun setting…)')}</td></tr>`; }).join('')}</table>
+    <div class="npcrow" style="margin-top:4px"><input type="text" list="npcWeaponList" placeholder="＋ add a weapon: search the Items catalog, or type a new name" style="width:100%;max-width:420px" onchange="npcWeaponAdd('${id}',this.value)"></div>
+    <h4>Talents</h4><textarea rows="3" placeholder="One per line, e.g. Adversary 1: upgrade the difficulty of combat checks against this NPC once" onchange="npcSet('${id}','tal',this.value)">${esc(n.tal)}</textarea>
+    <h4>Abilities</h4><textarea rows="3" placeholder="Anything special that is not a skill or talent" onchange="npcSet('${id}','ab',this.value)">${esc(n.ab)}</textarea>
+    ${spAb.length ? `<p class="hint"><b>From ${esc(sp.n)}${sub ? ' ('+esc(sub.n)+')' : ''}:</b> ${spAb.map(([a,b])=>`<b>${esc(a)}${b?':':''}</b> ${esc(b)}`).join(' · ')}</p>` : ''}
+    <h4>Gear</h4><input type="text" class="wide" value="${esc(n.gear)}" placeholder="armor, tools, credits… (bonuses are not added automatically)" onchange="npcSet('${id}','gear',this.value)">
+    <h4>GM notes</h4><textarea rows="3" placeholder="Personality, motivation, what they want from the party…" onchange="npcSet('${id}','notes',this.value)">${esc(n.notes)}</textarea>`;
+}
+
 function initCloud(){
   const savedName = lsGet('st_player');
   if(savedName){ setPlayerName(savedName); const el=document.getElementById('playerIn'); if(el) el.value=savedName; }
@@ -5500,6 +5750,7 @@ function initCloud(){
    INIT
    ================================================================ */
 function init(){
+  GM_UI.gm = lsGet('st_gm')==='1';
   const restored = loadLocalState();
   S = restored || freshState();
   document.getElementById('envSel').innerHTML =

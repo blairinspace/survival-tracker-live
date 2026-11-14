@@ -33,6 +33,7 @@ STUB
 [ -f rules.js ] && cat rules.js
 [ -f lore.js ] && cat lore.js
 [ -f species.js ] && cat species.js
+[ -f adversaries.js ] && cat adversaries.js
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -502,6 +503,35 @@ print('\n=== SMOKE TEST — UI code paths ===');
     gmSet('attr',''); gmSet('sort','xp'); const byXp = speciesFiltered(); if(byXp[0][0].xp < byXp[byXp.length-1][0].xp) throw new Error('species sort wrong'); gmSet('sort','name');
     { const aq = SPECIES_DB.find(s=>s.n==='Aqualish'); GM_UI.sel = SPECIES_DB.indexOf(aq); renderSpeciesDetail(); if(!/Subspecies/.test(document.getElementById('gmDetail').innerHTML) || aq.sub.length!==3) throw new Error('subspecies not shown'); GM_UI.sel = -1; }
     print(`  species: ${SPECIES_DB.length} in the guide, ${SPECIES_DB.filter(s=>s.sub).length} with subspecies; search, filter, sort and detail render`); showTab('tracker');
+    // GM tab: GM mode, NPC builder (templates, species numbers, skills, weapons, minion groups), and the wire
+    { showTab('gm'); const keepNpcs = JSON.stringify(S.npcs);
+      if(!ADV_DB || ADV_DB.length<40 || ADV_DB.some(a=>a.a.length!==6 || !NPC_TYPES[a.type] || !(a.wt>0))) throw new Error('adversaries.js did not load');
+      gmMode(false); gmSec('npcs'); renderGM(); if(GM_UI.sec!=='species' || /NPCs/.test(document.getElementById('gmNav').innerHTML)) throw new Error('NPC section should be hidden without GM mode');
+      gmMode(true); gmSec('npcs'); if(GM_UI.sec!=='npcs' || !/NPCs/.test(document.getElementById('gmNav').innerHTML)) throw new Error('GM mode should show the NPC section');
+      const st0 = npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper'));
+      if(st0.type!=='minion' || st0.soak!==5 || st0.wt!==5 || st0.sk.length!==4 || !st0.sk.some(s=>s[0]==='Ranged: Heavy') || st0.w[0].sk!=='Ranged: Heavy' || st0.w[0].dam!=='9') throw new Error('stormtrooper template wrong: '+JSON.stringify(st0));
+      GM_UI.grp = 4; const pool = npcPool(st0, 'Ranged: Heavy'); if((pool.match(/t-p/g)||[]).length!==3 || (pool.match(/t-a/g)||[]).length!==0) throw new Error('a group of four minions should roll three proficiency dice');
+      if((npcPool(st0,'Stealth').match(/t-a/g)||[]).length!==3 || /t-p/.test(npcPool(st0,'Stealth'))) throw new Error('an unlisted skill should be characteristic only');
+      const as = npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Assassin')); if(as.type!=='nemesis' || as.st!==20 || !/Adversary 2: /.test(as.tal) || !/Neurotoxin/.test(as.ab)) throw new Error('nemesis template wrong');
+      if((npcPool(as,'Melee').match(/t-p/g)||[]).length!==3 || (npcPool(as,'Melee').match(/t-a/g)||[]).length!==1) throw new Error('Melee 4 on Brawn 3 should be 3 proficiency + 1 ability');
+      npcSetSpecies(as.id, 'twi\'lek'); if(as.sp!=="Twi'lek" || !as.k || as.a[0]!==3 || as.wt!==18) throw new Error('a species on a template should keep the template numbers');
+      const nb = npcNew(); if(nb.type!=='rival' || nb.tpl) throw new Error('blank NPC wrong');
+      npcSetSpecies(nb.id, 'Nautolan'); if(nb.a.join()!=='3,2,2,2,1,2' || nb.wt!==14 || nb.soak!==3 || nb.st!==0 || nb.k!=='NAUTOLAN') throw new Error('species numbers for a rival wrong: '+JSON.stringify(nb));
+      npcType(nb.id,'nemesis'); npcSpeciesNumbers(nb.id); if(nb.wt!==19 || nb.st!==12) throw new Error('species numbers for a nemesis wrong');
+      npcType(nb.id,'minion'); npcSpeciesNumbers(nb.id); if(nb.wt!==5 || nb.st!==0) throw new Error('species numbers for a minion wrong');
+      npcType(nb.id,'rival'); npcAttr(nb.id, 0, 5); if(nb.soak!==5) throw new Error('soak should follow Brawn');
+      npcSkillAdd(nb.id,'Brawl'); npcSkillRank(nb.id, 0, 2); npcWeaponAdd(nb.id,'Light Blaster Pistol'); npcWeaponAdd(nb.id,'Bone club'); npcWeaponSet(nb.id, 1, 'dam', '+2'); npcWeaponSet(nb.id, 1, 'sk', 'Brawl');
+      if(nb.w[0].sk!=='Ranged: Light' || nb.w[0].dam!=='5' || nb.w[0].rng!=='Medium' || nb.w[1].n!=='Bone club' || npcDamage(nb, nb.w[1])!=='= 7') throw new Error('weapons wrong: '+JSON.stringify(nb.w));
+      npcSet(nb.id,'n','Test <b>NPC</b>'); npcSet(nb.id,'notes','wants "credits"'); npcRandomName(st0.id); if(!/^\S+ \S+$/.test(st0.n)) throw new Error('random name wrong: '+st0.n);
+      GM_UI.npc = nb.id; renderGM(); const ed = document.getElementById('gmNpcs').innerHTML;
+      if(!/Test &lt;b>NPC/.test(ed) || /undefined|NaN|\[object/.test(ed) || !/use Nautolan numbers/.test(ed) || !/Pheromone Detection/.test(ed) || !/Bone club/.test(ed)) throw new Error('NPC editor render wrong');
+      GM_UI.nq = 'nautolan'; if(npcFiltered().length!==1) throw new Error('library search wrong'); GM_UI.nq = '';
+      npcDup(nb.id); if(S.npcs.length!==4 || S.npcs[3].n!=='Test <b>NPC</b> (copy)' || S.npcs[3].id===nb.id) throw new Error('copy wrong');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).npcs, syncSubset(S).npcs) || wire.npcs.length!==4 || !Array.isArray(wire.npcs[0].w)) throw new Error('NPCs do not survive the wire');
+      { const blank = normNpcs([{}])[0], back = normNpcs(JSON.parse(JSON.stringify(prune([JSON.parse(JSON.stringify(blank))]))))[0]; if(!same(blank, back) || !Array.isArray(back.sk)) throw new Error('an empty NPC should come back whole'); }
+      const n4 = S.npcs.length; npcDel(S.npcs[3].id); if(S.npcs.length!==n4-1) throw new Error('delete wrong');
+      print(`  NPC builder: ${ADV_DB.length} templates; species numbers by type, minion group pools, weapons from the catalog, copy / delete and the wire all hold`);
+      S.npcs = JSON.parse(keepNpcs); GM_UI.npc = ''; GM_UI.grp = 3; gmMode(false); }
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{
