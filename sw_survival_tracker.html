@@ -446,6 +446,12 @@
   .enccard .pl{white-space:nowrap;margin-right:8px;display:inline-block}
   .cond-0{color:var(--good)} .cond-1{color:var(--warn)} .cond-2{color:var(--bad)} .cond-3{color:var(--dim)}
   @media(max-width:820px){ .enccols{grid-template-columns:1fr} }
+  /* GM tab: saved scenes */
+  .scgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+  .sccard{border:1px solid var(--border);border-radius:10px;background:var(--panel2);overflow:hidden;font-size:12px}
+  .sccard .thumb{aspect-ratio:16/9;background:#0a0d12 center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+  .sccard .body{padding:8px 10px;display:flex;flex-direction:column;gap:6px} .sccard input[type=text]{width:100%;font-weight:600;color:var(--gold)}
+  .sccard small{color:var(--dim)} .sccard .row{display:flex;gap:6px;align-items:center}
   /* Encounter tab: the map */
   .mapbar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:8px} .mapbar label{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px}
   .mapbar h3{font-size:14px;color:var(--gold);letter-spacing:1px;text-transform:uppercase} .mapbar input[type=text]{width:200px}
@@ -702,6 +708,7 @@
   <div class="spcols"><div class="spgrid" id="gmGrid"></div><div class="spdetail" id="gmDetail"></div></div>
   </div>
   <div id="gmNpcs" style="display:none"></div>
+  <div id="gmScenes" style="display:none"></div>
 </div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
@@ -1256,7 +1263,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], enc: {}, map: {}, destiny: {light:0, dark:0} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], scenes: [], enc: {}, map: {}, destiny: {light:0, dark:0} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1307,6 +1314,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
   s.map = normMap(s.map);      // the map on the table, same idea
+  s.scenes = normScenes(s.scenes);   // the GM's saved scenes (map + NPCs), kept like the NPC library
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
@@ -5338,8 +5346,8 @@ function loadLocalState(){
 function resetAll(){
   const shared = CLOUD.db && CLOUD.room;
   if(!confirm(`Start a fresh session? Clock back to Day 1, 00:00, every need at 0.${shared?' This resets the shared room for everyone in it.':''} (💾 Save first to keep this one.)`)) return;
-  const homebrew = S.homebrew || [], npcs = S.npcs || [];   // homebrew items and the GM's NPC library are not session state — they survive a new session
-  S = freshState(); S.homebrew = homebrew; S.npcs = npcs;
+  const homebrew = S.homebrew || [], npcs = S.npcs || [], scenes = S.scenes || [];   // homebrew items, the GM's NPC library and saved scenes are not session state — they survive a new session
+  S = freshState(); S.homebrew = homebrew; S.npcs = npcs; S.scenes = scenes;
   logMsg('🆕 New session — Day 1, 00:00. All needs at 0, canteens full, droid packs charged.');
   rebuildLog(); render();
 }
@@ -5591,12 +5599,13 @@ function gmSec(s){ GM_UI.sec = s; renderGM(); }
 function renderGM(){
   const nav = document.getElementById('gmNav'); if(!nav || !SPECIES_DB) return;
   const u = GM_UI; if(!u.gm) u.sec = 'species';
-  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`]] : []);
+  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`]] : []);
   nav.innerHTML = secs.map(([k,l])=>`<button class="chip ${u.sec===k?'on':''}" onclick="gmSec('${k}')">${l}</button>`).join('') +
     `<label style="margin-left:auto" title="For whoever is running the game: shows the NPC builder and library on this device. Honor system — it hides the GM's tools, it does not lock them."><input type="checkbox" ${u.gm?'checked':''} onchange="gmMode(this.checked)"> 🎭 GM mode</label>`;
   document.getElementById('gmSpecies').style.display = u.sec==='species' ? '' : 'none';
   document.getElementById('gmNpcs').style.display    = u.sec==='npcs' ? '' : 'none';
-  if(u.sec==='npcs') renderNpcs(); else renderSpecies();
+  document.getElementById('gmScenes').style.display  = u.sec==='scenes' ? '' : 'none';
+  if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else renderSpecies();
 }
 
 /* ================================================================
@@ -6218,7 +6227,7 @@ const mapOn = () => !!(S.map && S.map.on);
 function mapImgFetch(id){
   if(MAP_IMG[id]!==undefined) return;
   MAP_IMG[id] = '';
-  const got = v => { if(typeof v==='string' && /^data:image\//.test(v)){ MAP_IMG[id] = v; renderMap(); } };
+  const got = v => { if(typeof v==='string' && /^data:image\//.test(v)){ MAP_IMG[id] = v; renderMap(); if(TAB==='gm' && GM_UI.sec==='scenes') renderScenes(); } };
   if(CLOUD.db && CLOUD.room) CLOUD.db.ref('rooms/'+CLOUD.room+'/mapimg/'+id).once('value').then(s=>got(s.val())).catch(()=>{ delete MAP_IMG[id]; });
   else got(lsGet('st_mapimg_'+id));
 }
@@ -6228,6 +6237,7 @@ function mapUrl(src){
 }
 function mapImgDrop(src){   // an uploaded image nobody points at any more
   if(!src || !src.startsWith('room:')) return;
+  if((mapOn() && S.map.src===src) || (S.scenes||[]).some(sc=>sc.src===src)) return;   // the table or a saved scene still uses it
   const id = src.slice(5); delete MAP_IMG[id];
   if(CLOUD.db && CLOUD.room) CLOUD.db.ref('rooms/'+CLOUD.room+'/mapimg/'+id).remove().catch(()=>{});
   else try{ localStorage.removeItem('st_mapimg_'+id); }catch(e){}
@@ -6236,13 +6246,13 @@ function mapSetSrc(src){
   src = String(src||'').trim(); if(!src) return;
   if(!mapSrcOk(src)){ alert('That does not look like a map: pick a file from img/maps, or paste a link that starts with https://'); return; }
   const old = S.map && S.map.src; if(old===src) return;
-  S.map = normMap({ on:1, src }); if(old) mapImgDrop(old);
+  S.map = normMap({ on:1, src }); if(old && old!==src) mapImgDrop(old);
   Object.assign(MAP_UI, { sel:'', ruler:null, mine:[], tool:'move' });
   logMsg('🗺 A new map is on the table.'); render();
 }
 function mapRemove(){
   if(!mapOn() || !confirm('Take the map off the table for everyone? Tokens and drawings on it are cleared.')) return;
-  mapImgDrop(S.map.src); S.map = {}; render();
+  const old = S.map.src; S.map = {}; mapImgDrop(old); render();
 }
 function mapUpload(input){   // shrink in the browser, keep beside the room (not in the synced state)
   const f = input.files && input.files[0]; input.value = ''; if(!f) return;
@@ -6346,7 +6356,7 @@ function renderMapLayers(){   // everything that changes without changing the pi
   toks.innerHTML = keys.map(k=>{ const p = mapPos(k), pc = k[0]==='c', x = pc ? null : S.enc[k], name = encOn() || pc ? (pc ? cfg(k.slice(2)).name : encName(k)) : '';
     const bg = pc ? `url(img/${k.slice(2)}.png), url(img/${k.slice(2)}.jpg)` : (x.d.k ? `url(img/species/${esc(x.d.k)}.png)` : 'none');
     const al = x && x.d.type==='minion' ? encAlive(x) : 0;
-    return `<div class="mtok ${pc?'pc':'npc'} ${k===cur?'cur':''} ${k===MAP_UI.sel?'sel':''} ${(pc ? encOn() && encDown(k) : encDown(k)) ? 'down':''} ${x && x.hid ? 'hid':''}" data-k="${k}" style="left:${p.x*100}%;top:${p.y*100}%;background-image:${bg}" title="${esc(name)}">${!pc && !x.d.k ? `<b>${esc((name||'?')[0])}</b>` : ''}${al>1 ? `<i>${al}</i>` : ''}<span>${esc(name.split(' ')[0])}</span></div>`; }).join('');
+    return `<div class="mtok ${pc?'pc':'npc'} ${k===cur?'cur':''} ${k===MAP_UI.sel?'sel':''} ${(pc ? isDown(st(k.slice(2)), cfg(k.slice(2))) : encDown(k)) ? 'down':''} ${x && x.hid ? 'hid':''}" data-k="${k}" style="left:${p.x*100}%;top:${p.y*100}%;background-image:${bg}" title="${esc(name)}">${!pc && !x.d.k ? `<b>${esc((name||'?')[0])}</b>` : ''}${al>1 ? `<i>${al}</i>` : ''}<span>${esc(name.split(' ')[0])}</span></div>`; }).join('');
   if(info){
     const sel = MAP_UI.sel, placed = k => !!m['t_'+k];
     info.innerHTML = !(m.sc>0) ? (gm ? 'No scale yet. Choose <b>📏 Set scale</b>, then drag across a distance you would call Short range (a few paces — four or five squares on a gridded map).' : 'The GM has not set the scale yet, so the ruler and range rings are off.')
@@ -6373,12 +6383,83 @@ function renderMap(){
       (MAP_UI.tool==='draw' ? MAP_COLORS.map((c,i)=>`<button class="mapdot ${MAP_UI.color===i?'on':''}" style="background:${c}" onclick="MAP_UI.color=${i};renderMap()" title="Line colour"></button>`).join('') : '') +
       `<button class="mini" onclick="mapUndo()" title="Remove the last line you drew">↶ undo my line</button>` : '') +
     (gm ? `<span style="margin-left:auto"></span>` + (src ? tool('cal','📏 Set scale','Drag across a distance you call Short range. Every other band follows from it.') +
-        `<button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
+        `<button class="mini atk" onclick="sceneSave()" title="Keep this map, its scale and lines, and the NPCs in the encounter with their positions, to bring back later from the GM tab">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
       (files.length ? `<select onchange="mapSetSrc(this.value);this.value=''" title="Pictures in the img/maps folder"><option value="">a map from img/maps…</option>${files.map(f=>`<option value="${esc(f)}">${esc(f.replace(/^img\/maps\//,''))}</option>`).join('')}</select>` : '') +
       `<button class="mini" onclick="document.getElementById('mapFile').click()" title="Pick a picture from this device. It is shrunk and shared with the room.">⬆ upload</button><input type="file" id="mapFile" accept="image/*" style="display:none" onchange="mapUpload(this)">
        <input type="text" placeholder="or paste an image link (https://…)" onchange="mapSetSrc(this.value);this.value=''">` : '');
   const frame = document.getElementById('mapFrame'); if(frame && src) frame.className = MAP_UI.tool==='move' ? '' : 'tooling';
   if(src) renderMapLayers();
+}
+
+/* ================================================================
+   SCENES — the GM's saved set-ups, S.scenes (synced whole like the NPC library; survive 🆕 New).
+     { id, n name, src map picture, sc scale, mode combat|social, lines [{p, c}],
+       npcs [{ d NPC snapshot, count, hid, disp, pl placed, x, y }] }
+   Saved from the Encounter tab's map bar; brought back from the GM tab. Character tokens
+   are not saved: the party walks in from the edge. An uploaded picture is kept for as long
+   as the table or any scene points at it (see mapImgDrop).
+   ================================================================ */
+function normScenes(v){
+  v = arrayify(v); if(!Array.isArray(v)) return [];
+  return v.filter(s=>s && typeof s==='object' && mapSrcOk(s.src)).map(s=>{
+    const lines = arrayify(s.lines), npcs = arrayify(s.npcs);
+    return { id: String(s.id || randomId().slice(0,10)), n: typeof s.n==='string' ? s.n.slice(0,60) : '', src: s.src, sc: Math.round(clamp(+s.sc||0, 0, 1)*10000)/10000, mode: s.mode==='social' ? 'social' : 'combat',
+      lines: (Array.isArray(lines) ? lines : []).filter(l=>l && typeof l==='object').map(l=>({ p:arrayify(l.p), c:l.c })).filter(l=>Array.isArray(l.p) && l.p.length>=4).slice(0,150).map(l=>({ p:l.p.slice(0,400).map(r4), c:npcInt(l.c, 0, MAP_COLORS.length-1, 0) })),
+      npcs: (Array.isArray(npcs) ? npcs : []).filter(x=>x && typeof x==='object' && x.d && typeof x.d==='object').slice(0,40).map(x=>({ d:normNpcs([x.d])[0], count:npcInt(x.count, 1, 12, 1), hid:x.hid ? 1 : 0, disp:ENC_DISP.includes(x.disp) ? x.disp : '', pl:x.pl ? 1 : 0, x:r4(x.x), y:r4(x.y) })) };
+  });
+}
+const sceneGet = id => (S.scenes||[]).find(s=>s.id===id);
+function sceneSave(name){
+  if(!mapOn()) return null;
+  if(name==null) name = prompt('Name this scene (for example "Cantina"). Saving under a name that already exists replaces that scene.', '');
+  name = String(name||'').trim().slice(0,60); if(!name) return null;
+  const m = S.map, e = S.enc || {};
+  const sc = normScenes([{ n:name, src:m.src, sc:m.sc, mode:encOn() ? e.mode : 'combat',
+    lines: Object.keys(m).filter(k=>k.startsWith('d_')).map(k=>({ p:m[k].p, c:m[k].c })),
+    npcs: (encOn() ? encNpcKeys() : []).map(k=>{ const p = m['t_'+k]; return { d:e[k].d, count:e[k].count, hid:e[k].hid, disp:e[k].disp, pl:p ? 1 : 0, x:p ? p.x : 0, y:p ? p.y : 0 }; }) }])[0];
+  if(!sc) return null;
+  if(!Array.isArray(S.scenes)) S.scenes = [];
+  const i = S.scenes.findIndex(s=>s.n.toLowerCase()===name.toLowerCase());
+  if(i>=0){ sc.id = S.scenes[i].id; const old = S.scenes[i].src; S.scenes[i] = sc; mapImgDrop(old); } else S.scenes.push(sc);
+  syncNote(`Scene “${name}” saved — find it under GM › Scenes.`, 'ok');
+  render(); return sc;
+}
+function sceneLoad(id){   // put a saved scene on the table: its map, scale and lines, and its NPCs where they stood
+  const sc = sceneGet(id); if(!sc) return;
+  const busy = mapOn() || (encOn() && encNpcKeys().length);
+  if(busy && !confirm(`Bring “${sc.n || 'this scene'}” to the table? It replaces the current map and the NPCs in the encounter. (Save the current set-up first if you want it back.)`)) return;
+  const old = mapOn() ? S.map.src : '';
+  if(!encOn()){ S.enc = normEnc({ on:1, mode:sc.mode }); logMsg(sc.mode==='social' ? '💬 A conversation begins.' : '⚔ An encounter begins — roll initiative.'); }
+  for(const k of encNpcKeys()){ if(S.enc.cur===k) S.enc.cur = ''; delete S.enc[k]; }
+  const map = { on:1, src:sc.src, sc:sc.sc };
+  sc.lines.forEach(l=>{ map['d_'+randomId().slice(0,8)] = { p:l.p, c:l.c, by:'' }; });
+  for(const x of sc.npcs){
+    const k = 'n_'+randomId().slice(0,8);
+    S.enc[k] = normEnc({ on:1, [k]:{ d:JSON.parse(JSON.stringify(x.d)), count:x.count, hid:x.hid, disp:x.disp } })[k];
+    if(x.pl) map['t_'+k] = { x:x.x, y:x.y };
+  }
+  S.map = normMap(map); if(old && old!==sc.src) mapImgDrop(old);
+  Object.assign(MAP_UI, { sel:'', ruler:null, mine:[], tool:'move' });
+  logMsg('🗺 A new map is on the table.');
+  render(); showTab('enc');
+}
+function sceneRename(id, v){ const sc = sceneGet(id); if(!sc) return; sc.n = String(v).trim().slice(0,60); scheduleSync(); }
+function sceneDel(id){
+  const i = (S.scenes||[]).findIndex(s=>s.id===id); if(i<0) return;
+  if(!confirm(`Delete the scene “${S.scenes[i].n || 'unnamed'}”? The map on the table is not touched.`)) return;
+  const old = S.scenes[i].src; S.scenes.splice(i,1); mapImgDrop(old);
+  render(); renderGM();
+}
+function renderScenes(){
+  const box = document.getElementById('gmScenes'); if(!box) return;
+  const list = S.scenes || [];
+  box.innerHTML = `<p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">A scene is a map with its scale, its drawn lines and the NPCs standing on it. Set one up on the <b style="color:var(--text)">Encounter</b> tab (map, NPCs from the library, tokens dragged into place), then press <b style="color:var(--text)">💾 save as scene</b> on the map bar. Bring it back from here whenever the party arrives.</p>
+    <div class="scgrid">${list.map(sc=>{ const url = mapUrl(sc.src), placed = sc.npcs.filter(x=>x.pl).length;
+      return `<div class="sccard"><div class="thumb" ${url ? `style="background-image:url('${esc(url).replace(/'/g,'%27')}')"` : ''}>${url ? '' : 'fetching the picture…'}</div><div class="body">
+        <input type="text" value="${esc(sc.n)}" placeholder="scene name" onchange="sceneRename('${sc.id}',this.value)">
+        <small>${sc.npcs.length ? `${sc.npcs.length} NPC${sc.npcs.length===1?'':'s'}${placed<sc.npcs.length ? ` (${placed} placed)` : ''}: ${esc(sc.npcs.map(x=>(x.d.n||'unnamed')+(x.count>1?' ×'+x.count:'')).join(', '))}` : 'no NPCs'} · ${sc.sc>0 ? 'scale set' : 'no scale yet'}${sc.lines.length ? ` · ${sc.lines.length} line${sc.lines.length===1?'':'s'}` : ''} · ${sc.mode==='social' ? 'conversation' : 'combat'}</small>
+        <div class="row"><button class="primary" onclick="sceneLoad('${sc.id}')" title="Put this map on the table with its NPCs where you left them">▶ bring to the table</button><span style="margin-left:auto"></span><button class="mini" onclick="sceneDel('${sc.id}')" title="Delete this saved scene">✕ delete</button></div></div></div>`; }).join('')}</div>
+    ${list.length ? '' : `<p style="color:var(--dim);font-size:12px">No scenes saved yet.</p>`}`;
 }
 
 function initCloud(){

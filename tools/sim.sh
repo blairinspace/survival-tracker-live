@@ -34,8 +34,7 @@ STUB
 [ -f lore.js ] && cat lore.js
 [ -f species.js ] && cat species.js
 [ -f adversaries.js ] && cat adversaries.js
-[ -f maps.js ] && cat maps.js
-echo 'if(typeof MAPS==="undefined") var MAPS = [];'
+if [ -f maps.js ]; then cat maps.js; else echo 'const MAPS = [];'; fi
 sed -n '/^<script>$/,/^<\/script>$/p' "$SRC" | sed '1d;$d' | sed 's/^init();$//'
 cat <<'TEST'
 /* ---------------- measurements ---------------- */
@@ -630,6 +629,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
       MAP_UI.color = 2; mapStrokeAdd([0.1,0.1,0.2,0.2,0.3,0.1]); mapStrokeAdd([0.5,0.5]); const lines = () => Object.keys(S.map).filter(k=>k.startsWith('d_'));
       if(lines().length!==1 || S.map[lines()[0]].c!==2 || S.map[lines()[0]].p.length!==6) throw new Error('drawing a line wrong');
       renderEnc(); const mh = document.getElementById('mapToks').innerHTML, sv = document.getElementById('mapSvg').innerHTML;
+      if(/mtok pc[^"]*down/.test(mh)) throw new Error('a healthy character who has not rolled initiative should not be greyed out on the map');
       if(!/data-k="c_cal"/.test(mh) || !/data-k="n_/.test(mh) || !/<i>3<\/i>/.test(mh) || !/polyline/.test(sv) || /undefined|NaN|\[object/.test(mh+sv)) throw new Error('map layers render wrong');
       MAP_UI.sel = 'c_cal'; renderMapLayers(); if((document.getElementById('mapSvg').innerHTML.match(/<circle/g)||[]).length!==MAP_BANDS.length || !/Stormtrooper <b>Engaged<\/b>|Imperial <b>Engaged<\/b>/.test(document.getElementById('mapInfo').innerHTML)) throw new Error('range rings or the range list missing: '+document.getElementById('mapInfo').innerHTML);
       encNpcSet(tk,'hid',1); gmMode(false); renderEnc(); if(/data-k="n_/.test(document.getElementById('mapToks').innerHTML) || /Set scale|remove map|upload/.test(document.getElementById('mapBar').innerHTML)) throw new Error('players should not see hidden tokens or the GM\'s map controls');
@@ -646,6 +646,37 @@ print('\n=== SMOKE TEST — UI code paths ===');
       gmMode(false); renderEnc(); if(document.getElementById('encMap').style.display!=='none') throw new Error('with no map, players should not see the map box');
       print(`  map: sources checked, tokens clamp and merge per token, one Short-range drag sets every band, attacks read their range from the map, hidden tokens stay hidden, survives the wire`);
       S = keepS; Object.assign(MAP_UI, { tool:'move', color:0, sel:'', ruler:null, drag:null, asp:0.625, mine:[] }); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', cat:'offense' }); poolClear(); showTab('tracker'); }
+    // Scenes: save the table (map, scale, lines, NPCs with positions), bring it back later, keep uploaded pictures in use
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
+      MAP_IMG.pic1 = 'data:image/jpeg;base64,AAAA'; mapSetSrc('room:pic1'); mapCal(0.1); encStart('social');
+      const tk = encAddNpc(npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper')).id, 4), bk = encAddNpc(npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Assassin')).id);
+      encNpcSet(bk,'hid',0); encNpcSet(bk,'disp','Wary'); mapTokenSet(tk, 0.7, 0.3); mapTokenSet('c_cal', 0.2, 0.2); mapStrokeAdd([0.1,0.1,0.4,0.4]);
+      if(sceneSave('  ')) throw new Error('a scene needs a name');
+      const sc = sceneSave('Cantina'); if(!sc || S.scenes.length!==1 || sc.src!=='room:pic1' || sc.sc!==0.1 || sc.mode!=='social' || sc.lines.length!==1 || sc.npcs.length!==2) throw new Error('scene save wrong: '+JSON.stringify(sc));
+      const st1 = sc.npcs.find(x=>x.d.type==='minion'), as1 = sc.npcs.find(x=>x.d.type==='nemesis');
+      if(st1.count!==4 || !st1.pl || st1.x!==0.7 || !st1.hid || as1.pl || as1.hid || as1.disp!=='Wary') throw new Error('scene NPCs wrong: '+JSON.stringify(sc.npcs.map(x=>[x.count,x.pl,x.x,x.hid,x.disp])));
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).scenes, syncSubset(S).scenes) || !Array.isArray(wire.scenes[0].lines[0].p) || !Array.isArray(wire.scenes[0].npcs[0].d.sk)) throw new Error('scenes do not survive the wire');
+      { const bare = normScenes(JSON.parse(JSON.stringify(prune([{ id:'x', n:'Empty', src:'img/maps/a.png', lines:[], npcs:[] }]))))[0]; if(!bare || !Array.isArray(bare.npcs) || !Array.isArray(bare.lines)) throw new Error('an empty scene should come back whole'); }
+      if(normScenes([{ n:'bad', src:'javascript:alert(1)' }]).length) throw new Error('a scene with a bad picture source should be dropped');
+      mapSetSrc('img/maps/other.png'); if(MAP_IMG.pic1===undefined) throw new Error('an uploaded picture a scene uses must be kept when the table changes');
+      encEnd(); mapTokenSet('c_bode', 0.5, 0.5);
+      sceneLoad(sc.id); if(TAB!=='enc' || !mapOn() || S.map.src!=='room:pic1' || S.map.sc!==0.1 || !encOn() || S.enc.mode!=='social') throw new Error('scene load did not restore the map and encounter');
+      const ks = encNpcKeys(), tk2 = ks.find(k=>S.enc[k].d.type==='minion'), bk2 = ks.find(k=>S.enc[k].d.type==='nemesis');
+      if(ks.length!==2 || tk2===tk || S.enc[tk2].count!==4 || !S.enc[tk2].hid || S.enc[tk2].w!==0 || S.enc[bk2].hid || S.enc[bk2].disp!=='Wary') throw new Error('scene NPCs did not come back');
+      if(!S.map['t_'+tk2] || S.map['t_'+tk2].x!==0.7 || S.map['t_'+bk2] || S.map.t_c_cal || S.map.t_c_bode || Object.keys(S.map).filter(k=>k.startsWith('d_')).length!==1) throw new Error('scene tokens / lines did not come back: '+Object.keys(S.map));
+      sceneLoad(sc.id); if(encNpcKeys().length!==2) throw new Error('loading a scene twice should replace the NPCs, not add to them');
+      encNpcSet(tk2 in S.enc ? tk2 : encNpcKeys()[0], 'w', 3); mapCal(0.2); sceneSave('cantina'); if(S.scenes.length!==1 || S.scenes[0].id!==sc.id || S.scenes[0].sc!==0.2) throw new Error('saving under the same name should replace the scene');
+      sceneSave('Back room'); if(S.scenes.length!==2) throw new Error('second scene not saved');
+      showTab('gm'); gmSec('scenes'); const gh = document.getElementById('gmScenes').innerHTML, nav = document.getElementById('gmNav').innerHTML;
+      if(!/Scenes \(2\)/.test(nav) || !/value="Cantina"|value="cantina"/.test(gh) || !/Back room/.test(gh) || !/Imperial Stormtrooper ×4/.test(gh) || !/scale set/.test(gh) || /undefined|NaN|\[object/.test(gh)) throw new Error('scenes list render wrong');
+      sceneRename(S.scenes[1].id, 'Back room (night)'); if(S.scenes[1].n!=='Back room (night)') throw new Error('rename wrong');
+      mapRemove(); if(MAP_IMG.pic1===undefined) throw new Error('removing the map must not delete a saved scene\'s picture');
+      sceneDel(S.scenes[1].id); if(S.scenes.length!==1 || MAP_IMG.pic1===undefined) throw new Error('the picture is still used by the other scene');
+      sceneDel(S.scenes[0].id); if(S.scenes.length!==0 || MAP_IMG.pic1!==undefined) throw new Error('with no scene and no table using it, the uploaded picture should go');
+      gmMode(false); if(/Scenes/.test(document.getElementById('gmNav').innerHTML)) throw new Error('Scenes should be hidden without GM mode');
+      { const keep = S; S = freshState(); S.scenes = normScenes([{ n:'Kept', src:'img/maps/a.png' }]); resetAll(); if(S.scenes.length!==1) throw new Error('scenes should survive a new session'); S = keep; }
+      print(`  scenes: the table saves and comes back (map, scale, lines, NPCs in place), same name replaces, uploaded pictures are kept while in use, survives the wire and a new session`);
+      S = keepS; Object.assign(MAP_UI, { tool:'move', color:0, sel:'', ruler:null, drag:null, asp:0.625, mine:[] }); GM_UI.sec = 'species'; GM_UI.npc = ''; showTab('tracker'); }
   })();
   // objectives: three columns, sub-tasks, pinning, the log, seeding from the Lore, and the wire
   (()=>{
