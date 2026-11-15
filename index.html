@@ -4225,8 +4225,25 @@ function rollPool(){
 }
 
 /* ---- feed (append-only) ---- */
+// Every dice roll also leaves one line in the event log, written by the device that rolled (so it is logged once):
+// who, what for, and the net result in words. Destiny flips and pool changes stay in the roll feed only.
+function rollLine(e){
+  const dice = parseRoll(e.r); if(!dice.length) return '';
+  const r = tally(dice), n = (k, v, word) => `${SYM[k][0]} ${v} ${word}${v===1 ? '' : word==='Success' ? 'es' : 's'}`, parts = [];
+  if(r.check){
+    parts.push(r.netS>0 ? n('s', r.netS, 'Success') : r.netS<0 ? n('f', -r.netS, 'Failure') : 'no net successes');
+    if(r.netA>0) parts.push(n('a', r.netA, 'Advantage')); if(r.netA<0) parts.push(n('t', -r.netA, 'Threat'));
+    if(r.x) parts.push(n('x', r.x, 'Triumph')); if(r.y) parts.push(n('y', r.y, 'Despair'));
+  }
+  if(r.force) parts.push(`${SYM.l[0]} ${r.l} Light`, `${SYM.n[0]} ${r.n} Dark`);
+  const w = e.w && typeof e.w==='object' ? e.w : null, hit = w && r.netS>0;
+  return `🎲 <b>${esc(String(e.who||'Player').slice(0,40))}</b>${e.l ? ' — '+esc(String(e.l).slice(0,80)) : ''}: ${r.check ? (r.netS>0 ? '<b>succeeds</b>' : '<b>fails</b>')+' · ' : ''}${parts.join(' · ')}` +
+    (hit ? ` · ${esc(String(w.n||'weapon').slice(0,60))} ${numOr(w.dam) + r.netS} damage before ${w.sv ? 'armor' : 'soak'}` : '');
+}
 function postFeed(e){
   e.by = CLOUD.player; e.t = clockStr(); e.ts = Date.now();
+  if(e.k==='r'){ const line = rollLine(e); if(line) logMsg(line, 'ld'); }
+  else if(e.k==='p' && /^Critical/.test(String(e.h||'')) && e.h!=='Critical hit') logMsg(`🎲 <b>${esc(String(e.h))}</b>: ${esc(String(e.m||'').slice(0,280))}`, 'lb');   // ship criticals log themselves
   if(CLOUD.db && CLOUD.room)      // the room's listener (attachRoom) renders it — fires locally at once, even offline
     CLOUD.db.ref('rooms/'+CLOUD.room+'/rolls').push(e).catch(err=>syncNote('Roll not sent: '+err.message, 'bad'));
   else { ROLLS.push(e); ROLLS = ROLLS.slice(-FEED_MAX); lsSet('st_rolls', JSON.stringify(ROLLS)); renderFeed(); }

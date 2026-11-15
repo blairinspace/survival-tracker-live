@@ -836,6 +836,19 @@ print('\n=== SMOKE TEST — UI code paths ===');
       document.activeElement = { tagName:'INPUT', type:'text' }; if(!isTyping()) throw new Error('a text box is typing'); document.activeElement = { tagName:'INPUT', type:'checkbox' }; if(isTyping()) throw new Error('a tick box is not typing'); document.activeElement = null;
       encEnd(); print(`  NPC pictures: Human by default, Droid for droids, none for creatures, a species named in the name, the GM's icon / link / upload wins and travels into encounters; dropdowns redraw the Encounter tab`);
       S = keepS; GM_UI.sec = 'species'; GM_UI.npc = ''; gmMode(false); showTab('tracker'); }
+    // Dice rolls reach the event log: one line per roll, from the device that rolled
+    { const keepS = S; S = freshState(); const sf = DICE.a.faces.find(x=>x==='s'), aa = DICE.a.faces.find(x=>x==='aa'), ff = DICE.d.faces.find(x=>x==='ff'), tr = DICE.p.faces.find(x=>x==='x'), fl = DICE.F.faces.find(x=>/l/.test(x)), n0 = S.log.length;
+      postFeed({ k:'r', who:'Cal Kestis', l:'Lightsaber vs <b>Assassin</b>', r:`p:${tr} a:${sf} a:${aa} d:${DICE.d.faces.find(x=>x==='t')}`, w:{ n:'Lightsaber', dam:7, crit:2 } });
+      let L = S.log[0].m; if(S.log.length!==n0+1 || !/Cal Kestis/.test(L) || !/succeeds/.test(L) || !/✸ 2 Successes/.test(L) || !/▲ 1 Advantage/.test(L) || !/✪ 1 Triumph/.test(L) || !/Lightsaber 9 damage before soak/.test(L) || /<b>Assassin/.test(L) || S.log[0].c!=='ld') throw new Error('roll line wrong: '+L);
+      postFeed({ k:'r', who:'Bode', l:'Stealth', r:`a:${sf} d:${ff}` }); L = S.log[0].m; if(!/fails/.test(L) || !/✖ 1 Failure/.test(L) || /damage/.test(L)) throw new Error('failed roll line wrong: '+L);
+      postFeed({ k:'r', who:'Merrin', l:'Force power', r:`F:${fl}` }); L = S.log[0].m; if(/succeeds|fails/.test(L) || !/Light/.test(L) || !/Dark/.test(L)) throw new Error('Force roll line wrong: '+L);
+      postFeed({ k:'r', who:'GM', l:'Ship: turbolaser', r:`a:${sf}`, w:{ n:'Turbolaser', dam:10, sv:1, tgt:'mantis' } }); if(!/11 damage before armor/.test(S.log[0].m)) throw new Error('ship roll line wrong: '+S.log[0].m);
+      const n1 = S.log.length; postFeed({ k:'d', side:'light', light:2, dark:3 }); postFeed({ k:'p', m:'Destiny pool emptied.' }); postFeed({ k:'r', who:'x', r:'garbage' }); if(S.log.length!==n1) throw new Error('only real dice rolls should reach the log');
+      postFeed({ k:'p', h:'Critical injury', m:'Tann: d100 47 = 47.' }); if(!/Critical injury/.test(S.log[0].m) || !/d100 47/.test(S.log[0].m)) throw new Error('a critical injury roll should be logged');
+      DICE_UI.who = 'cal'; Object.assign(DICE_UI.pool, { p:1, a:1, b:0, k:0, d:2, c:0, F:0 }); DICE_UI.label = 'Athletics'; const n2 = S.log.length; rollPool(); if(S.log.length!==n2+1 || !/Cal Kestis<\/b> — Athletics/.test(S.log[0].m)) throw new Error('a roll from the dice tray should be logged: '+S.log[0].m);
+      if(!/Athletics/.test(logText())) throw new Error('rolls should be in the exported log');
+      print(`  dice log: every roll writes one event-log line with its net result (and damage on a hit); destiny flips stay in the feed`);
+      S = keepS; poolClear(); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
