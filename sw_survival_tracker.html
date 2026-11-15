@@ -2776,7 +2776,16 @@ function renderCounters(){
       <button class="mini" onclick="counterDel('${c.id}')" title="Remove this countdown">✕</button></span>`;
   }).join('');
 }
-function setEnv(v){ S.env=v; logMsg(`🌍 Environment is now ${ENVS[v].label}.`); render(); }
+function setEnv(v){
+  S.env=v; logMsg(`🌍 Environment is now ${ENVS[v].label}.`);
+  // out of the heat, Overheated passes; out of the cold, Chilled does (otherwise it rides along to the next planet and keeps costing water or calories)
+  for(const [condId, still] of [['overheated', ENVS[v].heat], ['chilled', ENVS[v].cold]]){
+    if(still) continue;
+    const names = S.chars.filter(cs=>cs.conds.some(x=>x.id===condId)).map(cs=>{ cs.conds = cs.conds.filter(x=>x.id!==condId); return cfg(cs.id).name.split(' ')[0]; });
+    if(names.length) logMsg(`${CONDS[condId].label} passes for ${names.join(', ')}: out of the ${condId==='overheated' ? 'heat' : 'cold'}.`, 'lg');
+  }
+  render();
+}
 /* party-wide controls: act on every visible character */
 function partySetAct(v){
   if(!v) return;
@@ -6345,6 +6354,7 @@ function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, 
   Object.assign(DICE_UI.pool, { p:a.p, a:a.a, b:0, k:clamp((a.k||0) + (T ? T.def : 0), 0, POOL_MAX), d, c, F:0 });
   DICE_UI.repair = null; DICE_UI.tal = null;
   Object.assign(DICE_UI, { who:a.who, label:a.label, weapon:{ n:String(a.n).slice(0,60), dam:a.dam, crit:a.crit, q:String(a.q||'').slice(0,160), rng:band, note:notes.join(' · '), src:a.src||null } });
+  if(a.by) DICE_UI.weapon.by = String(a.by).slice(0,60);   // an NPC's attack is rolled by the GM: the log names the NPC
   if(T){ DICE_UI.weapon.tgt = a.tgt; DICE_UI.weapon.tn = T.name.slice(0,60); }
   if(a.cs) tdLoad(a.cs, a.skillKey);
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = a.label;
@@ -6369,7 +6379,7 @@ function encAttackNPC(k, wi){
   const d = x.d, def = npcSkillDef(w.sk), pool = npcPoolDice(d, w.sk, encAlive(x) || 1) || { p:0, a:0 };
   const tgt = S.enc[ENC_UI.tpc] && !S.enc[ENC_UI.tpc].out ? ENC_UI.tpc : (cfg(String(ENC_UI.tpc).slice(2)) ? ENC_UI.tpc : '');
   const dam = /^\+\d+$/.test(w.dam) ? d.a[0] + +w.dam : numOr(w.dam);
-  encLoadAttack({ ak:k, who:'gm', label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
+  encLoadAttack({ ak:k, who:'gm', by: x.hid ? 'an unseen attacker' : encName(k), label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
 }
 // the feed card of an attack that named a target: damage after soak, and buttons to apply it
 function encHit(w, r){
@@ -6392,7 +6402,7 @@ const encFeedRoll = ts => ROLLS.find(e=>e && e.k==='r' && Math.round(+e.ts)===ts
 function encApply(ts, how){
   const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts]) return;
   const h = encHit(e.w, tally(parseRoll(e.r))); if(!h) return;
-  const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.who||'an attack').slice(0,40))}'s ${esc(String(e.w.n||'attack').slice(0,60))}`;
+  const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.w.by||e.who||'an attack').slice(0,60))}'s ${esc(String(e.w.n||'attack').slice(0,60))}`;
   if(h.ship){   // planetary scale: hull trauma, or system strain from ion weapons
     const f = h.ion ? 'strain' : 'hull';
     if(key==='mantis'){ const sh = S.ship; sh[f] = (sh[f]||0) + h.dmg;
@@ -6407,7 +6417,7 @@ function encApply(ts, how){
   else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = (cs.wounds||0) + h.dmg; }
   S.enc['ap_'+ts] = 1;
   const hidden = key[0]==='n' && S.enc[key].hid;
-  if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : 'wound'}${h.dmg===1?'':'s'} from ${by}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
+  if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : h.dmg===1 ? 'wound' : 'wounds'} from ${by}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
   render(); renderFeed();
 }
 function encCrit(ts){
@@ -7069,7 +7079,7 @@ function encShipFire(k, wi){   // an enemy weapon at the Mantis, which is small 
     arcOk:shipArcBears(w.arc, x.side), arcWhy:`this weapon covers ${w.arc.toLowerCase()}, and its ${SHIP_ARCS[x.side].toLowerCase()} faces us`, rngOk:SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
   Object.assign(DICE_UI.pool, A.pool);
   Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, tal:null,
-    weapon:{ n:w.n, dam:numOr(w.dam), crit:numOr(w.crit), q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, tgt:'mantis', tn:SHIP.name } });
+    weapon:{ n:w.n, dam:numOr(w.dam), crit:numOr(w.crit), q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, tgt:'mantis', tn:SHIP.name, by:(x.hid ? 'an unseen ship' : encName(k)).slice(0,60) } });
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });

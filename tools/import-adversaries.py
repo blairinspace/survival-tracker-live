@@ -75,8 +75,11 @@ def parse_equipment(s, page):
             if '. ' in wname:                 # "extra reloads. Individuals may instead have …" — the first sentence is gear
                 head, wname = wname.split('. ', 1)
                 gear.append(head[:1].upper() + head[1:])
+            lead = re.match(r'^(.*\b(?:may|might|can)\b.*?\b(?:have|carry|wield|use))\s+(?:an?\s+|the\s+|weapons?\s+such\s+as\s+)?(.+)$', wname)
+            if lead:                          # "Individuals … may instead have light repeating blasters": the weapon is the last part
+                wname = lead.group(2)
             w = {'n': wname[:1].upper() + wname[1:], 'sk': parts[0]}
-            extra = []
+            extra = [lead.group(1)[:1].upper() + lead.group(1)[1:] + ' this'] if lead else []
             for p in parts[1:]:
                 d = re.match(r'^Damage\s*(\+?\d+)$', p)
                 c = re.match(r'^Critical\s*(\d+|[-—–])$', p)
