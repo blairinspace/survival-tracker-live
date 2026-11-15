@@ -774,6 +774,55 @@ print('\n=== SMOKE TEST — UI code paths ===');
       showTab('enc'); encEnd(); if(Object.keys(S.ship.patched).length) throw new Error('patches should reset after the fight');
       print(`  ship systems: energy 0–5 and condition change damage, Setback, upgrades, speed and shields; overload, thin air, criticals and heavy hits damage systems; one emergency patch each`);
       S = keepS; setRolls(ROLLS.filter(e=>!(e.ts>=6001 && e.ts<=6003))); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', vtgt:'', cat:'offense', lastMode:'' }); poolClear(); gmMode(false); showTab('tracker'); }
+    // Space range map: comes and goes with ship combat, ships only, a token's ring and bearing are its range and arc
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
+      mapSetSrc('img/maps/cantina.png'); mapTokenSet('c_cal', 0.3, 0.3); encStart('ship'); if(!mapOn() || !S.map.sp || S.map.src!==SPACE_MAP || S.map.t_c_cal) throw new Error('ship combat should put the range map on the table');
+      if(mapTokenKeys().join()!=='m') throw new Error('only the Mantis should have a token before any ship arrives: '+mapTokenKeys()); if(mapPos('m').x!==0.5 || mapPos('m').y!==0.5) throw new Error('the Mantis belongs in the middle');
+      for(const [x, y, band, arc] of [[0.5,0.47,'Close','fore'],[0.5,0.3,'Short','fore'],[0.74,0.5,'Medium','stbd'],[0.17,0.5,'Long','port'],[0.5,0.9,'Long','aft'],[0.05,0.5,'Extreme','port'],[0.92,0.08,'Extreme','stbd'],[0.6,0.7,'Short','aft']])
+        if(spaceBand({x,y})!==band || spaceArc({x,y})!==arc) throw new Error(`(${x},${y}) should be ${band} ${arc}, got ${spaceBand({x,y})} ${spaceArc({x,y})}`);
+      const tie = encAddShip(SHIPS_DB.findIndex(s=>/TIE\/IN Interceptor/.test(s.n)), 2), isd = encAddShip(SHIPS_DB.findIndex(s=>/Star Destroyer/.test(s.n)), 1), T = S.enc[tie], D = S.enc[isd];
+      if(mapTokenKeys().join()!==['m',tie,isd].join() || mapTokenKeys().some(k=>k[0]==='c')) throw new Error('space tokens should be the Mantis and the ships, no crew');
+      for(const rng of SHIP_BANDS) for(const arc of Object.keys(SHIP_ARCS)){ encShipSet(tie,'rng',rng); encShipSet(tie,'arc',arc); const p = spacePos(tie); if(p.x<0 || p.x>1 || p.y<0 || p.y>1 || spaceBand(p)!==rng) throw new Error(`a token for ${rng} ${arc} should sit in that band: ${JSON.stringify(p)} reads ${spaceBand(p)}`); if(rng!=='Extreme' && spaceArc(p)!==arc) throw new Error(`a token for ${rng} ${arc} should sit in that arc`); }
+      encShipSet(tie,'rng','Medium'); encShipSet(tie,'arc','fore'); encShipSet(isd,'rng','Medium'); encShipSet(isd,'arc','fore'); const p1 = spacePos(tie), p2 = spacePos(isd); if(p1.x===p2.x && p1.y===p2.y) throw new Error('two ships in the same band and arc should not stack');
+      mapTokenSet(tie, 0.5, 0.3); if(T.rng!=='Short' || T.arc!=='fore' || !S.map['t_'+tie]) throw new Error('dragging a ship should set its range and arc'); mapTokenSet(tie, 0.1, 0.5); if(T.rng!=='Extreme' || T.arc!=='port') throw new Error('dragging to the edge should be Extreme, port');
+      encShipSet(tie,'rng','Close'); if(S.map['t_'+tie] || spaceBand(spacePos(tie))!=='Close') throw new Error('the range picker should move the token');
+      mapTokenSet('c_cal', 0.2, 0.2); mapTokenSet('m', 0.2, 0.2); if(mapPos('m').x!==0.5) throw new Error('the Mantis token should not move');
+      renderEnc(); let mh = document.getElementById('mapToks').innerHTML, bar = document.getElementById('mapBar').innerHTML;
+      if(!/data-k="m"/.test(mh) || !/data-k="v_/.test(mh) || /data-k="c_/.test(mh) || !/<i>2<\/i>/.test(mh) || /Set scale|Ruler|save as scene/.test(bar) || !/Range map/.test(bar) || /undefined|NaN|\[object/.test(mh)) throw new Error('space map layers wrong');
+      if(!/Imperial-Class Star Destroyer <b>Medium<\/b>, fore/.test(document.getElementById('mapInfo').innerHTML)) throw new Error('the range list under the map is missing: '+document.getElementById('mapInfo').innerHTML);
+      gmMode(false); renderEnc(); mh = document.getElementById('mapToks').innerHTML; if(/data-k="v_/.test(mh) || !/data-k="m"/.test(mh)) throw new Error('hidden ships should have no token for players'); gmMode(true);
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); mapTokenSet(isd, 0.8, 0.5); const w2 = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!wire.map.sp || !same(syncSubset(w2).map, syncSubset(S).map) || !w2.map['t_'+isd]) throw new Error('the space map does not survive the wire');
+      encShipDel(isd); if(S.map['t_'+isd]) throw new Error('removing a ship should remove its token');
+      encSet('mode','combat'); if(mapOn()) throw new Error('leaving ship combat should take the range map away'); encSet('mode','ship'); if(!S.map.sp) throw new Error('coming back should bring it back'); encSet('mode','nonsense'); if(S.enc.mode!=='ship') throw new Error('a bad mode should be ignored');
+      encEnd(); if(mapOn()) throw new Error('ending the fight should take the range map away');
+      mapSetSrc('img/maps/cantina.png'); encStart('combat'); if(S.map.sp || S.map.src!=='img/maps/cantina.png') throw new Error('a ground fight should leave the map alone'); encEnd(); if(!mapOn()) throw new Error('ending a ground fight should leave the map up'); mapRemove();
+      print(`  space map: appears with ship combat and leaves with it, the Mantis in the middle and ships only, every range and arc has a place, dragging and the pickers agree`);
+      S = keepS; Object.assign(MAP_UI, { tool:'move', color:0, sel:'', ruler:null, drag:null, asp:0.625, mine:[] }); gmMode(false); showTab('tracker'); }
+    // NPC pictures: automatic by species, by a species in the name, by kind; the GM's own picture wins; redraw after a dropdown
+    { const keepS = S; S = freshState(); showTab('gm'); gmMode(true); gmSec('npcs');
+      const st1 = npcNew(ADV_DB.findIndex(a=>a.n==='Imperial Stormtrooper')), dr = npcNew(ADV_DB.findIndex(a=>a.grp==='Droids')), cr = npcNew(ADV_DB.findIndex(a=>a.grp==='Creatures')), bl = npcNew();
+      const named = ADV_DB.findIndex(a=>/^(Chiss|Bith|Gand|Besalisk) /.test(a.n)), nm = npcNew(named), spN = ADV_DB[named].n.split(' ')[0];
+      if(npcPic(st1)!=='img/species/HUMAN.png' || npcPic(bl)!=='img/species/HUMAN.png') throw new Error('a humanoid with no species should default to the Human icon: '+npcPic(st1));
+      if(npcPic(dr)!=='img/species/DROID.png') throw new Error('a droid template should get the Droid icon: '+npcPic(dr)); if(npcPic(cr)!=='') throw new Error('a creature should get no species icon: '+npcPic(cr)+' for '+cr.n);
+      if(npcPic(nm)!==`img/species/${SPECIES_DB.find(s=>s.n===spN).k}.png`) throw new Error(`"${nm.n}" should pick up the ${spN} icon: `+npcPic(nm));
+      npcSetSpecies(bl.id, 'Nautolan'); if(npcPic(bl)!=='img/species/NAUTOLAN.png') throw new Error('the species icon should win over the default');
+      npcSetIcon(bl.id, 'rodian'); if(bl.sp!=='Nautolan' || npcPic(bl)!==`img/species/${SPECIES_DB.find(s=>s.n==='Rodian').k}.png`) throw new Error('borrowing another icon should not change the species: '+npcPic(bl));
+      npcSetImg(bl.id, 'https://example.com/face.png'); if(npcPic(bl)!=='https://example.com/face.png') throw new Error('a link should win'); npcSetImg(bl.id, 'javascript:alert(1)'); npcSetImg(bl.id, 'https://x.y/a.png" onerror="x'); npcSetImg(bl.id, 'http://insecure.example/a.png'); if(bl.img!=='https://example.com/face.png') throw new Error('bad picture links should be refused');
+      const tiny = 'data:image/jpeg;base64,' + 'A'.repeat(400); bl.img = tiny; if(!npcImgOk(tiny) || npcImgOk('data:image/svg+xml;base64,AAAA') || npcImgOk('data:image/jpeg;base64,' + 'A'.repeat(30000)) || npcImgOk('data:text/html;base64,AAAA')) throw new Error('upload format checks wrong');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(wire.npcs.find(n=>n.id===bl.id).img!==tiny || !same(syncSubset(wire).npcs, syncSubset(S).npcs)) throw new Error('NPC pictures do not survive the wire');
+      if(normNpcs([{ img:'javascript:alert(1)' }])[0].img!=='') throw new Error('a bad picture off the wire should be dropped');
+      GM_UI.npc = bl.id; renderGM(); let ed = document.getElementById('gmNpcs').innerHTML; if(!/↺ default/.test(ed) || !ed.includes(tiny) || !/icon from/.test(ed) || /undefined|NaN|\[object/.test(ed)) throw new Error('picture row missing from the editor');
+      npcResetImg(bl.id); if(bl.img || npcPic(bl)!=='img/species/NAUTOLAN.png') throw new Error('reset should return to the species icon'); renderGM(); if(!/automatic/.test(document.getElementById('gmNpcs').innerHTML)) throw new Error('editor should say the picture is automatic');
+      showTab('enc'); encStart('combat'); const k1 = encAddNpc(st1.id, 3), k2 = encAddNpc(bl.id); bl.img = tiny; const k3 = encAddNpc(bl.id); encNpcSet(k1,'hid',0); encNpcSet(k3,'hid',0); encSetInit(k1, 1, 0); mapSetSrc('img/maps/cantina.png');
+      renderEnc(); const all = document.getElementById('encScene').innerHTML + document.getElementById('encOrder').innerHTML + document.getElementById('mapToks').innerHTML;
+      if(!/img\/species\/HUMAN\.png/.test(all) || !all.includes(tiny) || !/url\('img\/species\/HUMAN\.png'\)/.test(all) || !all.includes(`url('${tiny}')`)) throw new Error('pictures should reach the cards, the order and the map tokens');
+      if(S.enc[k2].d.img!=='' || S.enc[k3].d.img!==tiny) throw new Error('an encounter NPC should carry the picture it had when it was added');
+      // the dropdown bug: a control that keeps focus must not stop the Encounter tab redrawing
+      document.activeElement = { tagName:'SELECT' }; if(!isEditing() || isTyping()) throw new Error('a focused dropdown is "editing" but not "typing"');
+      encSet('mode','ship'); const vk = encAddShip(SHIPS_DB.findIndex(s=>/Star Destroyer/.test(s.n)), 1); if(!document.getElementById('encScene').innerHTML.includes('Imperial-Class Star Destroyer')) throw new Error('adding a ship from a dropdown should show it at once');
+      document.activeElement = { tagName:'INPUT', type:'text' }; if(!isTyping()) throw new Error('a text box is typing'); document.activeElement = { tagName:'INPUT', type:'checkbox' }; if(isTyping()) throw new Error('a tick box is not typing'); document.activeElement = null;
+      encEnd(); print(`  NPC pictures: Human by default, Droid for droids, none for creatures, a species named in the name, the GM's icon / link / upload wins and travels into encounters; dropdowns redraw the Encounter tab`);
+      S = keepS; GM_UI.sec = 'species'; GM_UI.npc = ''; gmMode(false); showTab('tracker'); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
