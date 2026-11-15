@@ -383,6 +383,9 @@
   .itemtable .iname{font-weight:600;min-width:150px}
   .itemtable tr.hbrow td{background:rgba(227,179,65,.05)}
   .itemtable select.give{width:auto;padding:2px 4px;font-size:11px}
+  .itemtable td:last-child, .itemtable th:last-child{position:sticky;right:0;background:var(--panel)}   /* → 🎒 stays in view when a narrow window scrolls the table sideways */
+  .itemtable th:last-child{z-index:1}
+  .itemtable tr.hbrow td:last-child{background:linear-gradient(rgba(227,179,65,.05),rgba(227,179,65,.05)),var(--panel)}
   .b-rest{background:#3a1010;color:#ff9c9c}
   .b-hb{background:#4a3a10;color:#ffd97a}
   .hbform{display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;padding:8px;background:var(--panel2);border:1px dashed var(--gold);border-radius:6px}
@@ -398,6 +401,7 @@
     .itemtable td.inl{display:inline-block;width:auto;padding-right:12px;text-align:left}
     .itemtable td.inl::before{content:attr(data-l) " ";color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
     .itemtable td.txt{min-width:0}
+    .itemtable td:last-child{position:static}
   }
   /* GM tab: species browser */
   #gm{display:none}
@@ -1300,7 +1304,7 @@ function newCharState(c){
   const cs = { id:c.id, activity:'light', strain:0, wounds:0, lastTier:0, wasUncon:false, wasDead:false,
     attr:{...c.attr}, encThresh:(c.attr.br||2)+5, invOpen:false, customOpen:false, img:'',
     conds:[], status:null, prevAct:'light', hourAcc:0, sheet:newSheet(c),
-    inv: c.kit.map(k=>({name:k[0], type:k[1], qty:k[2], wt:k[3]})), invV:2 };
+    inv: c.kit.map(k=>Object.assign({name:k[0], type:k[1], qty:k[2], wt:k[3]}, k[1]==='Weapon' || k[1]==='Armor' ? {eq:1} : {})), invV:2 };   // a new character starts with weapons and armor equipped
   if(!c.droid) for(const [kind,qty] of [['Ration', Math.ceil(START_FOOD_DAYS * BUILDS[c.build0].rations)],['Snack',4],['Stim',5]]) cs.inv.push(stockRow(kind, qty));   // food for START_FOOD_DAYS at this build's appetite
   Object.assign(cs, c.droid
     ? { charge:0, maint:0, packsCharged:2, packsDepleted:0, wt:c.id==='alpha'?16:8, st:c.id==='alpha'?14:8 }
@@ -4353,13 +4357,14 @@ function rollLine(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const r = tally(dice), n = (k, v, word) => `${SYM[k][0]} ${v} ${word}${v===1 ? '' : word==='Success' ? 'es' : 's'}`, parts = [];
   if(r.check){
-    parts.push(r.netS>0 ? n('s', r.netS, 'Success') : r.netS<0 ? n('f', -r.netS, 'Failure') : 'no net successes');
-    if(r.netA>0) parts.push(n('a', r.netA, 'Advantage')); if(r.netA<0) parts.push(n('t', -r.netA, 'Threat'));
+    if(e.ini) parts.push(n('s', Math.max(0, r.netS), 'Success'), n('a', Math.max(0, r.netA), 'Advantage'));   // initiative has no difficulty: nothing to pass or fail
+    else { parts.push(r.netS>0 ? n('s', r.netS, 'Success') : r.netS<0 ? n('f', -r.netS, 'Failure') : 'no net successes');
+      if(r.netA>0) parts.push(n('a', r.netA, 'Advantage')); if(r.netA<0) parts.push(n('t', -r.netA, 'Threat')); }
     if(r.x) parts.push(n('x', r.x, 'Triumph')); if(r.y) parts.push(n('y', r.y, 'Despair'));
   }
   if(r.force) parts.push(`${SYM.l[0]} ${r.l} Light`, `${SYM.n[0]} ${r.n} Dark`);
   const w = e.w && typeof e.w==='object' ? e.w : null, hit = w && r.netS>0;
-  return `🎲 <b>${esc(String(e.who||'Player').slice(0,40))}</b>${e.l ? ' — '+esc(String(e.l).slice(0,80)) : ''}: ${r.check ? (r.netS>0 ? '<b>succeeds</b>' : '<b>fails</b>')+' · ' : ''}${parts.join(' · ')}` +
+  return `🎲 <b>${esc(String(e.who||'Player').slice(0,40))}</b>${e.l ? ' — '+esc(String(e.l).slice(0,80)) : ''}: ${r.check && !e.ini ? (r.netS>0 ? '<b>succeeds</b>' : '<b>fails</b>')+' · ' : ''}${parts.join(' · ')}` +
     (hit ? ` · ${esc(String(w.n||'weapon').slice(0,60))} ${numOr(w.dam) + r.netS} damage before ${w.sv ? 'armor' : 'soak'}` : '');
 }
 function postFeed(e){
@@ -4378,11 +4383,12 @@ function clearFeed(){
     CLOUD.db.ref('rooms/'+CLOUD.room+'/rolls').remove().catch(err=>syncNote('Clear failed: '+err.message, 'bad'));
   } else { ROLLS = []; lsSet('st_rolls','[]'); renderFeed(); }
 }
-function resultHtml(dice){
+function resultHtml(dice, ini){   // ini: an initiative roll, which is a count and not a pass or fail
   const r = tally(dice), parts = [];
   const sym = (k, n, word) => `<span class="sym" title="${esc(SYM_TIPS[k])}">${SYM[k][0]} ${n} ${word}${n===1?'':(word==='Success'?'es':'s')}</span>`;
   let head = '';
-  if(r.check){
+  if(r.check && ini){ parts.push(sym('s', Math.max(0, r.netS), 'Success'), sym('a', Math.max(0, r.netA), 'Advantage')); if(r.x) parts.push(sym('x', r.x, 'Triumph')); }
+  else if(r.check){
     head = r.netS>0 ? `<span class="ok">Check succeeded</span> — ` : `<span class="no">Check failed</span> — `;
     parts.push(r.netS>0 ? sym('s', r.netS, 'Success') : r.netS<0 ? sym('f', -r.netS, 'Failure') : `<span class="sym">no net successes</span>`);
     if(r.netA>0) parts.push(sym('a', r.netA, 'Advantage'));
@@ -4420,7 +4426,7 @@ function feedEntryHtml(e){
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
     ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}${e.cnd ? `<div class="rtal">🩺 ${esc(String(e.cnd).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
-    <div class="rres">${resultHtml(dice)}</div></div>`;
+    <div class="rres">${resultHtml(dice, e.ini)}</div></div>`;
 }
 function renderFeed(){
   const el = document.getElementById('diceFeed'); if(!el) return;
@@ -5137,7 +5143,9 @@ function giveItem(key, id){
     else if(it.p>0){ cs.sheet.credits = have - it.p; paid = ` Paid ${cr(it.p)} cr; ${cr(cs.sheet.credits)} left.`; }
   }
   const row = rowFromDb(it), type = row.type;
-  cs.inv.push(row);
+  // another of something already carried joins that row; weapons and armor stay separate (each has its own wear and fittings)
+  const same = !isWeapon(row) && !isArmor(row) && cs.inv.find(x=>!x.auto && x.ref===row.ref && isCarried(x) && !x.eq && !(x.wear>0));
+  if(same) same.qty = (Math.round(+same.qty)||0) + 1; else cs.inv.push(row);
   const d = itemDetails(it);
   logMsg(`🛒 ${cfg(id).name} ${ITEMS_UI.buy ? 'buys' : 'picks up'} <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${esc(paid)}${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
   render();
@@ -6160,7 +6168,7 @@ const ENC_MODES = dict({   // label, hover, the event-log line when it starts
   social: ['💬 Conversation', 'No turn order: NPC cards with dispositions', '💬 A conversation begins.'] });
 function normEnc(e){
   if(!e || typeof e!=='object' || !e.on) return {};
-  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: ENC_MODES[e.mode] ? e.mode : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '' };
+  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: ENC_MODES[e.mode] ? e.mode : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '', t0: Math.max(0, Math.round(+e.t0) || 0) };   // t0: when it began, so older rolls in the feed lose their apply buttons
   const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
   for(const k in e){
     const v = e[k];
@@ -6199,7 +6207,7 @@ function encOrder(all){   // strict initiative order: successes, then advantages
 }
 function encStart(mode){
   if(encOn()) return;
-  S.enc = normEnc({ on:1, mode });
+  S.enc = normEnc({ on:1, t0:Date.now(), mode });
   logMsg(ENC_MODES[S.enc.mode][2]); spaceMapSync();
   render();
 }
@@ -6240,20 +6248,20 @@ function encMe(v){
 }
 function encRecord(k, dice, sk){   // an initiative roll: every success symbol counts (there is no difficulty), advantages break ties
   const t = tally(dice), e = S.enc[k] || (S.enc[k] = {});
-  Object.assign(e, { r:1, s:t.s+t.x, a:t.a, x:t.x, sk }); if(k[0]==='c'){ e.act = e.act||0; e.man = e.man||0; }
+  Object.assign(e, { r:1, s:Math.max(0, t.netS), a:Math.max(0, t.netA), x:t.x, sk });   // net of any Setback a tired or frightened character rolled if(k[0]==='c'){ e.act = e.act||0; e.man = e.man||0; }
 }
 function encRollPC(id, key){
   if(!encOn() || !ENC_SK[key]) return;
   const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===key); if(!sk) return;
   const s = condPool(cs, sk), td = talentDice(cs, key), r = rollDice({ p:s.p, a:s.a, b:Math.min((td.auto||0) + s.m.boost, POOL_MAX), k:Math.min(s.m.setb, POOL_MAX) });
-  if(r) postFeed({ k:'r', who:cfg(id).name, l:`Initiative (${sk.n})`, r });
+  if(r) postFeed({ k:'r', who:cfg(id).name, l:`Initiative (${sk.n})`, r, ini:1 });
   encRecord('c_'+id, parseRoll(r), key); S.enc['c_'+id].out = 0;
   render();
 }
 function encRollNPC(k, key){
   const e = encOn() && S.enc[k]; if(!e || !e.d || !ENC_SK[key]) return;
   const r = rollDice(npcPoolDice(e.d, ENC_SK[key], encAlive(e) || 1) || {});
-  if(r) postFeed({ k:'r', who: e.hid ? 'GM' : encName(k), l:`Initiative (${ENC_SK[key]})`, r });
+  if(r) postFeed({ k:'r', who: e.hid ? 'GM' : encName(k), l:`Initiative (${ENC_SK[key]})`, r, ini:1 });
   encRecord(k, parseRoll(r), key);
   render();
 }
@@ -6281,12 +6289,15 @@ function encNext(){   // the next slot that can still act; past the end, a new r
 function encBack(){
   if(!encOn() || !S.enc.cur) return;
   const order = encOrder(true), e = S.enc; let i = order.indexOf(e.cur);
-  if(i<=0){ if(e.round<=1){ e.cur = ''; render(); return; } e.round--; i = order.length; }
-  e.cur = order[i-1]; render();
+  for(let n=0; n<order.length; n++){   // the previous slot that can still act, as encNext skips the fallen going forward
+    if(i<=0){ if(e.round<=1){ e.cur = ''; break; } e.round--; i = order.length; }
+    i--; if(!encDown(order[i])){ e.cur = order[i]; break; }
+  }
+  render();
 }
 function encAddNpc(libId, count){
   const src = npcGet(libId); if(!src) return null;
-  if(!encOn()){ S.enc = normEnc({ on:1, mode:'combat' }); logMsg('⚔ An encounter begins — roll initiative.'); }
+  if(!encOn()){ S.enc = normEnc({ on:1, t0:Date.now(), mode:'combat' }); logMsg('⚔ An encounter begins — roll initiative.'); }
   if(src.type==='minion' && count==null){ const v = prompt(`How many ${src.n || 'minions'} in this group?`, GM_UI.grp); if(v==null) return null; count = v; }
   const d = JSON.parse(JSON.stringify(src)), same = encNpcKeys().filter(k=>S.enc[k].d.id===libId).length;
   if(same) d.n = `${d.n || 'NPC'} #${same+1}`;
@@ -6496,7 +6507,7 @@ function encHit(w, r){
   return { T, soak, dmg: Math.max(0, numOr(w.dam) + r.netS - soak), stun: /stun (setting|damage)/i.test(String(w.q||'')) };
 }
 function encHitHtml(w, r, e, critOn){
-  const h = encHit(w, r); if(!h || !e) return '';
+  const h = encHit(w, r); if(!h || !e || !encRollLive(e)) return '';
   const ts = Math.round(+e.ts)||0, see = h.T.pc || encIsGM(), done = S.enc['ap_'+ts];
   const unit = h.ship ? (h.ion ? 'system strain' : 'hull trauma') : 'wounds', taken = h.ship ? `after armor ${h.soak}` : `after soak ${h.soak}`;
   return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> ${taken}` : h.ship ? ' — the GM applies armor' : ' — the GM applies soak'}
@@ -6504,9 +6515,10 @@ function encHitHtml(w, r, e, critOn){
     ${critOn && ts && (!h.ship || (h.dmg>0 && !h.ion)) ? ` <button class="mini" onclick="${h.ship ? 'shipCrit' : 'encCrit'}(${ts})" title="${h.ship ? 'Roll d100 on the vehicle critical hit table (+10 per critical the target already has)' : 'Roll d100 for the critical injury (Vicious is added for you)'}">🎲 crit</button>` : ''}
     ${h.linked ? `<small style="display:block;color:var(--dim)">Linked ${h.linked}: spend 2 Advantage per extra hit (up to ${h.linked}), each for the same damage — apply again by hand.</small>` : ''}</span>`;
 }
+const encRollLive = e => !S.enc.t0 || (Math.round(+e.ts)||0) >= S.enc.t0 - 30000;   // rolled in this encounter (half a minute of slack for clocks that disagree)
 const encFeedRoll = ts => ROLLS.find(e=>e && e.k==='r' && Math.round(+e.ts)===ts && e.w);
 function encApply(ts, how){
-  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts]) return;
+  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts] || !encRollLive(e)) return;
   const h = encHit(e.w, tally(parseRoll(e.r))); if(!h) return;
   const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.w.by||e.who||'an attack').slice(0,60))}'s ${esc(String(e.w.n||'attack').slice(0,60))}`;
   if(h.ship){   // planetary scale: hull trauma, or system strain from ion weapons
@@ -6519,8 +6531,8 @@ function encApply(ts, how){
       if(!x.hid) logMsg(`🚀 <b>${esc(h.T.name)}</b> takes ${h.dmg} ${h.ion ? 'system strain' : 'hull trauma'} from ${by}${encDown(key) ? ' and is <b>destroyed</b>' : ''}.`, 'lb'); }
     S.enc['ap_'+ts] = 1; render(); renderFeed(); return;
   }
-  if(key[0]==='n'){ const x = S.enc[key]; if(strain && x.d.type==='nemesis' && x.d.st>0) x.st += h.dmg; else x.w += h.dmg; }   // minions and rivals take strain as wounds
-  else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = (cs.wounds||0) + h.dmg; }
+  if(key[0]==='n'){ const x = S.enc[key]; if(strain && x.d.type==='nemesis' && x.d.st>0) x.st += h.dmg; else x.w = Math.min(x.w + h.dmg, x.d.wt * (x.d.type==='minion' ? x.count : 2)); }   // minions and rivals take strain as wounds
+  else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = Math.min((cs.wounds||0) + h.dmg, cs.wt>0 ? cs.wt*2 : 9999); }   // wounds never pass twice the threshold
   S.enc['ap_'+ts] = 1;
   const hidden = key[0]==='n' && S.enc[key].hid;
   if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : h.dmg===1 ? 'wound' : 'wounds'} from ${by}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
@@ -6865,7 +6877,7 @@ function sceneLoad(id){   // put a saved scene on the table: its map, scale and 
   const busy = mapOn() || (encOn() && (encNpcKeys().length || encShipKeys().length));
   if(busy && !confirm(`Bring “${sc.n || 'this scene'}” to the table? It replaces the current map, and the NPCs and ships in the encounter. (Save the current set-up first if you want it back.)`)) return;
   const old = mapOn() ? S.map.src : '';
-  if(!encOn()){ S.enc = normEnc({ on:1, mode:sc.mode }); logMsg(ENC_MODES[sc.mode][2]); }
+  if(!encOn()){ S.enc = normEnc({ on:1, t0:Date.now(), mode:sc.mode }); logMsg(ENC_MODES[sc.mode][2]); }
   S.enc.mode = sc.mode;   // the scene decides what kind of encounter this is
   for(const k of encNpcKeys().concat(encShipKeys())){ if(S.enc.cur===k) S.enc.cur = ''; delete S.enc[k]; }
   const map = { on:1, src:sc.src, sc:sc.sc, ts:sc.ts, sp:sc.sp };
@@ -6935,7 +6947,7 @@ function shipCondOf(x){   // what the players are told
 const encShipCopies = name => encOn() ? encShipKeys().filter(k=>S.enc[k].d.n.replace(/ #\d+$/,'')===name).length : 0;
 function encAddShip(idx, count){
   const src = idx!=='' && idx!=null && SHIPS_DB ? SHIPS_DB[+idx] : null; if(!src) return null;
-  if(!encOn()){ S.enc = normEnc({ on:1, mode:'ship' }); logMsg(ENC_MODES.ship[2]); spaceMapSync(); }
+  if(!encOn()){ S.enc = normEnc({ on:1, t0:Date.now(), mode:'ship' }); logMsg(ENC_MODES.ship[2]); spaceMapSync(); }
   const small = src.sil<=3;
   if(small && count==null){ const v = prompt(`How many ${src.n}? More than one flies as a squadron: shared hull, one attack, like a minion group.`, 1); if(v==null) return null; count = v; }
   const d = normShip(JSON.parse(JSON.stringify(src))), same = encShipCopies(src.n);
@@ -6963,7 +6975,7 @@ function encShipDel(k){ if(!encOn() || !S.enc[k] || !confirm(`Remove ${encName(k
 function encRollShip(k){   // the crew's initiative: their characteristic with Piloting ranks standing in for Cool / Vigilance
   const x = encOn() && S.enc[k]; if(!x || k[0]!=='v') return;
   const r = rollDice(shipPoolDice(x, 'pil'));
-  if(r) postFeed({ k:'r', who: x.hid ? 'GM' : encName(k), l:'Initiative (crew)', r });
+  if(r) postFeed({ k:'r', who: x.hid ? 'GM' : encName(k), l:'Initiative (crew)', r, ini:1 });
   encRecord(k, parseRoll(r), 'cool');
   render();
 }
