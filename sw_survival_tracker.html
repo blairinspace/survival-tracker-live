@@ -6612,13 +6612,13 @@ function renderMap(){
         <svg id="mapSvg" preserveAspectRatio="none"></svg><div id="mapToks"></div></div><div class="mapinfo" id="mapInfo"></div>` : '');
   }
   const tool = (k, l, tip) => `<button class="chip ${MAP_UI.tool===k?'on':''}" onclick="mapTool('${k}')" title="${tip}">${l}</button>`;
-  const files = (MAPS_DB||[]).filter(mapSrcOk);
+  const files = (MAPS_DB||[]).filter(mapSrcOk).filter(f=>f!==SPACE_MAP);   // the space range map belongs to ship combat, not the ground picker
   const sp = mapOn() && S.map.sp;
   if(sp && !['move','draw'].includes(MAP_UI.tool)) MAP_UI.tool = 'move';
   document.getElementById('mapBar').innerHTML = `<h3>${sp ? '🚀 Range map' : '🗺 Map'}</h3>` + (src ? tool('move','✋ Move', sp ? 'Drag a ship to set its range and arc' : 'Drag tokens. Click one for its range rings.') + (sp ? '' : tool('ruler','📐 Ruler','Drag between two points to read the range band')) + tool('draw','✏️ Draw','Draw on the map for everyone') +
       (MAP_UI.tool==='draw' ? MAP_COLORS.map((c,i)=>`<button class="mapdot ${MAP_UI.color===i?'on':''}" style="background:${c}" onclick="MAP_UI.color=${i};renderMap()" title="Line colour"></button>`).join('') : '') +
       `<button class="mini" onclick="mapUndo()" title="Remove the last line you drew">↶ undo my line</button>` : '') +
-    (gm && sp ? `<span style="margin-left:auto"></span><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')" title="Put every ship back where its range and arc pickers say">reset tokens</button>` : '') +
+    (gm && sp ? `<span style="margin-left:auto"></span><button class="mini atk" onclick="sceneSave()" title="Keep this space battle — every ship with its crew, range and arc — to bring back later from GM › Scenes">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')" title="Put every ship back where its range and arc pickers say">reset tokens</button>` : '') +
     (gm && !sp ? `<span style="margin-left:auto"></span>` + (src ? tool('cal','📏 Set scale','Drag across a distance you call Short range. Every other band follows from it.') +
         `<span title="Token size. It follows the scale (about one person wide); nudge it here if this map needs bigger or smaller tokens." style="font-size:11.5px;color:var(--dim);white-space:nowrap">tokens <button class="mini" onclick="mapTokenSize(-1)">−</button><button class="mini" onclick="mapTokenSize(1)">+</button></span><button class="mini atk" onclick="sceneSave()" title="Keep this map, its scale and lines, and the NPCs in the encounter with their positions, to bring back later from the GM tab">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
       (files.length ? `<select onchange="mapSetSrc(this.value);this.value=''" title="Pictures in the img/maps folder"><option value="">a map from img/maps…</option>${files.map(f=>`<option value="${esc(f)}">${esc(f.replace(/^img\/maps\//,''))}</option>`).join('')}</select>` : '') +
@@ -6630,17 +6630,24 @@ function renderMap(){
 
 /* ================================================================
    SCENES — the GM's saved set-ups, S.scenes (synced whole like the NPC library; survive 🆕 New).
-     { id, n name, src map picture, sc scale, ts token size nudge, mode combat|social, lines [{p, c}],
+     { id, n name, src map picture, sc scale, ts token size nudge, sp space range map, mode combat|ship|social,
+       ships [{ d ship snapshot, count, hid, cr crew, rng, arc, side, spd, pl placed, px, py }], lines [{p, c}],
        npcs [{ d NPC snapshot, count, hid, disp, pl placed, x, y }] }
    Saved from the Encounter tab's map bar; brought back from the GM tab. Character tokens
    are not saved: the party walks in from the edge. An uploaded picture is kept for as long
    as the table or any scene points at it (see mapImgDrop).
    ================================================================ */
+function sceneShips(v){   // the ships of a saved space encounter: profile, crew and position, never damage or initiative
+  v = arrayify(v); if(!Array.isArray(v)) return [];
+  return v.filter(x=>x && typeof x==='object' && x.d && typeof x.d==='object').slice(0,30).map(x=>{ const e = normEnc({ on:1, v_s:x }).v_s;
+    return { d:e.d, count:e.count, hid:e.hid, cr:e.cr, rng:e.rng, arc:e.arc, side:e.side, spd:e.spd, pl:x.pl ? 1 : 0, px:r4(x.px), py:r4(x.py) }; });
+}
 function normScenes(v){
   v = arrayify(v); if(!Array.isArray(v)) return [];
   return v.filter(s=>s && typeof s==='object' && mapSrcOk(s.src)).map(s=>{
     const lines = arrayify(s.lines), npcs = arrayify(s.npcs);
-    return { id: String(s.id || randomId().slice(0,10)), n: typeof s.n==='string' ? s.n.slice(0,60) : '', src: s.src, sc: Math.round(clamp(+s.sc||0, 0, 1)*10000)/10000, ts: Math.round(clamp(+s.ts||1, 0.3, 4)*1000)/1000, mode: s.mode==='social' ? 'social' : 'combat',
+    return { id: String(s.id || randomId().slice(0,10)), n: typeof s.n==='string' ? s.n.slice(0,60) : '', src: s.src, sc: Math.round(clamp(+s.sc||0, 0, 1)*10000)/10000, ts: Math.round(clamp(+s.ts||1, 0.3, 4)*1000)/1000, mode: ENC_MODES[s.mode] ? s.mode : 'combat', sp: s.sp ? 1 : 0,
+      ships: sceneShips(s.ships),
       lines: (Array.isArray(lines) ? lines : []).filter(l=>l && typeof l==='object').map(l=>({ p:arrayify(l.p), c:l.c })).filter(l=>Array.isArray(l.p) && l.p.length>=4).slice(0,150).map(l=>({ p:l.p.slice(0,400).map(r4), c:npcInt(l.c, 0, MAP_COLORS.length-1, 0) })),
       npcs: (Array.isArray(npcs) ? npcs : []).filter(x=>x && typeof x==='object' && x.d && typeof x.d==='object').slice(0,40).map(x=>({ d:normNpcs([x.d])[0], count:npcInt(x.count, 1, 12, 1), hid:x.hid ? 1 : 0, disp:ENC_DISP.includes(x.disp) ? x.disp : '', pl:x.pl ? 1 : 0, x:r4(x.x), y:r4(x.y) })) };
   });
@@ -6651,7 +6658,8 @@ function sceneSave(name){
   if(name==null) name = prompt('Name this scene (for example "Cantina"). Saving under a name that already exists replaces that scene.', '');
   name = String(name||'').trim().slice(0,60); if(!name) return null;
   const m = S.map, e = S.enc || {};
-  const sc = normScenes([{ n:name, src:m.src, sc:m.sc, ts:m.ts, mode:encOn() ? e.mode : 'combat',
+  const sc = normScenes([{ n:name, src:m.src, sc:m.sc, ts:m.ts, sp:m.sp, mode:encOn() ? e.mode : 'combat',
+    ships: (encOn() ? encShipKeys() : []).map(k=>{ const p = m['t_'+k], x = e[k]; return { d:x.d, count:x.count, hid:x.hid, cr:x.cr, rng:x.rng, arc:x.arc, side:x.side, spd:x.spd, pl:p ? 1 : 0, px:p ? p.x : 0, py:p ? p.y : 0 }; }),
     lines: Object.keys(m).filter(k=>k.startsWith('d_')).map(k=>({ p:m[k].p, c:m[k].c })),
     npcs: (encOn() ? encNpcKeys() : []).map(k=>{ const p = m['t_'+k]; return { d:e[k].d, count:e[k].count, hid:e[k].hid, disp:e[k].disp, pl:p ? 1 : 0, x:p ? p.x : 0, y:p ? p.y : 0 }; }) }])[0];
   if(!sc) return null;
@@ -6663,12 +6671,18 @@ function sceneSave(name){
 }
 function sceneLoad(id){   // put a saved scene on the table: its map, scale and lines, and its NPCs where they stood
   const sc = sceneGet(id); if(!sc) return;
-  const busy = mapOn() || (encOn() && encNpcKeys().length);
-  if(busy && !confirm(`Bring “${sc.n || 'this scene'}” to the table? It replaces the current map and the NPCs in the encounter. (Save the current set-up first if you want it back.)`)) return;
+  const busy = mapOn() || (encOn() && (encNpcKeys().length || encShipKeys().length));
+  if(busy && !confirm(`Bring “${sc.n || 'this scene'}” to the table? It replaces the current map, and the NPCs and ships in the encounter. (Save the current set-up first if you want it back.)`)) return;
   const old = mapOn() ? S.map.src : '';
-  if(!encOn()){ S.enc = normEnc({ on:1, mode:sc.mode }); logMsg(sc.mode==='social' ? '💬 A conversation begins.' : '⚔ An encounter begins — roll initiative.'); }
-  for(const k of encNpcKeys()){ if(S.enc.cur===k) S.enc.cur = ''; delete S.enc[k]; }
-  const map = { on:1, src:sc.src, sc:sc.sc, ts:sc.ts };
+  if(!encOn()){ S.enc = normEnc({ on:1, mode:sc.mode }); logMsg(ENC_MODES[sc.mode][2]); }
+  S.enc.mode = sc.mode;   // the scene decides what kind of encounter this is
+  for(const k of encNpcKeys().concat(encShipKeys())){ if(S.enc.cur===k) S.enc.cur = ''; delete S.enc[k]; }
+  const map = { on:1, src:sc.src, sc:sc.sc, ts:sc.ts, sp:sc.sp };
+  for(const x of sc.ships){
+    const k = 'v_'+randomId().slice(0,8);
+    S.enc[k] = normEnc({ on:1, [k]:JSON.parse(JSON.stringify(x)) })[k];
+    if(x.pl) map['t_'+k] = { x:x.px, y:x.py };
+  }
   sc.lines.forEach(l=>{ map['d_'+randomId().slice(0,8)] = { p:l.p, c:l.c, by:'' }; });
   for(const x of sc.npcs){
     const k = 'n_'+randomId().slice(0,8);
@@ -6677,7 +6691,7 @@ function sceneLoad(id){   // put a saved scene on the table: its map, scale and 
   }
   S.map = normMap(map); if(old && old!==sc.src) mapImgDrop(old);
   Object.assign(MAP_UI, { sel:'', ruler:null, mine:[], tool:'move' });
-  logMsg('🗺 A new map is on the table.');
+  logMsg(sc.sp ? '🚀 The scopes light up.' : '🗺 A new map is on the table.');
   render(); showTab('enc');
 }
 function sceneRename(id, v){ const sc = sceneGet(id); if(!sc) return; sc.n = String(v).trim().slice(0,60); scheduleSync(); }
@@ -6690,11 +6704,11 @@ function sceneDel(id){
 function renderScenes(){
   const box = document.getElementById('gmScenes'); if(!box) return;
   const list = S.scenes || [];
-  box.innerHTML = `<p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">A scene is a map with its scale, its drawn lines and the NPCs standing on it. Set one up on the <b style="color:var(--text)">Encounter</b> tab (map, NPCs from the library, tokens dragged into place), then press <b style="color:var(--text)">💾 save as scene</b> on the map bar. Bring it back from here whenever the party arrives.</p>
+  box.innerHTML = `<p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">A scene is a map with its scale, its drawn lines and the NPCs standing on it — or a space battle: the range map with every ship, its crew and its position. Set one up on the <b style="color:var(--text)">Encounter</b> tab (map, NPCs from the library, tokens dragged into place), then press <b style="color:var(--text)">💾 save as scene</b> on the map bar. Bring it back from here whenever the party arrives.</p>
     <div class="scgrid">${list.map(sc=>{ const url = mapUrl(sc.src), placed = sc.npcs.filter(x=>x.pl).length;
       return `<div class="sccard"><div class="thumb" ${url ? `style="background-image:url('${esc(url).replace(/'/g,'%27')}')"` : ''}>${url ? '' : 'fetching the picture…'}</div><div class="body">
         <input type="text" value="${esc(sc.n)}" placeholder="scene name" onchange="sceneRename('${sc.id}',this.value)">
-        <small>${sc.npcs.length ? `${sc.npcs.length} NPC${sc.npcs.length===1?'':'s'}${placed<sc.npcs.length ? ` (${placed} placed)` : ''}: ${esc(sc.npcs.map(x=>(x.d.n||'unnamed')+(x.count>1?' ×'+x.count:'')).join(', '))}` : 'no NPCs'} · ${sc.sc>0 ? 'scale set' : 'no scale yet'}${sc.lines.length ? ` · ${sc.lines.length} line${sc.lines.length===1?'':'s'}` : ''} · ${sc.mode==='social' ? 'conversation' : 'combat'}</small>
+        <small>${sc.ships.length ? `${sc.ships.length} ship${sc.ships.length===1?'':'s'}: ${esc(sc.ships.map(x=>(x.d.n||'ship')+(x.count>1?' ×'+x.count:'')+' ('+x.rng.toLowerCase()+')').join(', '))} · ` : ''}${sc.npcs.length ? `${sc.npcs.length} NPC${sc.npcs.length===1?'':'s'}${placed<sc.npcs.length ? ` (${placed} placed)` : ''}: ${esc(sc.npcs.map(x=>(x.d.n||'unnamed')+(x.count>1?' ×'+x.count:'')).join(', '))}` : sc.ships.length ? 'no NPCs' : 'no NPCs'} · ${sc.sp ? 'range map' : sc.sc>0 ? 'scale set' : 'no scale yet'}${sc.lines.length ? ` · ${sc.lines.length} line${sc.lines.length===1?'':'s'}` : ''} · ${sc.mode==='social' ? 'conversation' : sc.mode==='ship' ? 'ship combat' : 'combat'}</small>
         <div class="row"><button class="primary" onclick="sceneLoad('${sc.id}')" title="Put this map on the table with its NPCs where you left them">▶ bring to the table</button><span style="margin-left:auto"></span><button class="mini" onclick="sceneDel('${sc.id}')" title="Delete this saved scene">✕ delete</button></div></div></div>`; }).join('')}</div>
     ${list.length ? '' : `<p style="color:var(--dim);font-size:12px">No scenes saved yet.</p>`}`;
 }
