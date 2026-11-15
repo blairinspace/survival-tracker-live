@@ -1178,18 +1178,54 @@ const SENSOR_RANGES = [
 ];
 const sensorRangeFor = e => (SENSOR_RANGES.find(r=>r.energy===clamp(e,0,SHIP_ENERGY_MAX))||SENSOR_RANGES[2]).name;
 
-/* Overcharge: routing a system to full energy (SHIP_ENERGY_MAX) grants a characteristic bonus.
-   dmg → weapon damage · speed/handling → core stats · defense → shield dice to distribute by arc.
-   Sensors' payoff is its range (above); Life Support has no overcharge bonus. */
-const SHIP_ENERGY_BONUS = {
-  blasters:  {dmg:2,                label:'+2 damage (Heavy Blaster Cannon)'},
-  ordnance:  {dmg:2,                label:'+2 damage (Proton Torpedo)'},
-  heavyguns: {dmg:2,                label:'+2 damage (Laser Cannon · Turbolaser)'},
-  engines:   {speed:1, handling:1,  label:'+1 Speed · +1 Handling'},
-  hyperdrive:{jump:'Class ½',       label:'Improved jump — hyperdrive Class 1 → ½ (≈ half travel time)'},
-  shields:   {defense:2,            label:'+2 defense dice to distribute by arc'}
-};
-const overcharged = id => S.ship.energy[id]===SHIP_ENERGY_MAX && !!SHIP_ENERGY_BONUS[id];
+/* What energy and condition do in a fight (homebrew, agreed 2026-11-15). Energy: 2 is normal, every
+   point above gives +1 of that system's benefit, every point below costs something. Condition:
+   Worn adds Setback, Damaged and Failing add Setback and upgrade the difficulty, Offline is unusable.
+   Everything that reads these goes through weaponFx / engineFx / shieldFx / lifeLevel, so the Mantis
+   tab, the Encounter tab and the dice always agree. */
+const WEAPON_SYS = ['blasters','ordnance','heavyguns'];
+const SHIP_ENERGY_FX = {   // one line per energy level 0–5
+  weapons:     ['cannot fire', '1 Setback on attacks', '', '+1 damage', '+2 damage', '+3 damage'],
+  engines:     ['speed 0, no maneuvers', 'top speed halved, −1 handling', '', '+1 handling', '+1 handling, +1 speed', '+2 handling, +1 speed'],
+  shields:     ['defense 0 on every arc', '−1 defense on every arc', '', '+1 defense die to place', '+2 defense dice to place', '+3 defense dice to place (4 per arc at most)'],
+  lifesupport: ['1 Setback on all crew checks, and 1 strain a round to everyone who breathes', '1 Setback on crew checks during Evasive Maneuvers or Punch It', '', '', '', ''],
+  hyperdrive:  ['cannot jump; one round per point to spool back up', '+1 round to jump', '', '', '', 'Class ½ jump (about half the travel time)'] };
+const energyFxLabel = (id, e) => (SHIP_ENERGY_FX[WEAPON_SYS.includes(id) ? 'weapons' : id] || [])[clamp(e, 0, SHIP_ENERGY_MAX)] || '';
+const shipE = id => clamp(+S.ship.energy[id]||0, 0, SHIP_ENERGY_MAX);
+const shipV = id => clamp(+S.ship.systems[id]||0, 0, 5);
+const overcharged = id => shipE(id)===SHIP_ENERGY_MAX;
+const condSetback = v => v>=4 ? 0 : v===3 ? 1 : 2;
+const condUpgrade = v => v===2 ? 1 : v===1 ? 2 : 0;
+const condNote = id => { const v = shipV(id); return v>3 || v<=0 ? '' : `${sysName(id)} ${shipCond(v).name}: ${condSetback(v)} Setback${condUpgrade(v) ? `, difficulty upgraded ${condUpgrade(v)===2 ? 'twice' : 'once'}` : ''}`; };
+const shipOverloaded = () => S.ship.strain > S.ship.strainThr;   // past the system strain threshold: no engines, weapons or shields
+function weaponFx(sys){
+  const e = shipE(sys), v = shipV(sys), over = shipOverloaded();
+  return { ok: e>0 && v>0 && !over, why: over ? "the ship's systems are overloaded" : e<=0 ? `${sysName(sys)} has no power` : v<=0 ? `${sysName(sys)} is offline` : '',
+    dmg: Math.max(0, e - SHIP_ENERGY_DEFAULT), setb: (e===1 ? 1 : 0) + condSetback(v), up: condUpgrade(v), notes: [e===1 ? `${sysName(sys)} under-powered: 1 Setback` : '', condNote(sys)].filter(Boolean) };
+}
+function engineFx(){
+  const e = shipE('engines'), v = shipV('engines');
+  let max = SHIP.speed + (e>=4 ? 1 : 0); if(e===1) max = Math.floor(max/2);
+  max -= v===2 ? 1 : v===1 ? 2 : 0;
+  max = (e===0 || v===0 || shipOverloaded()) ? 0 : Math.max(1, max);
+  return { max, hnd: SHIP.handling + (e>=5 ? 2 : e>=3 ? 1 : 0) - (e===1 ? 1 : 0), setb: condSetback(v), up: condUpgrade(v) };
+}
+function shieldFx(){
+  const e = shipE('shields'), v = shipV('shields');
+  return { off: e===0 || v===0 || shipOverloaded(), pen: (e===1 ? 1 : 0) + (v===2 ? 1 : v===1 ? 2 : 0), dice: v>=4 ? Math.max(0, e - SHIP_ENERGY_DEFAULT) : 0 };
+}
+function shieldBoosts(){   // the placed boost dice, never more in total than the shields can feed right now
+  const fx = shieldFx(), out = noBoost(); let left = fx.off ? 0 : fx.dice;
+  for(const a of Object.keys(out)){ const n = Math.min(left, Math.max(0, +(S.ship.shieldBoost||{})[a]||0)); out[a] = n; left -= n; }
+  return out;
+}
+const mantisDef = arc => { const fx = shieldFx(); return fx.off ? 0 : clamp((+S.ship.defense[arc]||0) + shieldBoosts()[arc] - fx.pen, 0, 4); };
+function lifeLevel(){ const v = shipV('lifesupport'); return v===0 ? 0 : Math.max(0, shipE('lifesupport') - (v<=2 ? 1 : 0)); }   // a Damaged or Failing plant behaves one energy level lower
+function crewSetback(id){   // thin air and failing dampers: Setback on a crew member's checks (droids do not care)
+  const c = cfg(id); if(!c || c.droid) return 0;
+  const l = lifeLevel(); return l===0 ? 1 : (l===1 && (S.ship.ev>0 || S.ship.pun)) ? 1 : 0;
+}
+function shipSettle(){ const sh = S.ship; sh.shieldBoost = shieldBoosts(); sh.cspd = Math.min(sh.cspd||0, engineFx().max); }   // after energy or condition changes
 
 // tph = fuel tons/hour. On a full tank (SHIP.fuelCap): ~55 days of continuous sublight
 // cruising, ~100 hrs in hyperspace — the Rules tab derives the exact figures.
@@ -1216,10 +1252,10 @@ const SHIP_SYSTEMS = [
 /* Condition ladder 5 (Pristine) → 0 (Offline). fx = GM-facing effect at that rating;
    repair = difficulty of the Mechanics check to restore ONE pip from this rating. */
 const SHIP_COND = [
-  {v:0, name:'Offline',  color:'#a40000', repair:'Formidable ◆◆◆◆◆ (may need parts)', fx:'System unusable until repaired.'},
-  {v:1, name:'Failing',  color:'#ff2e2e', repair:'Daunting ◆◆◆◆',  fx:'Downgrade the ability twice; risk of unexpected failure on use.'},
-  {v:2, name:'Damaged',  color:'#f85149', repair:'Hard ◆◆◆',       fx:'+2 Setback ■■ and downgrade the ability once.'},
-  {v:3, name:'Worn',     color:'#d29922', repair:'Average ◆◆',      fx:'+1 Setback ■ to related checks.'},
+  {v:0, name:'Offline',  color:'#a40000', repair:'Formidable ◆◆◆◆◆ (may need parts)', fx:'Unusable until repaired; energy routed to it is wasted. Engines: speed 0. Shields: defense 0.'},
+  {v:1, name:'Failing',  color:'#ff2e2e', repair:'Daunting ◆◆◆◆',  fx:'+2 Setback ■■ and the difficulty upgraded twice on checks using it; a Despair takes it Offline. Engines: −2 top speed. Shields: −2 defense on every arc.'},
+  {v:2, name:'Damaged',  color:'#f85149', repair:'Hard ◆◆◆',       fx:'+2 Setback ■■ and the difficulty upgraded once on checks using it. Engines: −1 top speed. Shields: −1 defense on every arc.'},
+  {v:3, name:'Worn',     color:'#d29922', repair:'Average ◆◆',      fx:'+1 Setback ■ on checks using it. Shields: no boost dice.'},
   {v:4, name:'Good',     color:'#9acd32', repair:'Easy ◆',          fx:'Fully operational.'},
   {v:5, name:'Pristine', color:'#3fb950', repair:'—',               fx:'Fully operational.'}
 ];
@@ -1247,7 +1283,7 @@ function freshShip(){
     energy:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,SHIP_ENERGY_DEFAULT])), reserve:0,
     shieldBoost:noBoost(),
     ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'',
-    cspd:0, ev:0, sot:0, pm:0, hullFix:0, crits:[] };   // combat: current speed, Evasive Maneuvers / Stay on Target (turns left), Pilot Only maneuvers this round, hull repair used this fight
+    cspd:0, ev:0, sot:0, pm:0, hullFix:0, crits:[], pun:0, heavy:1, patched:{} };   // pun: Punched It this round · heavy: big hits damage systems · patched: emergency patches tried this fight   // combat: current speed, Evasive Maneuvers / Stay on Target (turns left), Pilot Only maneuvers this round, hull repair used this fight
 }
 const noBoost   = () => ({fore:0, port:0, stbd:0, aft:0});
 const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
@@ -1982,13 +2018,13 @@ function shipRefuel(){
 function setShipFuel(v){ S.ship.fuel = clamp(+(parseFloat(v)||0), 0, SHIP.fuelCap); render(); }
 function repairSys(id, d){
   const sh = S.ship, before = sh.systems[id];
-  sh.systems[id] = clamp(before + d, 0, 5);
+  sh.systems[id] = clamp(before + d, 0, 5); shipSettle();
   if(sh.systems[id]===before){ render(); return; }
   if(d>0){ sh.sysHrs[id]=0; logMsg(`🔧 Mantis ${sysName(id)} repaired to ${shipCond(sh.systems[id]).name} (${sh.systems[id]}/5).`,'lg'); }
   else logMsg(`💥 Mantis ${sysName(id)} damaged to ${shipCond(sh.systems[id]).name} (${sh.systems[id]}/5).`,'lb');
   render();
 }
-function shipAdj(k, d){ const sh=S.ship; sh[k]=Math.max(0, sh[k]+d); render(); }
+function shipAdj(k, d){ const sh=S.ship; if(!['hull','strain'].includes(k)) return; sh[k]=Math.max(0, (sh[k]||0)+d); shipSettle(); render(); }
 function setShipThr(k, v){ S.ship[k]=Math.max(0, parseInt(v)||0); render(); }
 function setDef(arc, v){ S.ship.defense[arc]=Math.max(0, parseInt(v)||0); render(); }
 function fireTorp(){
@@ -2020,16 +2056,17 @@ function energyAdj(id, d){
     if(sh.energy[id]<=0) return;
     sh.energy[id]--; sh.reserve++;
   }
-  if(id==='shields' && sh.energy.shields!==SHIP_ENERGY_MAX) sh.shieldBoost=noBoost();
-  const m = energyWearMult(sh.energy[id]), bonus = overcharged(id) ? ` · ⚡overcharged: ${SHIP_ENERGY_BONUS[id].label}` : '';
+  shipSettle();
+  const m = energyWearMult(sh.energy[id]), fxl = energyFxLabel(id, sh.energy[id]), bonus = fxl ? ` · ⚡ ${fxl}` : '';
   logMsg(`⚡ ${sysName(id)} energy ${sh.energy[id]} (wear ×${m.toFixed(2)})${id==='sensors'?` · sensor range ${sensorRangeFor(sh.energy.sensors)}`:''}${bonus} · reserve ${sh.reserve}.`);
   render();
 }
 function shieldBoostAdj(arc, d){
   const sh = S.ship;
-  if(sh.energy.shields!==SHIP_ENERGY_MAX){ logMsg('🛡 Route Shields to full energy first to gain distributable defense.','lw'); return; }
-  const cap = SHIP_ENERGY_BONUS.shields.defense;
-  if(d>0){ if(boostUsed(sh)>=cap){ logMsg(`🛡 All ${cap} shield-boost dice are already assigned.`,'lw'); return; } sh.shieldBoost[arc]++; }
+  const fx = shieldFx(), cap = fx.off ? 0 : fx.dice;
+  if(!cap){ logMsg('🛡 Route more than the default energy to healthy Shields first: each point above it gives one defense die to place.','lw'); return; }
+  sh.shieldBoost = shieldBoosts();
+  if(d>0){ if(mantisDef(arc)>=4){ logMsg('🛡 That arc is already at 4 defense, the most a shield can hold.','lw'); return; } if(boostUsed(sh)>=cap){ logMsg(`🛡 All ${cap} shield-boost dice are already assigned.`,'lw'); return; } sh.shieldBoost[arc]++; }
   else { if(sh.shieldBoost[arc]<=0) return; sh.shieldBoost[arc]--; }
   render();
 }
@@ -2471,10 +2508,9 @@ function renderShip(){
   const burn = SHIP_ACTS[sh.activity].tph;
   const endurance = burn>0 ? ` · ~${(sh.fuel/burn).toFixed(1)} hrs (${(sh.fuel/burn/24).toFixed(1)} days) at current burn` : ' · no burn while docked';
 
-  const spdBonus = overcharged('engines')?SHIP_ENERGY_BONUS.engines.speed:0;
-  const hdlBonus = overcharged('engines')?SHIP_ENERGY_BONUS.engines.handling:0;
+  const efx = engineFx(), spdBonus = efx.max - SHIP.speed, hdlBonus = efx.hnd - SHIP.handling;   // energy and condition, up or down
   const statBar = [['Silhouette',SHIP.silhouette,0],['Speed',SHIP.speed,spdBonus],['Armor',SHIP.armor,0],['Handling',SHIP.handling,hdlBonus],['Hard Points',SHIP.hardpoints,0]]
-    .map(([l,v,b])=>`<div class="stat"><div class="sv"${b?' style="color:var(--gold)"':''}>${v+b}${b?`<span class="sbonus">+${b}</span>`:''}</div><div class="sl">${l}</div></div>`).join('');
+    .map(([l,v,b])=>`<div class="stat"><div class="sv"${b?` style="color:var(--${b>0?'gold':'bad'})"`:''}>${v+b}${b?`<span class="sbonus"${b<0?' style="color:var(--bad)"':''}>${b>0?'+':''}${b}</span>`:''}</div><div class="sl">${l}</div></div>`).join('');
 
   const gauge = (label, cur, thr, key, thrKey) => {
     const pct = thr>0 ? clamp(cur/thr*100,0,100) : 0;
@@ -2486,12 +2522,12 @@ function renderShip(){
     </div>`;
   };
 
-  const def = sh.defense, shields5 = overcharged('shields');
+  const def = sh.defense, sfx = shieldFx(), shields5 = !sfx.off && sfx.dice>0, boosts = shieldBoosts();
   const defCell = (arc, label) => {
-    const bst = shields5 ? sh.shieldBoost[arc] : 0, eff = def[arc]+bst;
+    const bst = boosts[arc], eff = mantisDef(arc);
     return `<div class="defcell">
       <div class="dl">${label}</div>
-      <div class="dv"${bst?' style="color:var(--gold)"':''}>${eff}</div>
+      <div class="dv"${eff>def[arc]?' style="color:var(--gold)"':eff<def[arc]?' style="color:var(--bad)"':''} title="Defense in a fight: base, plus boost dice, less any penalty from low energy or shield damage (4 at most)">${eff}</div>
       <input type="number" value="${def[arc]}" onchange="setDef('${arc}',this.value)" title="Base defense">
       ${shields5?`<div class="bst"><button class="mini" onclick="shieldBoostAdj('${arc}',-1)">−</button><span>+${bst}</span><button class="mini" onclick="shieldBoostAdj('${arc}',1)">+</button></div>`:''}
     </div>`;
@@ -2501,10 +2537,10 @@ function renderShip(){
     ${mid}${defCell('fore','Fore ▲')}${mid}
     ${defCell('port','◀ Port')}<div class="defcell mid"><div class="shipnav">🚀</div></div>${defCell('stbd','Stbd ▶')}
     ${mid}${defCell('aft','Aft ▼')}${mid}
-  </div>${shields5?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--gold)">⚡ Shields overcharged: +${SHIP_ENERGY_BONUS.shields.defense} defense to distribute (${boostUsed(sh)}/${SHIP_ENERGY_BONUS.shields.defense} assigned)</div>`:''}`;
+  </div>${shields5?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--gold)">⚡ Shields boosted: +${sfx.dice} defense to distribute (${Object.values(boosts).reduce((a,b)=>a+b,0)}/${sfx.dice} assigned)</div>`:''}${sfx.off?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--bad)">Shields are down: no defense on any arc.</div>`:sfx.pen?`<div class="cfx" style="text-align:center;margin-top:6px;color:var(--bad)">Shields weakened: −${sfx.pen} defense on every arc.</div>`:''}`;
 
   const cargoWt = holdWeight('cargo'), cargoOver = Math.max(0, Math.ceil(cargoWt) - SHIP.encumbrance);
-  const hyperDisp = overcharged('hyperdrive') ? `${SHIP_ENERGY_BONUS.hyperdrive.jump} · backup ⚡` : SHIP.hyperdrive;
+  const hyperDisp = overcharged('hyperdrive') ? `Class ½ · backup ⚡` : SHIP.hyperdrive;
   const sysInfo = [['Hyperdrive',hyperDisp],['Navicomputer',SHIP.navicomputer],['Sensor Range',sensorRangeFor(sh.energy.sensors)],['Passengers',SHIP.passengers],['Consumables',SHIP.consumables],['Encumbrance',`<span style="color:${cargoOver>0?'var(--bad)':'var(--text)'}">${cargoWt.toFixed(1)}</span> / ${SHIP.encumbrance}`]]
     .map(([l,v])=>`<span class="si">${l}: <b>${v}</b></span>`).join('');
 
@@ -2517,8 +2553,8 @@ function renderShip(){
     const sensorSel = s.id==='sensors'
       ? `<div class="enrow"><span class="enlbl">📡 Range</span><select class="rangesel" onchange="setSensorRange(this.value)" title="Sensor range draws on this system's energy allocation">${SENSOR_RANGES.map(r=>`<option value="${r.name}" ${sensorRangeFor(e)===r.name?'selected':''}>${r.name} · ⚡${r.energy}</option>`).join('')}</select></div>`
       : '';
-    const bonus = SHIP_ENERGY_BONUS[s.id];
-    const boostLine = (e===SHIP_ENERGY_MAX && bonus) ? `<div class="boostline">⚡ Overcharged: ${bonus.label}</div>` : '';
+    const fxl = energyFxLabel(s.id, e);
+    const boostLine = fxl ? `<div class="boostline"${e<SHIP_ENERGY_DEFAULT?' style="color:var(--bad)"':''}>⚡ ${e<SHIP_ENERGY_DEFAULT?'Under-powered':'Boosted'}: ${fxl}</div>` : '';
     return `<div class="syscard${v<=0?' off':''}">
       <div class="sh"><span class="sn">${s.icon} ${s.name}</span><span class="tierbadge" style="background:${cd.color};color:#000;font-size:9px;padding:1px 6px">${cd.name} ${v}</span></div>
       <div class="saff">${s.affects}</div>
@@ -2542,9 +2578,9 @@ function renderShip(){
 
   const weaponRows = SHIP_WEAPONS.map(g=>{
     const v = sh.systems[g.system], cd = shipCond(v);
-    const dmgBonus = overcharged(g.system) ? (SHIP_ENERGY_BONUS[g.system].dmg||0) : 0;
+    const wfx = weaponFx(g.system), dmgBonus = wfx.dmg;
     const ammo = g.ammo ? ` &nbsp;·&nbsp; 🚀 <b>${sh.ammo}</b> loaded <button class="mini" onclick="fireTorp()">fire</button> <button class="mini" onclick="reloadTorp()">reload</button> <input type="number" min="0" value="${sh.ammo}" style="width:44px" onchange="setAmmo(this.value)" title="Torpedoes loaded">` : '';
-    const oc = dmgBonus ? ` <span class="ocbadge">⚡ +${dmgBonus} dmg</span>` : '';
+    const oc = (dmgBonus ? ` <span class="ocbadge">⚡ +${dmgBonus} dmg</span>` : '') + (!wfx.ok ? ` <span class="ocbadge" style="color:var(--bad);border-color:var(--bad)">cannot fire: ${wfx.why}</span>` : wfx.notes.length ? ` <span style="color:var(--warn);font-size:11px">${wfx.notes.join(' · ')}</span>` : '');
     const head = `<tr><td colspan="5"><span class="grp">${g.group}</span> <span class="tierbadge" style="background:${cd.color};color:#000;font-size:9px;padding:1px 6px">${cd.name} ${v}</span>${oc}${ammo}</td></tr>`;
     const rows = g.items.map(w=>`<tr><td style="padding-left:14px">${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td${dmgBonus?' style="color:var(--gold)"':''}>${w.dmg+dmgBonus}${dmgBonus?` <span class="sbonus">+${dmgBonus}</span>`:''}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('');
     return head + rows;
@@ -5196,9 +5232,10 @@ function buildRules(){
   <p>Every system starts at the same <b>default draw of ${SHIP_ENERGY_DEFAULT}</b> (of a max ${SHIP_ENERGY_MAX}). Pull points off a system with its <b>−</b> button to bank them in the <b>reserve pool</b>, then route the reserve into other systems with <b>+</b>. Total energy is conserved — the ↺ balance button restores the default split. Energy changes how fast a system wears: each point <b>above</b> default multiplies its wear rate by <b>+${ENERGY_WEAR_SLOPE*100}%</b>, each point <b>below</b> slows it by the same, and a fully <b>starved (0) system doesn't wear at all</b>.</p>
   <table><tr><th>Energy</th><th>Wear rate</th><th>Sensors &amp; Comms range</th></tr>${[0,1,2,3,4,5].map(e=>`<tr><td>${e}${e===SHIP_ENERGY_DEFAULT?' (default)':''}</td><td>×${energyWearMult(e).toFixed(2)}</td><td>${sensorRangeFor(e)}</td></tr>`).join('')}</table>
   <p><b>📡 Sensor range</b> is driven by the energy fed to <b>Sensors &amp; Comms</b> — pick a range from its dropdown and the ship draws (or frees) the needed reserve energy automatically. Reaching for <b>Long</b> or <b>Extreme</b> means starving other systems to feed the sensors, and running them that hot wears them faster.</p>
-  <p><b>⚡ Overcharge bonuses:</b> route a system all the way to <b>${SHIP_ENERGY_MAX} energy</b> and it grants a characteristic bonus (on top of the faster wear). The bonus applies while the system is held at max; drop it and the bonus is lost. Feeding one system to ${SHIP_ENERGY_MAX} costs ${SHIP_ENERGY_MAX-SHIP_ENERGY_DEFAULT} points pulled from the rest of the ship, so overcharging is a deliberate trade.</p>
-  <table><tr><th>System at ${SHIP_ENERGY_MAX} energy</th><th>Overcharge bonus</th></tr>${SHIP_SYSTEMS.filter(s=>SHIP_ENERGY_BONUS[s.id]).map(s=>`<tr><td>${s.icon} ${s.name}</td><td>${SHIP_ENERGY_BONUS[s.id].label}</td></tr>`).join('')}</table>
-  <p>The Shields bonus is <b>${SHIP_ENERGY_BONUS.shields.defense} defence dice you distribute across the four arcs</b> on the defense diagram; the Engines Speed/Handling bonus shows live in the core stat bar, the Hyperdrive jump improvement shows in the Condition panel, and weapon-damage bonuses show in the weapons table. (Sensors' payoff is its extended range; Life Support has no overcharge bonus.)</p>
+  <p><b>⚡ Energy in a fight:</b> <b>${SHIP_ENERGY_DEFAULT}</b> is normal. Every point <b>above</b> it gives that system +1 of what it does (on top of the faster wear); every point <b>below</b> costs something, so cutting power is no longer free. A system at ${SHIP_ENERGY_MAX} has taken ${SHIP_ENERGY_MAX-SHIP_ENERGY_DEFAULT} points from the rest of the ship.</p>
+  <table><tr><th>Energy</th><th>🔫 Weapon groups</th><th>🔧 Engines</th><th>🛡 Shields</th><th>🫧 Life Support</th><th>🌀 Hyperdrive</th></tr>${[0,1,2,3,4,5].map(e=>`<tr><td>${e}${e===SHIP_ENERGY_DEFAULT?' (default)':''}</td>${['weapons','engines','shields','lifesupport','hyperdrive'].map(k=>`<td>${SHIP_ENERGY_FX[k][e] || (e===SHIP_ENERGY_DEFAULT ? 'normal' : '—')}</td>`).join('')}</tr>`).join('')}</table>
+  <p>Shield dice are <b>placed by arc</b> on the defense diagram, and no arc holds more than 4. Engine changes show live in the stat bar, weapon damage in the weapons table, and all of it is applied for you on the Encounter tab. <b>Rerouting in a fight</b> is the engineer's job: up to 2 points as a maneuver, or any amount as an action with an Average Mechanics check (failure moves only 2; each Threat costs 1 system strain). A hyperdrive cut to 0 needs a round per point to spool back up.</p>
+  <p><b>💥 Damage to systems:</b> a critical hit that names a system drops it one pip (two for the Daunting results). With <b>heavy hits</b> switched on (the Mantis strip on the Encounter tab), any single hit of 5 or more hull trauma also drops a random system one pip. In a fight the engineer can try one <b>emergency patch</b> per system: Damage Control at that pip's repair difficulty, upgraded once, restoring one pip, to Worn at best. If system strain passes its threshold, engines, weapons and shields are all down until it is brought back under.</p>
   <h2>🔫 Ship weapons</h2>
   <table><tr><th>Group</th><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${SHIP_WEAPONS.map(g=>g.items.map((w,i)=>`<tr><td>${i===0?g.group:''}</td><td>${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td>${w.dmg}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('')).join('')}</table>
   <p>Weapon groups reference their system's condition (a degraded Heavy Guns system penalizes the Laser Cannon and Turbolaser together). The <b>Proton Torpedo Launcher</b> tracks limited ammo (starts at ${SHIP.torpedoes}) — <b>fire</b> to decrement, <b>reload</b> at port.</p>
@@ -5961,7 +5998,7 @@ function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
   const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
   logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
-  S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0 }); render();   // critical hits stay on the ship until someone repairs them
+  S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0, pun:0, patched:{} }); render();   // critical hits stay on the ship until someone repairs them
 }
 function encSet(k, v){ if(!encOn()) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='title') scheduleSync(); else render(); }
 function encMe(v){
@@ -6002,7 +6039,7 @@ function encNext(){   // the next slot that can still act; past the end, a new r
   const e = S.enc; let i = order.indexOf(e.cur);
   shipPilotTurn(e.cur, 'end');
   for(let n=0; n<order.length; n++){
-    i++; if(i>=order.length){ i = 0; if(e.cur) e.round++; }
+    i++; if(i>=order.length){ i = 0; if(e.cur){ e.round++; shipRoundStart(); } }
     if(!encDown(order[i])){ e.cur = order[i]; if(e.cur[0]==='c'){ e[e.cur].act = 0; e[e.cur].man = 0; } shipPilotTurn(e.cur, 'start'); render(); return; }   // a fresh turn: action and maneuver back
     if(!e.cur) e.cur = order[i];   // so a first slot that is already down still counts as "started"
   }
@@ -6240,6 +6277,8 @@ function encApply(ts, how){
   if(h.ship){   // planetary scale: hull trauma, or system strain from ion weapons
     const f = h.ion ? 'strain' : 'hull';
     if(key==='mantis'){ const sh = S.ship; sh[f] = (sh[f]||0) + h.dmg;
+      if(!h.ion && sh.heavy && h.dmg>=5){ const s = SHIP_SYSTEMS[rollInt(SHIP_SYSTEMS.length)]; shipSysHurt(s.id, 1, `a heavy hit (${h.dmg} hull trauma)`); }
+      shipSettle();
       logMsg(`🚀 The <b>${esc(SHIP.name)}</b> takes ${h.dmg} ${h.ion ? 'system strain' : 'hull trauma'} from ${by}${!h.ion && sh.hull>sh.hullThr ? ' — <b>past its threshold</b>: it suffers a critical hit and is adrift' : h.ion && sh.strain>sh.strainThr ? ' — <b>systems overloaded</b>: speed drops to 0 next round, weapons and shields are down' : ''}.`, 'lb'); }
     else { const x = S.enc[key]; x[h.ion ? 'ss' : 'h'] += h.dmg;
       if(!x.hid) logMsg(`🚀 <b>${esc(h.T.name)}</b> takes ${h.dmg} ${h.ion ? 'system strain' : 'hull trauma'} from ${by}${encDown(key) ? ' and is <b>destroyed</b>' : ''}.`, 'lb'); }
@@ -6652,13 +6691,12 @@ function encRollShip(k){   // the crew's initiative: their characteristic with P
 }
 function shipOwnStrip(){   // the Mantis at a glance; the Mantis tab stays the place to change it
   const sh = S.ship; if(!sh) return '';
-  const boost = sh.energy && sh.energy.shields===SHIP_ENERGY_MAX ? sh.shieldBoost : noBoost();
   const step = (f, label, thr) => `<span>${label} <button class="mini" onclick="shipAdj('${f}',-1)">−</button> <b>${sh[f]}</b>/${thr} <button class="mini" onclick="shipAdj('${f}',1)">+</button></span>`;
   return `<div class="shipstrip"><b>🚀 ${esc(SHIP.name)}</b>${step('hull','Hull',sh.hullThr)}${step('strain','System strain',sh.strainThr)}
     <span>Speed <b>${sh.cspd}</b>/${shipMaxSpeed()}</span>${sh.ev ? `<span class="badge b-man" title="Evasive Maneuvers: attacks against the Mantis, and by it, upgrade their difficulty once">Evasive</span>` : ''}${sh.sot ? `<span class="badge b-act" title="Stay on Target: attacks by the Mantis, and against it, upgrade their ability once">On target</span>` : ''}
-    <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${(sh.defense[a]||0) + (boost[a]||0)}</b>`).join(' · ')}</span><span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b></span>
+    <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${mantisDef(a)}</b>`).join(' · ')}</span>${shipOverloaded() ? `<span class="badge b-nemesis" title="System strain is past its threshold: engines, weapons and shields are down until Damage Control brings it back under">Systems overloaded</span>` : ''}<span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b></span>
     ${(sh.crits||[]).map(c=>`<span class="badge b-nemesis" title="Critical hit (${esc(c.sev)} to repair with Damage Control). Each one adds +10 to the next critical roll.">💥 ${esc(c.n)} <span class="x" onclick="shipCritFix('${esc(c.id)}')" title="Repaired">✕</span></span>`).join('')}
-    <span style="margin-left:auto"></span><button class="mini" onclick="showTab('ship')" title="Hull, strain, shields, energy and crew stations are changed on the Mantis tab">open Mantis tab →</button></div>`;
+    <span style="margin-left:auto"></span>${encIsGM() ? `<label style="font-size:11.5px;color:var(--dim)" title="House rule: any single hit of 5 or more hull trauma also drops a random system one pip"><input type="checkbox" ${sh.heavy?'checked':''} onchange="S.ship.heavy=this.checked?1:0;render()"> heavy hits damage systems</label>` : ''}<button class="mini" onclick="showTab('ship')" title="Hull, strain, shields, energy and crew stations are changed on the Mantis tab">open Mantis tab →</button></div>`;
 }
 function shipCard(k){
   const e = S.enc, x = e[k], d = x.d, gm = encIsGM(), [cond, cc] = shipCondOf(x), al = shipAlive(x), total = d.ht * x.count;
@@ -6694,14 +6732,13 @@ function shipCard(k){
    maneuvers this round (a second costs the ship 2 system strain and the pilot 2 strain; there
    is no third), hullFix 1 once the fight's single hull repair has been tried.
    Stations are S.ship.crew (role → character name, set here or on the Mantis tab). */
-const shipMaxSpeed = () => SHIP.speed + (overcharged('engines') ? SHIP_ENERGY_BONUS.engines.speed : 0);
+const shipMaxSpeed = () => engineFx().max;
 const crewId = role => { const v = String((S.ship.crew||{})[role]||'').trim().toLowerCase(); const c = v && CHARS.find(c=>c.name.toLowerCase()===v || c.name.toLowerCase().split(' ')[0]===v); return c ? c.id : ''; };
 const shipStations = id => SHIP_STATIONS.filter(r=>crewId(r)===id);
 function stationSet(id, role, on){ if(!SHIP_STATIONS.includes(role) || !cfg(id)) return; S.ship.crew[role] = on ? cfg(id).name : ''; render(); }
-function shipAdj(f, d){ const sh = S.ship; if(!['hull','strain'].includes(f)) return; sh[f] = Math.max(0, (sh[f]||0) + d); render(); }
 function shipPilotTurn(key, when){   // called as a turn ends and as the next begins
   const pid = crewId('Pilot'), sh = S.ship; if(!pid || key!=='c_'+pid) return;
-  if(when==='end'){ for(const f of ['ev','sot']) if(sh[f]>0) sh[f]--; } else sh.pm = 0;
+  if(when==='end'){ for(const f of ['ev','sot']) if(sh[f]>0) sh[f]--; } else { sh.pm = 0; sh.pun = 0; }
 }
 function shipPilotOnly(name){   // counts a Pilot Only maneuver; false when the ship has had its two
   const sh = S.ship, pid = crewId('Pilot');
@@ -6715,7 +6752,7 @@ function shipManeuver(kind){
   if(kind==='accel'){ if(sh.cspd>=max || !shipPilotOnly('Accelerate')) return; sh.cspd++; }
   else if(kind==='decel'){ if(sh.cspd<=0 || !shipPilotOnly('Decelerate')) return; sh.cspd--; }
   else if(kind==='fly'){ if(sh.cspd<=0 || !shipPilotOnly('Fly')) return; }
-  else if(kind==='punch'){ const d = max - sh.cspd; if(d<=0 || !shipPilotOnly('Punch It')) return; sh.cspd = max; sh.strain += d; logMsg(`🚀 <b>Punch It!</b> The ${SHIP.name} leaps to speed ${max} — ${d} system strain.`); }
+  else if(kind==='punch'){ const d = max - sh.cspd; if(d<=0 || !shipPilotOnly('Punch It')) return; sh.cspd = max; sh.strain += d; sh.pun = 1; logMsg(`🚀 <b>Punch It!</b> The ${SHIP.name} leaps to speed ${max} — ${d} system strain.`); }
   else if(kind==='ev' || kind==='sot'){
     if(sh[kind]){ sh[kind] = 0; render(); return; }   // switching one off early costs nothing
     if(!fast || !shipPilotOnly(kind==='ev' ? 'Evasive Maneuvers' : 'Stay on Target')) return;
@@ -6727,10 +6764,11 @@ function shipAngle(from, to){   // Angle Deflector Shields: one point of defense
   const d = S.ship.defense; if(!SHIP_ARCS[from] || !SHIP_ARCS[to] || from===to || !(d[from]>0) || d[to]>=4) return;
   d[from]--; d[to]++; logMsg(`🛡 Shields angled: 1 defense from ${SHIP_ARCS[from].toLowerCase()} to ${SHIP_ARCS[to].toLowerCase()}.`); render();
 }
-function encLoadCheck(id, skillKey, diff, label){   // a plain skill check into the dice tray, without leaving the encounter
+function encLoadCheck(id, skillKey, diff, label, mod){   // a plain skill check into the dice tray, without leaving the encounter; mod = { setb, up } from a damaged system
   const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===skillKey); if(!sk) return;
-  const s = skillState(cs, sk);
-  Object.assign(DICE_UI.pool, { p:s.p, a:s.a, b:0, k:0, d:clamp(diff, 0, POOL_MAX), c:0, F:0 });
+  const s = skillState(cs, sk); let d = clamp(diff, 0, POOL_MAX), c = 0;
+  for(let i=0; i<((mod && mod.up)||0); i++){ if(d>0){ d--; c++; } else d++; }
+  Object.assign(DICE_UI.pool, { p:s.p, a:s.a, b:0, k:clamp((mod && mod.setb)||0, 0, POOL_MAX), d, c, F:0 });
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, tal:null });
   tdLoad(cs, skillKey);
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = label;
@@ -6746,26 +6784,34 @@ function stationCheck(id, what){
   const sh = S.ship;
   const T = { copilot:['pilot_space',2,'Co-Pilot (Piloting)'], dcStrain:['mechanics',dcDiff(sh.strain, sh.strainThr),'Damage Control: system strain'], dcHull:['mechanics',dcDiff(sh.hull, sh.hullThr),'Damage Control: hull trauma'],
     boost:['mechanics',3,'Boost Shields'], manual:['athletics',3,'Manual Repairs'], jam:['computers',2,'Jamming'], scan:['perception',3,'Scan the Enemy'], slice:['computers',3,"Slice Enemy's Systems"],
-    spoof:['computers',2,'Spoof Missiles'], spoofV:['vigilance',3,'Spoof Missiles'], plot:['astrogation',2,'Plot Course'], plotP:['perception',3,'Plot Course'], fire:['leadership',3,'Fire Discipline'], fireD:['discipline',3,'Fire Discipline'],
+    reroute:['mechanics',2,'Reroute power'], spoof:['computers',2,'Spoof Missiles'], spoofV:['vigilance',3,'Spoof Missiles'], plot:['astrogation',2,'Plot Course'], plotP:['perception',3,'Plot Course'], fire:['leadership',3,'Fire Discipline'], fireD:['discipline',3,'Fire Discipline'],
     gta:['pilot_space',gtaDiff(ENC_UI.vtgt),'Gain the Advantage'+(encOn() && S.enc[ENC_UI.vtgt] ? ' on '+encName(ENC_UI.vtgt) : '')] }[what];
   if(!T) return;
   if(what==='dcHull' || what==='manual'){ if(sh.hullFix){ logMsg('🔧 The one hull repair of this fight has already been tried.', 'lw'); render(); return; } sh.hullFix = 1; render(); }
-  encLoadCheck(id, T[0], T[1], T[2]);
+  const sys = what==='gta' ? 'engines' : ['jam','scan','slice','spoof'].includes(what) ? 'sensors' : '';   // the system this check leans on
+  if(sys==='sensors' && (shipE('sensors')===0 || shipV('sensors')===0)){ logMsg('📡 The sensors are dark: nothing to scan, slice or jam with.', 'lw'); render(); return; }
+  const crew = crewSetback(id), fx = sys==='engines' ? engineFx() : sys ? { setb:condSetback(shipV(sys)), up:condUpgrade(shipV(sys)) } : { setb:0, up:0 };
+  const why = [sys && condNote(sys), crew && 'thin air: 1 Setback'].filter(Boolean).join(' · ');
+  encLoadCheck(id, T[0], T[1], T[2] + (why ? ` (${why})` : ''), { setb:fx.setb + crew, up:fx.up });
 }
 // the Mantis's guns: the Mantis tab's list, with arc and qualities read from the ship profile where it has them
 function mantisGuns(system){
   const prof = ((SHIPS_DB||[]).find(s=>/mantis/i.test(s.n)) || {}).w || [], key = n => /torpedo/i.test(n) ? 'torpedo' : /turbolaser/i.test(n) ? 'turbolaser' : /laser cannon/i.test(n) ? 'laser cannon' : 'blaster cannon';
   return SHIP_WEAPONS.filter(g=>g.system===system).flatMap(g=>g.items.map(w=>{ const pw = prof.find(x=>x.n.toLowerCase().includes(key(w.name))) || {};
-    return { n:w.name, system:g.system, ammo:!!g.ammo, dam:w.dmg + (overcharged(g.system) ? SHIP_ENERGY_BONUS[g.system].dmg : 0), crit:w.crit, rng:w.range, arc:pw.arc||'', q:pw.q||'' }; }));
+    return { n:w.name, system:g.system, ammo:!!g.ammo, dam:w.dmg + weaponFx(g.system).dmg, crit:w.crit, rng:w.range, arc:pw.arc||'', q:pw.q||'' }; }));
 }
 function stationFire(id, system, i){   // a Gunnery check with the weapon attached, against the target ship picked on the Station panel
   const cs = st(id), w = mantisGuns(system)[i]; if(!cs || !w) return;
   const sh = S.ship, s = skillState(cs, SKILLS.find(x=>x.k==='gunnery'));
   if(w.ammo && !(sh.ammo>0)){ logMsg(`🚀 The ${SHIP.name} is out of torpedoes.`, 'lw'); render(); return; }
+  const wfx = weaponFx(system), crew = crewSetback(id);
+  if(!wfx.ok){ logMsg(`🚀 ${esc(w.n)} cannot fire: ${esc(wfx.why)}.`, 'lw'); render(); return; }
   const k = encOn() && S.enc[ENC_UI.vtgt] && !encDown(ENC_UI.vtgt) ? ENC_UI.vtgt : '', x = k ? S.enc[k] : null;
   const A = shipAttackPool({ p:s.p, a:s.a }, { attSil:SHIP.silhouette, tgtSil:x ? x.d.sil : null, setb:x ? shipZoneDef(x) : 0, attEv:sh.ev, attSot:sh.sot, tgtEv:x && x.ev, tgtSot:x && x.sot, q:w.q,
     arcOk:!x || shipArcBears(w.arc, x.arc), arcWhy:x ? `not in this weapon's ${w.arc.toLowerCase()} arc (it is in our ${SHIP_ARCS[x.arc].toLowerCase()})` : '', rngOk:!x || SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
   if(!x) A.notes.unshift('no target picked: Average');
+  for(let n=0; n<wfx.up; n++){ if(A.pool.d>0){ A.pool.d--; A.pool.c++; } else A.pool.d++; }
+  A.pool.k = clamp(A.pool.k + wfx.setb + crew, 0, POOL_MAX); A.notes.push(...wfx.notes); if(crew) A.notes.push('thin air: 1 Setback'); if(wfx.dmg) A.notes.push(`extra power: +${wfx.dmg} damage`);
   if(w.ammo) A.notes.push(`${sh.ammo} torpedo${sh.ammo===1?'':'es'} aboard; this shot uses one`);
   Object.assign(DICE_UI.pool, A.pool);
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
@@ -6787,7 +6833,7 @@ function stationItems(id){
   const chk = (label, what) => b(label, `stationCheck('${id}','${what}')`, 'Load this check into the dice tray');
   const head = r => `<div class="abil pas" style="grid-column:1/-1;opacity:1;border-color:var(--gold)"><div class="row"><b style="color:var(--gold)">${esc(r)}</b><span style="margin-left:auto"></span><button class="mini" onclick="stationSet('${id}','${esc(r)}',0)" title="Leave this station">leave</button></div></div>`;
   const guns = sys => mantisGuns(sys).map((w,i)=>`<div class="abil wpn"><div class="row"><b>${esc(w.n)}</b><span style="margin-left:auto"></span>${b('🎯 fire', `stationFire('${id}','${sys}',${i})`, 'Load a Gunnery check with this weapon')}</div>
-      <span class="meta">Gunnery · damage ${w.dam} · crit ${w.crit} · ${w.rng}${w.arc ? ' · '+esc(w.arc)+' arc' : ''}${w.ammo ? ` · ${sh.ammo} left` : ''}</span>${w.q ? `<small>${esc(w.q)}</small>` : ''}${sh.systems[sys]<=3 ? `<small style="color:var(--warn)">${sysName(sys)} is ${shipCond(sh.systems[sys]).name}: ${shipCond(sh.systems[sys]).fx}</small>` : ''}</div>`);
+      <span class="meta">Gunnery · damage ${w.dam} · crit ${w.crit} · ${w.rng}${w.arc ? ' · '+esc(w.arc)+' arc' : ''}${w.ammo ? ` · ${sh.ammo} left` : ''}</span>${w.q ? `<small>${esc(w.q)}</small>` : ''}${!weaponFx(sys).ok ? `<small style="color:var(--bad)">Cannot fire: ${weaponFx(sys).why}.</small>` : weaponFx(sys).notes.length ? `<small style="color:var(--warn)">${weaponFx(sys).notes.join(' · ')}</small>` : ''}</div>`);
   const angle = () => card('Angle deflector shields', 'Maneuver', `Move one point of defense between arcs. Now: ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a]} ${sh.defense[a]||0}`).join(' · ')}.`,
     `<select id="angFrom_${id}">${Object.keys(SHIP_ARCS).map(a=>`<option value="${a}">${SHIP_ARCS[a]}</option>`).join('')}</select> → <select id="angTo_${id}">${Object.keys(SHIP_ARCS).map(a=>`<option value="${a}"${a==='aft'?' selected':''}>${SHIP_ARCS[a]}</option>`).join('')}</select> ${b('move', `shipAngle(document.getElementById('angFrom_${id}').value,document.getElementById('angTo_${id}').value)`)}`);
   const S_ = {
@@ -6805,6 +6851,11 @@ function stationItems(id){
       card('Damage Control: system strain', 'Action', `Mechanics, ${['','Easy','Average','Hard'][dcDiff(sh.strain, sh.strainThr)]} at ${sh.strain}/${sh.strainThr}. Recover 1 system strain per success. As often as you like.`, chk('roll', 'dcStrain')),
       card('Damage Control: hull trauma', 'Action', `Mechanics, ${['','Easy','Average','Hard'][dcDiff(sh.hull, sh.hullThr)]} at ${sh.hull}/${sh.hullThr}. Repair 1 hull trauma per success. <b>Once per fight</b>${sh.hullFix ? ' — already tried' : ''}.`, sh.hullFix ? '' : chk('roll', 'dcHull')),
       card('Boost Shields', 'Action', 'Hard Mechanics. Success: 1 system strain, and +1 defense to one arc until your next turn, a round longer per extra success.', chk('roll', 'boost')),
+      card('Emergency patch', 'Action', `One try per system per fight. Mechanics at that system's repair difficulty, upgraded once. Success restores one pip, to Worn at best: press "it held" after a successful roll.`,
+        SHIP_SYSTEMS.filter(s=>shipV(s.id)<3).map(s=>sh.patched && sh.patched[s.id]===1 ? b(`${s.icon} it held`, `shipPatch('${id}','${s.id}',1)`, `The roll succeeded: restore one pip to ${s.name}`) : sh.patched && sh.patched[s.id] ? '' : b(`${s.icon} ${shipCond(shipV(s.id)).name}`, `shipPatch('${id}','${s.id}')`, `Roll to patch ${s.name}`)).join(' ') || '<span style="color:var(--dim);font-size:11px">nothing is Damaged or worse</span>'),
+      `<div class="abil" style="grid-column:1/-1"><div class="row"><b>Reroute power</b><span class="badge b-man">Maneuver</span><span class="badge b-act">Action</span><span style="margin-left:auto"></span><span style="color:var(--dim);font-size:11px">reserve <b style="color:var(--text)">${sh.reserve}</b></span> ${chk('Mechanics', 'reroute')}</div>
+        <small>Up to 2 points as a maneuver, or any amount as an action with an Average Mechanics check (failure moves only 2; each Threat is 1 system strain). Take points off a system with −, then give them to another with +.</small>
+        <div class="row" style="margin-top:4px">${SHIP_SYSTEMS.map(s=>`<span class="pl" style="white-space:nowrap" title="${s.name}: ${energyFxLabel(s.id, shipE(s.id)) || 'normal'}">${s.icon} <button class="mini" onclick="energyAdj('${s.id}',-1)">−</button> <b style="color:var(--${shipE(s.id)>SHIP_ENERGY_DEFAULT?'gold':shipE(s.id)<SHIP_ENERGY_DEFAULT?'bad':'text'})">${shipE(s.id)}</b> <button class="mini" onclick="energyAdj('${s.id}',1)">+</button></span>`).join(' ')}</div></div>`,
       card('Manual Repairs', 'Action', `Hard Athletics, with tools and the GM's nod. Removes 1 hull trauma, +1 per two extra successes. Counts as the fight's one hull repair${sh.hullFix ? ' — already tried' : ''}.`, sh.hullFix ? '' : chk('roll', 'manual')),
       angle() ],
     'Gunner (Blasters)': () => guns('blasters'),
@@ -6848,7 +6899,7 @@ const SHIP_CRITS = [   // [top of the d100 band, severity (the Damage Control di
 const shipCritFor = total => SHIP_CRITS.find(c=>total<=c[0]);
 function shipGunDiff(att, tgt){ const d = att - tgt; return d<=-2 ? 1 : d<=1 ? 2 : d===2 ? 3 : d===3 ? 4 : 5; }
 const shipArcBears = (arc, pos) => { const a = String(arc||'').toLowerCase(); return !a || /all|down|up|dorsal|ventral/.test(a) || { fore:/for(e|ward)/, aft:/aft|rear/, port:/port/, stbd:/starboard/ }[pos].test(a); };
-const mantisBestDef = () => { const sh = S.ship, boost = sh.energy && sh.energy.shields===SHIP_ENERGY_MAX ? sh.shieldBoost : noBoost(); return Math.max(0, ...Object.keys(SHIP_ARCS).map(a=>(sh.defense[a]||0) + (boost[a]||0))); };
+const mantisBestDef = () => Math.max(0, ...Object.keys(SHIP_ARCS).map(mantisDef));
 const shipZoneDef = x => x.d.sil<=4 ? Math.max(0, ...x.d.def) : Math.max(0, x.d.def[Object.keys(SHIP_ARCS).indexOf(x.side)]);
 function shipAttackPool(base, o){
   let p = base.p, a = base.a, d = o.tgtSil==null ? 2 : shipGunDiff(o.attSil, o.tgtSil), c = 0; const notes = [];
@@ -6884,12 +6935,45 @@ function shipCrit(ts){   // d100 on the vehicle critical table, +10 for each cri
   const e = encFeedRoll(ts); if(!e || !encOn()) return;
   const own = e.w.tgt==='mantis', x = own ? null : S.enc[e.w.tgt]; if(!own && !x) return;
   const have = own ? (S.ship.crits||[]).length : x.kh, roll = rollInt(100)+1, total = roll + 10*have, c = shipCritFor(total);
+  const hurt = own ? shipCritSystem(c) : '';
   if(own) S.ship.crits.push({ id:randomId().slice(0,6), n:c[2], sev:c[1] }); else { x.kh++; x.kn = (x.kn ? x.kn+', ' : '') + c[2]; x.kn = x.kn.slice(0,300); }
-  postFeed({ k:'p', h:'Critical hit', m:`${own ? SHIP.name : encName(e.w.tgt)}: d100 ${roll}${have ? ` + ${10*have}` : ''} = ${total} — ${c[2]} (${c[1]}). ${c[3]}` });
+  postFeed({ k:'p', h:'Critical hit', m:`${own ? SHIP.name : encName(e.w.tgt)}: d100 ${roll}${have ? ` + ${10*have}` : ''} = ${total} — ${c[2]} (${c[1]}). ${c[3]}${hurt ? ' '+hurt : ''}` });
   if(own || !x.hid) logMsg(`💥 Critical hit on <b>${esc(own ? SHIP.name : encName(e.w.tgt))}</b>: ${esc(c[2])}. ${esc(c[3])}`, 'lb');
   render();
 }
 function shipCritFix(id){ const sh = S.ship, i = (sh.crits||[]).findIndex(c=>c.id===id); if(i<0) return; const c = sh.crits.splice(i,1)[0]; logMsg(`🔧 Critical hit repaired on the ${esc(SHIP.name)}: ${esc(c.n)}.`); render(); }
+
+/* ---- damage to the Mantis's systems, and what the engineer can do about it ---- */
+const SHIP_CRIT_SYS = { 'Losing Power to Shields':'shields', 'Shields Failing':'shields', 'Shields Down':'shields', 'Shield Overload':'shields', 'Engine Damaged':'engines', 'Engines Down':'engines',
+  'Navicomputer Failure':'hyperdrive', 'Major Hull Breach':'lifesupport', 'Component Hit':'?', 'Major System Failure':'?', 'Fire!':'?' };   // '?' = a random system (the GM may move it)
+function shipSysHurt(id, pips, why){
+  const sh = S.ship, before = shipV(id); if(before<=0) return '';
+  sh.systems[id] = Math.max(0, before - pips); shipSettle();
+  const msg = `${sysName(id)} drops to ${shipCond(sh.systems[id]).name} (${sh.systems[id]}/5).`;
+  logMsg(`💥 ${esc(SHIP.name)} ${esc(msg)} — ${esc(why)}.`, 'lb');
+  return msg;
+}
+function shipCritSystem(c){   // a critical that names a system knocks it down a pip (two for the Daunting results)
+  const m = SHIP_CRIT_SYS[c[2]]; if(!m) return '';
+  const id = m==='?' ? SHIP_SYSTEMS[rollInt(SHIP_SYSTEMS.length)].id : m;
+  return shipSysHurt(id, c[1]==='Daunting' ? 2 : 1, `critical hit: ${c[2]}`);
+}
+function shipRoundStart(){   // a new round in ship combat: life support that is off starts to tell
+  if(!encOn() || S.enc.mode!=='ship' || lifeLevel()!==0) return;
+  const hit = CHARS.filter(c=>!c.droid && !(S.enc['c_'+c.id]||{}).out);
+  for(const c of hit){ const cs = st(c.id); if(cs) cs.strain = (cs.strain||0) + 1; }
+  if(hit.length) logMsg(`🫧 Life support is down aboard the ${esc(SHIP.name)}: 1 strain to everyone who breathes.`, 'lw');
+}
+const PATCH_DIFF = [5, 4, 3];   // the repair difficulty from Offline, Failing, Damaged
+function shipPatch(id, sys, done){   // emergency patch: one try per system per fight, restores one pip, to Worn at best
+  const sh = S.ship, v = shipV(sys); if(!SHIP_SYSTEMS.some(s=>s.id===sys)) return;
+  if(!sh.patched || typeof sh.patched!=='object') sh.patched = {};
+  if(done){ if(sh.patched[sys]!==1 || v>=3) return; sh.systems[sys] = v + 1; sh.patched[sys] = 2; shipSettle(); logMsg(`🔧 Emergency patch: ${sysName(sys)} back to ${shipCond(v+1).name} (${v+1}/5).`, 'lg'); render(); return; }
+  if(v>=3){ logMsg(`🔧 ${sysName(sys)} is ${shipCond(v).name}: a patch only helps a Damaged, Failing or Offline system.`, 'lw'); render(); return; }
+  if(sh.patched[sys]){ logMsg(`🔧 ${sysName(sys)} has already had its emergency patch this fight.`, 'lw'); render(); return; }
+  sh.patched[sys] = 1; render();
+  encLoadCheck(id, 'mechanics', PATCH_DIFF[v], `Emergency patch: ${sysName(sys)}`, { setb:crewSetback(id), up:1 });
+}
 
 function initCloud(){
   const savedName = lsGet('st_player');
