@@ -861,6 +861,16 @@ print('\n=== SMOKE TEST — UI code paths ===');
       const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(w.hour!==0) throw new Error('the calendar should survive the wire');
       print(`  calendar: the day and time can be set without passing time; needs, fuel and stim windows are untouched`);
       S = keepS; }
+    // Flicker: pictures remember which file exists, and an unchanged section is not rebuilt
+    { for(const k of Object.keys(PIC_EXT)) delete PIC_EXT[k];
+      if(picSrc('cal')!=='img/cal.png') throw new Error('portraits should try the png first');
+      const im = { dataset:{}, style:{}, src:'img/cal.png', closest(){ return null; } }; picFail(im, 'cal'); if(im.src!=='img/cal.jpg' || PIC_EXT.cal!=='jpg' || picSrc('cal')!=='img/cal.jpg') throw new Error('a missing png should fall back to jpg and remember it');
+      picFail(im, 'cal'); if(PIC_EXT.cal!=='none' || im.style.visibility!=='hidden' || portraitSection(st('cal'), cfg('cal'))!=='') throw new Error('a character with no picture should stop being asked for one');
+      delete PIC_EXT.cal; if(!/src="img\/cal\.png"/.test(portraitSection(st('cal'), cfg('cal'))) || /\.jpg/.test(portraitSection(st('cal'), cfg('cal')))) throw new Error('portrait markup should name one file only');
+      let writes = 0; const el = { set innerHTML(v){ writes++; this._v = v; }, get innerHTML(){ return this._v; } };
+      setHtml(el, '<b>a</b>'); setHtml(el, '<b>a</b>'); setHtml(el, '<b>b</b>'); setHtml(null, 'x'); if(writes!==2 || el.innerHTML!=='<b>b</b>') throw new Error('setHtml should write only when the HTML changes');
+      const c = cached(el); c.innerHTML = '<b>b</b>'; c.innerHTML = '<b>c</b>'; if(writes!==3 || c.innerHTML!=='<b>c</b>' || cached(null)!==null) throw new Error('cached() should route through setHtml');
+      print(`  flicker: portraits name one file and remember a missing one; unchanged sections are left alone`); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
