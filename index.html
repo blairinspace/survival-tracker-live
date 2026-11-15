@@ -210,6 +210,13 @@
   .wcard{border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:12.5px}
   .wcard b{color:var(--text)} .wcard .q{color:var(--dim);font-size:11.5px;display:block;margin-top:2px}
   .wcard .crit{color:var(--gold);font-weight:700}
+  .tlist{display:flex;flex-direction:column;gap:6px}
+  .trow{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto;gap:6px 14px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:7px 10px;background:var(--panel2);font-size:12.5px}
+  .trow small{display:block;color:var(--dim);font-size:11.5px} .trow .tnote{color:var(--warn)} .trow .badge{margin-left:4px}
+  .tbar{height:8px;border-radius:4px;background:#0d1117;overflow:hidden;border:1px solid var(--border)} .tbar i{display:block;height:100%;background:var(--accent)} .tbar i.full{background:var(--good)}
+  .tctl{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;align-items:center}
+  .tpanel{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;border:1px dashed var(--border);border-radius:8px;padding:7px 10px;font-size:12px}
+  @media(max-width:700px){ .trow{grid-template-columns:1fr} .tctl{justify-content:flex-start} }
   .wchip{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:5px 8px;margin-bottom:8px;font-size:12px}
   button.skroll{display:inline-flex;gap:2px;align-items:center;min-height:26px;min-width:60px;padding:3px 6px;flex-wrap:wrap}
   #rules{display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;line-height:1.6}
@@ -516,7 +523,7 @@
   .npced input.wide{width:100%}
   .b-minion{background:#22303c;color:#9fc3e6} .b-rival{background:#3d3212;color:#ffd97a} .b-nemesis{background:#3a1010;color:#ff9c9c}
   @media(max-width:820px){ .npccols{grid-template-columns:1fr} }
-  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#gm,#enc,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
+  @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#train,#gm,#enc,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
 </style>
 </head>
 <body>
@@ -612,6 +619,7 @@
   <button id="tabS" onclick="showTab('ship')">Mantis</button>
   <button id="tabI" onclick="showTab('items')">Items</button>
   <button id="tabTr" onclick="showTab('trees')">Talents</button>
+  <button id="tabN" onclick="showTab('train')" title="Training: studies paid for in time, not XP, and what they have given">Training</button>
   <button id="tabD" onclick="showTab('dice')">🎲 Dice</button>
   <button id="tabE" onclick="showTab('enc')" title="Encounters: initiative, turn order and the NPCs in the scene">Encounter</button>
   <button id="tabL" onclick="showTab('lore')">Lore</button>
@@ -697,6 +705,8 @@
     <div id="diceFeed"></div>
   </div>
 </div></div>
+
+<div id="train" style="display:none"><div class="itemswrap" id="trainWrap"></div></div>
 
 <div id="lore"><div class="itembar">
     <button class="mini" id="loreBackBtn" onclick="loreBack()" title="Back to the page you were on">← back</button>
@@ -813,7 +823,9 @@ const STATUSES = {
   sleep:  {label:'😴 Sleeping', dur:8, act:'sleeping', deltas:{}},
   // repairs on a weapon, armor or tool: the wear comes off when the work is finished (nothing if abandoned)
   tuneup:  {label:'🔧 Tune-up',  dur:0.25, act:'light', deltas:{}, repair:true},
-  overhaul:{label:'🔧 Overhaul', dur:1,    act:'light', deltas:{}, repair:true}
+  overhaul:{label:'🔧 Overhaul', dur:1,    act:'light', deltas:{}, repair:true},
+  // a training session (Training tab): the hours are decided by a roll when it is over
+  train:   {label:'📚 Training', dur:1,    act:'light', deltas:{}, train:true}
 };
 const START_FOOD_DAYS = 3;                 // a new session's kit carries this many days of rations, by build
 const SNACK_FRAC = 1/3;                   // snack: an instant bite on the move, a third of a ration
@@ -1320,7 +1332,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], scenes: [], enc: {}, map: {}, destiny: {light:0, dark:0}, hr: {clean:0, redir:0, duel:0} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], scenes: [], enc: {}, map: {}, destiny: {light:0, dark:0}, hr: {clean:0, redir:0, duel:0}, train: {} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1371,6 +1383,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
   s.map = normMap(s.map);      // the map on the table, same idea
+  s.train = normTrain(s.train);   // studies and what they have given (Training tab)
   s.scenes = normScenes(s.scenes);   // the GM's saved scenes (map + NPCs), kept like the NPC library
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
@@ -1656,7 +1669,8 @@ function tick(cs, dt){
 }
 function endStatus(cs, c, events){
   const def = STATUSES[cs.status.kind];
-  if(def.repair){   // the work is done — how well it went is a Mechanics check (rollRepair), so nothing changes yet
+  if(def.train) events.push(['lg', `📚 ${c.name} finishes a training session${S.train && S.train[cs.status.study] ? ' ('+esc(S.train[cs.status.study].n)+')' : ''} — roll for it on the Training tab.`]);
+  else if(def.repair){   // the work is done — how well it went is a Mechanics check (rollRepair), so nothing changes yet
     const j = cs.status.self ? { kind:cs.status.kind, self:1 } : { kind:cs.status.kind, ...cs.status.item };
     cs.repair = j;
     events.push(['ld', `🔧 ${c.name} ${j.self ? `comes off the bench` : `finishes work on ${esc(repairTargetLabel(cs, j))}`} — roll <b>Mechanics</b> on the card to see how the ${plainLabel(def.label).toLowerCase()} went.`]);
@@ -2285,7 +2299,7 @@ function statusBadge(cs){
   const pend = cs.repair ? `<span class="badge b-status" title="The work is done — roll Mechanics to see how it went">🔧 ${cs.repair.kind==='overhaul'?'Overhaul':'Tune-up'} of ${esc(repairTargetLabel(cs, cs.repair))} done <button class="mini atk" onclick="rollRepair('${cs.id}')">roll Mechanics</button><span class="x" onclick="repairDrop('${cs.id}')" title="Drop the job — no repair is made">✖</span></span> ` : '';
   if(!cs.status) return pend;
   const def = STATUSES[cs.status.kind];
-  const tgt = cs.status.item ? `: ${esc(repairTargetLabel(cs, cs.status.item))}` : '';
+  const tgt = cs.status.item ? `: ${esc(repairTargetLabel(cs, cs.status.item))}` : cs.status.study && S.train && S.train[cs.status.study] ? `: ${esc(S.train[cs.status.study].n)}` : '';
   return pend + `<span class="badge b-status">${def.label}${tgt} — ${fmtDur(Math.max(0,cs.status.remain))} left<span class="x" onclick="cancelStatus('${cs.id}')" title="Cancel — return to normal">✖</span></span>`;
 }
 
@@ -2557,6 +2571,7 @@ function render(){
   renderDestiny();
   renderSheet();
   renderTrees();
+  if(TAB==='train' && !isTyping()) renderTrain();   // not under a half-typed study name
   if(TAB==='gm' && SPECIES_DB && !isTyping()) renderGM();   // not under a half-typed NPC field
   if(TAB==='enc' && SPECIES_DB) renderEnc();                 // always: a dropdown that keeps focus after a pick must not freeze the tab
   { const tb = document.getElementById('tabE'); if(tb) tb.textContent = S.enc && S.enc.on ? (S.enc.mode==='social' ? '💬 Encounter ●' : S.enc.mode==='ship' ? '🚀 Encounter ●' : '⚔ Encounter ●') : 'Encounter'; }
@@ -2888,7 +2903,7 @@ function clearLog(){ if(!confirm('Clear the whole event log? Export it first if 
 let TAB = 'tracker';
 function showTab(t){
   TAB = t;
-  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR'],['gm','tabG'],['enc','tabE']]){
+  for(const [pane,btn] of [['tracker','tabT'],['sheet','tabC'],['ship','tabS'],['items','tabI'],['trees','tabTr'],['train','tabN'],['dice','tabD'],['lore','tabL'],['core','tabK'],['rules','tabR'],['gm','tabG'],['enc','tabE']]){
     document.getElementById(pane).style.display = t===pane?'block':'none';
     document.getElementById(btn).className      = t===pane?'on':'';
   }
@@ -2897,6 +2912,7 @@ function showTab(t){
   if(t==='dice' || t==='enc'){ renderDice(); renderFeed(); }
   if(t==='enc') gmLoad(renderEnc);
   if(t==='trees') renderTrees();
+  if(t==='train') renderTrain();
   if(t==='core') renderCore();
   if(t==='lore') loreLoad(renderLore);
   if(t==='gm') gmLoad(renderGM);
@@ -2960,7 +2976,7 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs','morS','morW'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true, train:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
@@ -3194,7 +3210,7 @@ function rollAttack(id, i){
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
   const upg = t.upg||0;   // a failing weapon: upgrade the difficulty once
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:t.setb||0, d:2-Math.min(2,upg), c:Math.min(2,upg), F:0});
-  DICE_UI.repair = null; DICE_UI.dc = null; DICE_UI.cond = null;
+  DICE_UI.repair = null; DICE_UI.train = null; DICE_UI.dc = null; DICE_UI.cond = null;
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
     weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng,
              note: t.setb ? `${t.name} weapon: ${t.setb} Setback${upg?' and an upgraded difficulty':''} already added` : '', src:{id, i, name:it.name} } });
@@ -3411,7 +3427,7 @@ function rollSkill(id, key){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
   const s = condPool(cs, sk);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null, dc:null, cond:null });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null, train:null, dc:null, cond:null });
   condApply(s.m); tdLoad(cs, key);
   document.getElementById('diceLabel').value = sk.n;
   showTab('dice');
@@ -3419,7 +3435,7 @@ function rollSkill(id, key){
 function rollForce(id){
   const cs = st(id), n = Math.max(0, cs.sheet.fr - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, {p:0, a:0, b:0, k:0, d:0, c:0, F:n});
-  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null, repair:null, dc:null, cond:null });
+  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null, repair:null, train:null, dc:null, cond:null });
   document.getElementById('diceLabel').value = 'Force power';
   showTab('dice');
 }
@@ -3501,6 +3517,7 @@ function renderSheet(){
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
     ${gearHtml(cs)}
     ${talentsHtml(cs)}
+    ${trainSheetHtml(cs)}
     ${cmdHtml(cs)}
     ${moralityHtml(cs)}
     <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
@@ -4281,7 +4298,7 @@ const SYM_TIPS = {
 };
 const DIFFS = [['Simple',0],['Easy',1],['Average',2],['Hard',3],['Daunting',4],['Formidable',5]];
 const FEED_MAX = 50, POOL_MAX = 12;
-const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null, repair:null, dc:null, cond:null };
+const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null, repair:null, train:null, dc:null, cond:null };
 let ROLLS = [];   // feed entries, oldest first
 
 const rollInt = n => (typeof crypto!=='undefined' && crypto.getRandomValues)
@@ -4307,8 +4324,8 @@ const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${face
 
 /* ---- pool builder ---- */
 function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
-function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.dc=null; DICE_UI.cond=null; DICE_UI.tal=null; renderDice(); }
-function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.dc=null; renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.train=null; DICE_UI.dc=null; DICE_UI.cond=null; DICE_UI.tal=null; renderDice(); }
+function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.train=null; DICE_UI.dc=null; renderDice(); }
 function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
   const p = DICE_UI.pool;
   if(p[from]>0){ p[from]--; p[to] = Math.min(POOL_MAX, p[to]+1); } else p[from] = 1;
@@ -4351,6 +4368,10 @@ function rollPool(){
   if(DICE_UI.dc){   // Damage Control and Manual Repairs: the successes come off the ship
     const text = applyDamageControl(DICE_UI.dc, tally(parseRoll(e.r)));
     DICE_UI.dc = null; if(text) e.rep = text.slice(0,300);
+  }
+  if(DICE_UI.train){   // a training session's roll: the hours go onto the study
+    const text = applyTraining(DICE_UI.train, tally(parseRoll(e.r)));
+    DICE_UI.train = null; if(text) e.trn = text.slice(0,300);
   }
   postFeed(e);
   renderDice();
@@ -4433,7 +4454,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}${e.cnd ? `<div class="rtal">🩺 ${esc(String(e.cnd).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.trn ? `<div class="wcard" style="border-color:#1d3a5e;background:#0f151c">📚 ${esc(String(e.trn).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}${e.cnd ? `<div class="rtal">🩺 ${esc(String(e.cnd).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice, e.ini)}</div></div>`;
 }
 function renderFeed(){
@@ -4511,6 +4532,7 @@ function renderDice(){
     </div>
     ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}.${DICE_UI.weapon.sv ? '' : ' Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.'}${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span>${DICE_UI.weapon.dgMax ? `<label style="white-space:nowrap" title="Ask the defender before you roll. Each rank of Dodge they use costs them 1 strain (added for you when you roll) and upgrades the difficulty once.${HR().clean ? ' House rule: if the attack still hits with no more net Successes than the ranks used, it is dodged cleanly.' : ''}">${esc(DICE_UI.weapon.tn||'Target')} dodges <select onchange="encDodge(this.value)">${Array.from({length:DICE_UI.weapon.dgMax+1}, (_,i)=>`<option value="${i}"${(DICE_UI.weapon.dg||0)===i?' selected':''}>${i ? '×'+i : 'no'}</option>`).join('')}</select></label>` : ''}<button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     ${DICE_UI.repair ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.repair.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the repair">✕</button></div>` : ''}
+    ${DICE_UI.train ? `<div class="wchip" style="border-color:#1d3a5e;background:#0f151c"><span>📚 Training roll for <b>${esc(DICE_UI.train.n)}</b> (${fmtDur(DICE_UI.train.h)} put in). Rolling adds the hours to the study.</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the study">✕</button></div>` : ''}
     ${DICE_UI.dc ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.dc.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the ship">✕</button></div>` : ''}
     ${DICE_UI.cond ? `<div class="wchip" style="border-color:#4a3d1d;background:#1c170f" title="From this character's needs and conditions on the Tracker tab. It is already in the pool: change the dice by hand if the GM rules otherwise."><span>🩺 Already in the pool — ${esc(DICE_UI.cond)}.</span></div>` : ''}
     ${DICE_UI.tal ? (()=>{ const T = DICE_UI.tal, ig = Math.min(p.k, T.ign);
@@ -5590,7 +5612,7 @@ function pushLocal(){
     if(k==='chars'){
       const a = cur.chars||[], b = (prev&&prev.chars)||[];
       for(let i=0;i<a.length;i++) if(!same(a[i], b[i])) updates['chars/'+i]=a[i];
-    } else if(k==='ship' || k==='enc' || k==='map'){   // per-subkey, so concurrent edits to different ship systems (or two players rolling initiative) don't clobber
+    } else if(k==='ship' || k==='enc' || k==='map' || k==='train'){   // per-subkey, so concurrent edits to different ship systems (or two players rolling initiative) don't clobber
       const a = cur[k]||{}, b = (prev&&prev[k])||{};
       for(const kk of new Set([...Object.keys(a), ...Object.keys(b)]))
         if(!same(a[kk], b[kk])) updates[k+'/'+kk] = a[kk]===undefined ? null : a[kk];
@@ -5637,8 +5659,8 @@ function threeWayMerge(base, local, remote){
       out.ship = out.ship || {};
       for(const kk in L) if(!same(L[kk], B[kk])) out.ship[kk] = L[kk];         // we edited this system
       for(const kk in B) if(!(kk in L)) delete out.ship[kk];                   // we emptied this list
-    } else if(k==='enc' || k==='map'){    // same idea for the encounter and the map: each participant, token and line is its own subkey
-      if(!remote[k] && base[k]) continue;                                      // ended / removed by someone else: it stays gone
+    } else if(k==='enc' || k==='map' || k==='train'){    // same idea for the encounter and the map: each participant, token and line is its own subkey
+      if(!remote[k] && base[k] && k!=='train') continue;                       // ended / removed by someone else: it stays gone
       const L=local[k]||{}, B=base[k]||{};
       out[k] = out[k] || {};
       for(const kk in L) if(!same(L[kk], B[kk])) out[k][kk] = L[kk];
@@ -6151,6 +6173,237 @@ function npcEditor(n){
 }
 
 /* ================================================================
+   TRAINING TAB — the group's house rule: characters spend time, not XP, on studies the GM sets.
+   S.train is {} when empty, otherwise (synced per subkey, like the encounter):
+     s_<id>: a study  { n name, who "cal,bode" | "group", tier being worked toward, h hours banked, g hours the tier needs,
+                        kind a (an ability or power tier) | s (a skill rank), sk the skill it raises, note,
+                        p a session { h hours planned, t0 the clock when it began, who taking part } }
+     a_<id>: something a finished tier gave  { n, who, tier, e the GM's wording, ty f (Force power) | t (talent),
+                        cat where it sits in the encounter options ('' = Force for a power, by its wording for a talent), act activation }
+   A session is a timed status on each character taking part ("📚 Training"): it counts down as the clock is advanced and never
+   moves the clock itself. When it is over, one roll decides the hours (applyTraining):
+     the check succeeds   the time spent, +1 hour per net Success, +1 more per Triumph (a Triumph counts 2)
+     the check fails      half the time spent — all of it if the roll shows a Triumph or net Advantage
+   The GM may add up to 6 bonus hours, or take hours away, with "± hours". A full bar is closed by hand: the GM words what the
+   tier gives (or a skill rank is added) and sets the hours of the next tier.
+   ================================================================ */
+const TRAIN_UI = { who:'', open:'' };
+const TRAIN_CATS = dict({ '':'by type', offense:'Offense', defense:'Defense', force:'Force', utility:'Utility' });
+const TRAIN_ACTS = ['Passive','Incidental','Maneuver','Action'];
+const trainWho = v => [...new Set(String(v||'').split(',').map(x=>x.trim()).filter(x=>x==='group' || cfg(x)))];
+function normTrain(t){
+  const o = {}; if(!t || typeof t!=='object') return o;
+  const str = (v, n) => typeof v==='string' ? v.slice(0, n) : '';
+  for(const k in t){ const v = t[k]; if(!v || typeof v!=='object') continue;
+    const who = trainWho(v.who).join(','); if(!who) continue;
+    if(/^s_[a-z0-9_]+$/i.test(k)){
+      const s = o[k] = { n:str(v.n,80) || 'Study', who, tier:npcInt(v.tier,1,20,1), h:clamp(Math.round((+v.h||0)*10)/10, 0, 9999), g:npcInt(v.g,1,9999,100), kind: v.kind==='s' ? 's' : 'a', sk: SKILLS.some(x=>x.k===v.sk) ? v.sk : '', note:str(v.note,400) };
+      const pw = v.p && typeof v.p==='object' ? trainWho(v.p.who).filter(x=>x!=='group').join(',') : '';
+      if(pw && +v.p.h>0) s.p = { h:clamp(+v.p.h, 0.25, 48), t0:+v.p.t0||0, who:pw };
+    } else if(/^a_[a-z0-9_]+$/i.test(k))
+      o[k] = { n:str(v.n,80) || 'Ability', who, tier:npcInt(v.tier,1,20,1), e:str(v.e,900), ty: v.ty==='t' ? 't' : 'f', cat: v.cat && TRAIN_CATS[v.cat] ? v.cat : '', act: TRAIN_ACTS.includes(v.act) ? v.act : 'Passive' };
+  }
+  return o;
+}
+const trainOf = (who, pre) => Object.keys(S.train||{}).filter(k=>k.startsWith(pre) && trainWho(S.train[k].who).includes(who))
+  .sort((a,b)=>S.train[a].n.localeCompare(S.train[b].n) || S.train[a].tier - S.train[b].tier);
+const trainNames = who => trainWho(who).map(x=>x==='group' ? 'the group' : cfg(x).name.split(' ')[0]).join(' and ');
+const trainKey = pre => pre + randomId().replace(/[^a-z0-9]/gi,'').slice(0,8).toLowerCase();
+const trainCat = a => a.cat || (a.ty==='f' ? 'force' : abilCat(a.n, { e:a.e }));   // where a trained ability sits among the encounter options
+function trainSession(k){   // a study's session: still running, or over and waiting for its roll
+  const s = S.train[k]; if(!s || !s.p) return null;
+  const el = clamp(+(S.hour - s.p.t0).toFixed(3), 0, s.p.h);
+  const busy = trainWho(s.p.who).some(id=>{ const cs = st(id); return cs && cs.status && cs.status.kind==='train' && cs.status.study===k; });
+  const done = el >= s.p.h - 0.01 || !busy;   // everyone stopped early: what was put in still counts
+  return { done, left: Math.max(0, s.p.h - el), spent: done && el >= s.p.h - 0.01 ? s.p.h : Math.round(el*4)/4 };
+}
+function trainSet(k, v){ TRAIN_UI[k] = TRAIN_UI[k]===v && k==='open' ? '' : v; if(k==='who') TRAIN_UI.open = ''; renderTrain(); }
+function trainGo(who){ TRAIN_UI.who = who; TRAIN_UI.open = ''; showTab('train'); }
+const trainVal = id => { const el = document.getElementById(id); return el ? String(el.value).trim() : ''; };
+function trainAdd(){
+  const who0 = TRAIN_UI.who, n = trainVal('trA_n').slice(0,80); if(!n){ alert('Give the study a name.'); return; }
+  const w = trainVal('trA_with'), who = who0==='group' ? 'group' : trainWho(who0 + (w ? ','+w : '')).join(','), kind = trainVal('trA_kind')==='s' ? 's' : 'a';
+  const k = trainKey('s_');
+  S.train[k] = { n, who, tier:npcInt(trainVal('trA_tier'),1,20,1), h:0, g:npcInt(trainVal('trA_g'),1,9999,100), kind, sk: kind==='s' ? trainVal('trA_sk') : '', note:'' };
+  logMsg(`📚 New study for ${esc(trainNames(who))}: <b>${esc(n)}</b>, tier ${S.train[k].tier} (${S.train[k].g} hours).`); render();
+}
+function trainEdit(k){
+  const s = S.train[k]; if(!s) return;
+  const n = prompt('Name of the study', s.n); if(n===null) return;
+  const tier = prompt('Tier being worked toward', s.tier); if(tier===null) return;
+  const g = prompt('Hours this tier needs', s.g); if(g===null) return;
+  const note = prompt('Note (a special rule or a reminder; leave blank for none)', s.note||''); if(note===null) return;
+  Object.assign(s, { n: n.trim().slice(0,80) || s.n, tier:npcInt(tier,1,20,s.tier), g:npcInt(g,1,9999,s.g), note: note.trim().slice(0,400) }); render();
+}
+function trainDel(k){ const s = S.train[k]; if(!s || !confirm(`Remove the study "${s.n}" and its ${s.h} hours?`)) return; trainRelease(k); delete S.train[k]; logMsg(`📚 Study removed: ${esc(s.n)} (${esc(trainNames(s.who))}).`); render(); }
+function trainHours(k){   // the GM's hand: bonus hours for the near-impossible, hours lost to memory loss or Despair, or a correction
+  const s = S.train[k]; if(!s) return;
+  const v = prompt(`${s.n}: ${s.h} of ${s.g} hours.\n\nAdd or take away hours (for example 6, or -3). The GM may award up to 6 bonus hours for the near-impossible; hours can be lost under extreme stress.`, ''); if(v===null) return;
+  const d = Math.round(parseFloat(v)*10)/10; if(!d) return;
+  s.h = clamp(Math.round((s.h + d)*10)/10, 0, 9999);
+  logMsg(`📚 ${esc(trainNames(s.who))} — <b>${esc(s.n)}</b>: ${d>0 ? '+'+d : d} hour${Math.abs(d)===1?'':'s'} by the GM (now ${s.h}/${s.g}).`, d>0 ? 'lg' : 'lw'); render();
+}
+function trainRelease(k){   // take the training status off anyone still in this study's session
+  for(const cs of S.chars) if(cs.status && cs.status.kind==='train' && cs.status.study===k){ cs.status = null; cs.activity = cs.prevAct; }
+}
+function trainStart(k){
+  const s = S.train[k]; if(!s || s.p) return;
+  const h = clamp(Math.round((parseFloat(trainVal('trS_h'))||0)*4)/4, 0.25, 48);
+  const ids = CHARS.map(c=>c.id).filter(id=>{ const el = document.getElementById('trS_w_'+id); return el && el.checked; });
+  if(!ids.length){ alert('Tick who is taking part.'); return; }
+  for(const id of ids){ const cs = st(id); if(cs.status) cancelStatus(id, true); cs.prevAct = cs.activity; cs.status = { kind:'train', remain:h, total:h, deltas:{}, study:k }; }
+  s.p = { h, t0:S.hour, who:ids.join(',') }; TRAIN_UI.open = '';
+  logMsg(`📚 Training — ${esc(ids.map(id=>cfg(id).name.split(' ')[0]).join(' and '))}: <b>${esc(s.n)}</b> (${fmtDur(h)}). It counts down as the clock is advanced; everyone else is free to act.`); render();
+}
+function trainStop(k){ const s = S.train[k]; if(!s || !s.p) return; trainRelease(k); logMsg(`📚 ${esc(trainNames(s.p.who))} break off training (${esc(s.n)}) after ${fmtDur(trainSession(k).spent || 0)}.`); render(); }
+function trainDrop(k){ const s = S.train[k]; if(!s || !s.p || !confirm('Discard this session without rolling? No hours are added.')) return; trainRelease(k); delete s.p; render(); }
+function trainRollLoad(k){   // the session's roll goes into the dice tray; rollPool hands the result to applyTraining
+  const s = S.train[k], ses = trainSession(k); if(!s || !ses || !ses.done) return;
+  const who = trainVal('trR_who'), sk = trainVal('trR_sk'), d = npcInt(trainVal('trR_d'), 1, 5, 2); if(!st(who)) return;
+  encLoadCheck(who, sk, d, `Training: ${s.n}`.slice(0,80));
+  DICE_UI.train = { id:k, h:ses.spent, n:s.n };
+  TRAIN_UI.open = ''; showTab('dice');
+}
+function applyTraining(t, r){   // called by rollPool with the tally of the roll
+  const s = S.train[t.id]; if(!s) return '';
+  const ok = r.netS>0, lucky = r.x>0 || r.netA>0, half = Math.round(t.h/2*4)/4;
+  const got = Math.round((ok ? t.h + r.netS + r.x : lucky ? t.h : half)*10)/10;
+  s.h = clamp(Math.round((s.h + got)*10)/10, 0, 9999); trainRelease(t.id); delete s.p;
+  const why = ok ? `${fmtDur(t.h)} of training, +${r.netS} for Success${r.netS===1?'':'es'}${r.x ? `, +${r.x} for Triumph` : ''}` : lucky ? `the check failed, but ${r.x ? 'a Triumph' : 'Advantage'} keeps the full ${fmtDur(t.h)}` : `the check failed: half of ${fmtDur(t.h)}`;
+  const text = `${trainNames(s.who)} — ${s.n}: +${got} hour${got===1?'':'s'} (${why}). Now ${s.h}/${s.g}${s.h>=s.g ? ` — tier ${s.tier} is ready to complete` : ''}.`;
+  logMsg('📚 '+esc(text), 'lg'); render();
+  return text;
+}
+function trainFinish(k){   // a full bar: the GM says what the tier gives, and what the next one costs
+  const s = S.train[k]; if(!s || s.h < s.g) return;
+  if(s.kind==='s' && s.sk){
+    const sk = SKILLS.find(x=>x.k===s.sk);
+    if(!confirm(`${s.n} is complete. Add a rank of ${sk.n} for ${trainNames(s.who)}?`)) return;
+    for(const id of trainWho(s.who)){ const cs = st(id); if(!cs) continue; const o = cs.sheet.sk[s.sk] || (cs.sheet.sk[s.sk] = {}); o.r = Math.min(SKILL_RANK_MAX, (Math.round(+o.r)||0) + 1); }
+    logMsg(`📚 <b>${esc(trainNames(s.who))}</b> finish${trainWho(s.who).length>1 ? '' : 'es'} ${esc(s.n)}: +1 rank of ${sk.n}.`, 'lg');
+  } else {
+    const e = prompt(`What does ${s.n} tier ${s.tier} give ${trainNames(s.who)}?\n\nThe GM's wording. It goes on the sheet and among the encounter options.`, ''); if(e===null) return;
+    S.train[trainKey('a_')] = { n:s.n, who:s.who, tier:s.tier, e:e.trim().slice(0,900), ty:'f', cat:'', act:'Passive' };
+    logMsg(`📚 <b>${esc(trainNames(s.who))}</b> reach${trainWho(s.who).length>1 ? '' : 'es'} <b>${esc(s.n)} tier ${s.tier}</b>${e.trim() ? ': '+esc(e.trim().slice(0,300)) : ''}`, 'lg');
+  }
+  const g = prompt(`Hours needed for tier ${s.tier+1} of ${s.n}?\n\nLeave blank if this study is finished.`, s.g);
+  if(g && parseInt(g,10)>0){ s.h = Math.max(0, Math.round((s.h - s.g)*10)/10); s.tier++; s.g = npcInt(g,1,9999,s.g); delete s.p; } else { trainRelease(k); delete S.train[k]; }
+  render();
+}
+function trainEarnAdd(){
+  const who0 = TRAIN_UI.who, n = trainVal('trE_n').slice(0,80); if(!n){ alert('Give it a name.'); return; }
+  const w = trainVal('trE_with'), who = who0==='group' ? 'group' : trainWho(who0 + (w ? ','+w : '')).join(',');
+  S.train[trainKey('a_')] = { n, who, tier:npcInt(trainVal('trE_tier'),1,20,1), e:trainVal('trE_e').slice(0,900), ty: trainVal('trE_ty')==='t' ? 't' : 'f', cat:'', act:'Passive' };
+  logMsg(`📚 ${esc(trainNames(who))}: <b>${esc(n)}</b> added to what training has given.`); render();
+}
+function trainEarnSet(k, f, v){ const a = S.train[k]; if(!a) return; if(f==='ty') a.ty = v==='t' ? 't' : 'f'; else if(f==='cat') a.cat = TRAIN_CATS[v] ? v : ''; else if(f==='act') a.act = TRAIN_ACTS.includes(v) ? v : 'Passive'; render(); }
+function trainEarnEdit(k){
+  const a = S.train[k]; if(!a) return;
+  const n = prompt('Name', a.n); if(n===null) return;
+  const tier = prompt('Tier', a.tier); if(tier===null) return;
+  const e = prompt('What it does (the GM\'s wording)', a.e); if(e===null) return;
+  Object.assign(a, { n:n.trim().slice(0,80) || a.n, tier:npcInt(tier,1,20,a.tier), e:e.trim().slice(0,900) }); render();
+}
+function trainEarnDel(k){ const a = S.train[k]; if(!a || !confirm(`Remove "${a.n} ${a.tier}"?`)) return; delete S.train[k]; render(); }
+function trainExport(){
+  const blob = new Blob([JSON.stringify({ kind:'st-training', v:1, train:S.train }, null, 1)], {type:'application/json'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'training.json'; a.click();
+}
+function trainImport(inp){
+  const f = inp.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ev => { try{
+      const b = JSON.parse(ev.target.result); if(!b || b.kind!=='st-training' || !b.train) throw 0;
+      const t = normTrain(b.train), n = Object.keys(t).length, have = Object.keys(S.train).length;
+      if(!n){ alert('That file has no training in it for these characters.'); return; }
+      if(have && !confirm(`Replace the ${have} studies and abilities on the Training tab with the ${n} in this file?`)) return;
+      for(const k of Object.keys(S.train)) trainRelease(k);
+      S.train = t; logMsg(`📚 Training loaded from a file: ${n} studies and abilities.`); render();
+    }catch(err){ alert('That file is not a training file.'); } };
+  r.readAsText(f); inp.value = '';
+}
+// one study: name, tier, bar and hours; `full` adds the controls of the Training tab
+function trainRowHtml(k, full){
+  const s = S.train[k], pct = clamp(s.h/s.g*100, 0, 100), done = s.h>=s.g, ses = trainSession(k), ids = trainWho(s.who), others = ids.filter(x=>x!==TRAIN_UI.who && x!=='group');
+  const tags = (ids.length>1 ? `<span class="badge b-inc" title="One study, held together: hours logged for one count for all">shared: ${esc(trainNames(s.who))}</span>` : '') +
+    (s.kind==='s' ? `<span class="badge b-man" title="Finishing it adds a skill rank">skill rank${s.sk ? ': '+SKILLS.find(x=>x.k===s.sk).n : ''}</span>` : '');
+  let ctl = '', panel = '';
+  if(full){
+    ctl = done ? `<button class="mini atk" onclick="trainFinish('${k}')" title="The hours are in. The GM says what this tier gives, then sets the next tier.">★ complete tier ${s.tier}</button>`
+      : ses && !ses.done ? `<span class="badge b-status">in session — ${fmtDur(ses.left)} left</span><button class="mini" onclick="trainStop('${k}')" title="Break off now. The time already put in still gets its roll.">stop early</button>`
+      : ses ? `<span class="badge b-status">session over — ${fmtDur(ses.spent)} put in</span><button class="mini atk" onclick="trainSet('open','${k}:r')">🎲 roll for it</button><button class="mini" onclick="trainDrop('${k}')" title="Discard the session without rolling">✖</button>`
+      : `<button class="mini atk" onclick="trainSet('open','${k}:s')" title="Set how long, and who. It counts down as the clock is advanced and never moves the clock itself.">▶ start a session</button>`;
+    ctl += `<button class="mini" onclick="trainHours('${k}')" title="GM: bonus hours (up to 6 for the near-impossible), hours lost, or a correction">± hours</button><button class="mini" onclick="trainEdit('${k}')" title="Edit the name, tier, hours needed and note">✎</button><button class="mini" onclick="trainDel('${k}')" title="Remove this study">✕</button>`;
+    if(TRAIN_UI.open===k+':s' && !s.p){
+      const cand = s.who==='group' ? CHARS.map(c=>c.id) : ids;
+      panel = `<div class="tpanel"><label>Hours <input type="number" id="trS_h" value="4" min="0.25" max="48" step="0.25" style="width:70px"></label>
+        ${cand.map(id=>`<label><input type="checkbox" id="trS_w_${id}" ${s.who==='group' ? '' : 'checked'}> ${esc(cfg(id).name.split(' ')[0])}${st(id).status ? ' <small style="color:var(--warn)">(busy: this replaces it)</small>' : ''}</label>`).join('')}
+        <button class="mini atk" onclick="trainStart('${k}')">start</button><button class="mini" onclick="trainSet('open','')">cancel</button></div>`;
+    }
+    if(TRAIN_UI.open===k+':r' && ses && ses.done){
+      const cand = trainWho(s.p.who), dn = ['','Easy','Average','Hard','Daunting','Formidable'];
+      panel = `<div class="tpanel"><label>Who rolls <select id="trR_who">${cand.map(id=>`<option value="${id}">${esc(cfg(id).name)}</option>`).join('')}</select></label>
+        <label title="It depends on the session: the GM names the skill">Skill <select id="trR_sk">${SKILLS.map(x=>`<option value="${x.k}"${x.k===(s.sk||'discipline')?' selected':''}>${esc(x.n)}</option>`).join('')}</select></label>
+        <label title="The GM sets it">Difficulty <select id="trR_d">${[1,2,3,4,5].map(d=>`<option value="${d}"${d===2?' selected':''}>${dn[d]}</option>`).join('')}</select></label>
+        <button class="mini atk" onclick="trainRollLoad('${k}')" title="Loads the check into the dice tray. Rolling it adds the hours.">🎲 to the dice tray</button><button class="mini" onclick="trainSet('open','')">cancel</button>
+        <small style="flex-basis:100%;color:var(--dim)">Succeed: ${fmtDur(ses.spent)} + 1 hour per Success + 1 more per Triumph. Fail: ${fmtDur(Math.round(ses.spent/2*4)/4)}, or the full ${fmtDur(ses.spent)} with a Triumph or Advantage.</small></div>`;
+    }
+  }
+  return `<div class="trow"><div class="tname"><b>${esc(s.n)}</b> ${tags}<small>Working toward tier ${s.tier}${!full && ses ? (ses.done ? ' · session over, roll due' : ` · in session, ${fmtDur(ses.left)} left`) : ''}${full && others.length && ids.length>1 ? '' : ''}</small>${s.note ? `<small class="tnote">${esc(s.note)}</small>` : ''}</div>
+    <div class="tprog"><div class="tbar"><i class="${done?'full':''}" style="width:${pct.toFixed(1)}%"></i></div><small>${s.h} / ${s.g} hours${done ? ' — ready' : ''}</small></div>
+    ${full ? `<div class="tctl">${ctl}</div>` : ''}${panel}</div>`;
+}
+// what finished tiers gave, as Force powers and as talents; `full` adds the editing controls
+function trainEarnedHtml(who, full){
+  const keys = trainOf(who, 'a_'); if(!keys.length) return '';
+  const sel = (k, f, cur, opts) => `<select onchange="trainEarnSet('${k}','${f}',this.value)">${opts.map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('')}</select>`;
+  const one = k => { const a = S.train[k], [bc, bl] = abilBadge(a.act==='Passive' ? '' : 'Active ('+a.act+')');
+    return `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(a.n)} ${a.tier}</b><span class="badge b-${bc}">${bl}</span>${trainWho(a.who).length>1 ? `<span class="badge b-inc">shared: ${esc(trainNames(a.who))}</span>` : ''}
+      ${full ? `<span style="margin-left:auto"></span>${sel(k,'ty',a.ty,[['f','Force power'],['t','Talent']])}${sel(k,'act',a.act,TRAIN_ACTS.map(x=>[x,x]))}<label title="Where it is listed among a character's options in an encounter">in ${sel(k,'cat',a.cat,Object.entries(TRAIN_CATS).map(([v,l])=>[v, v ? l : 'by type ('+ABIL_CATS[trainCat({...a, cat:''})].replace(/^\S+\s/,'')+')']))}</label><button class="mini" onclick="trainEarnEdit('${k}')">✎</button><button class="mini" onclick="trainEarnDel('${k}')">✕</button>` : ''}</div>
+      ${a.e ? `<small>${esc(a.e)}</small>` : ''}</div>`; };
+  const part = (ty, label) => { const l = keys.filter(k=>S.train[k].ty===ty); return l.length ? `<div class="absub">${label}</div><div class="ablist"${full ? ' style="grid-template-columns:1fr"' : ''}>${l.map(one).join('')}</div>` : ''; };
+  return part('f', '✦ Force powers from training') + part('t', 'Talents from training');
+}
+function trainSheetHtml(cs){   // the Training section of a character sheet
+  const ss = trainOf(cs.id, 's_'), aa = trainOf(cs.id, 'a_');
+  return `<details class="sfold crate" ${SHEET_UI.open.train?'open':''} ontoggle="sheetOpen('train',this.open)">
+    <summary>📚 Training <b>${ss.length}</b> <span class="sub">· ${aa.length} earned</span></summary>
+    ${ss.length ? `<div class="tlist">${ss.map(k=>trainRowHtml(k, false)).join('')}</div>` : `<p style="color:var(--dim);font-size:12px">No studies under way.</p>`}
+    ${trainEarnedHtml(cs.id, false)}
+    <p style="margin-top:8px"><button class="mini" onclick="trainGo('${cs.id}')">open the Training tab →</button></p></details>`;
+}
+function renderTrain(){
+  const box = cached(document.getElementById('trainWrap')); if(!box) return;
+  if(TRAIN_UI.who!=='group' && !cfg(TRAIN_UI.who)) TRAIN_UI.who = cfg(ENC_UI.me) ? ENC_UI.me : CHARS[0].id;
+  const who = TRAIN_UI.who, grp = who==='group', ss = trainOf(who, 's_'), any = Object.keys(S.train).length;
+  const chip = (id, label) => { const n = trainOf(id, 's_').length, live = trainOf(id, 's_').some(k=>S.train[k].p);
+    return `<button class="chip ${who===id?'on':''}" onclick="trainSet('who','${id}')">${esc(label)}${n ? ' '+n : ''}${live ? ' ●' : ''}</button>`; };
+  const withSel = id => grp ? '' : `<label title="A study two characters hold together, such as a Force bond">shared with <select id="${id}"><option value="">nobody</option>${CHARS.filter(c=>c.id!==who).map(c=>`<option value="${c.id}">${esc(c.name.split(' ')[0])}</option>`).join('')}</select></label>`;
+  box.innerHTML = `<div class="itembar">${CHARS.map(c=>chip(c.id, c.name.split(' ')[0])).join('')}${chip('group', 'Group research')}
+      <span style="margin-left:auto"></span><button class="mini" onclick="trainExport()" title="Save everything on this tab to a file">⬇ export</button>
+      <button class="mini" onclick="document.getElementById('trainFile').click()" title="Load training from a file (it replaces what is here)">⬆ import</button><input type="file" id="trainFile" accept=".json" style="display:none" onchange="trainImport(this)"></div>
+    ${any ? '' : `<p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">Nothing here yet. Add a study below, or use ⬆ import to load the group's training from a file.</p>`}
+    <h4>${grp ? 'Group research' : esc(cfg(who).name)+' — in training'}</h4>
+    ${ss.length ? `<div class="tlist">${ss.map(k=>trainRowHtml(k, true)).join('')}</div>` : `<p style="color:var(--dim);font-size:12px">No studies under way.</p>`}
+    <div class="tpanel" style="margin-top:8px"><b style="font-size:12px">＋ New study</b>
+      <input type="text" id="trA_n" placeholder="Gravity training" style="flex:1;min-width:150px">
+      <label>tier <input type="number" id="trA_tier" value="1" min="1" max="20" style="width:54px"></label>
+      <label>hours needed <input type="number" id="trA_g" value="100" min="1" style="width:70px"></label>
+      <label>gives <select id="trA_kind"><option value="a">an ability or power tier</option><option value="s">a skill rank</option></select></label>
+      <label title="Only for a study that gives a skill rank">skill <select id="trA_sk">${SKILLS.map(x=>`<option value="${x.k}">${esc(x.n)}</option>`).join('')}</select></label>
+      ${withSel('trA_with')}<button class="mini atk" onclick="trainAdd()">add</button></div>
+    <h4 style="margin-top:16px">Earned from training</h4>
+    ${trainEarnedHtml(who, true) || `<p style="color:var(--dim);font-size:12px">Nothing yet. Completing a tier adds it here, on the sheet, and among the encounter options.</p>`}
+    <div class="tpanel" style="margin-top:8px"><b style="font-size:12px">＋ Already earned</b>
+      <input type="text" id="trE_n" placeholder="Teleportation" style="flex:1;min-width:130px">
+      <label>tier <input type="number" id="trE_tier" value="1" min="1" max="20" style="width:54px"></label>
+      <select id="trE_ty"><option value="f">Force power</option><option value="t">Talent</option></select>${withSel('trE_with')}
+      <input type="text" id="trE_e" placeholder="What it does, in the GM's words" style="flex-basis:100%">
+      <button class="mini atk" onclick="trainEarnAdd()">add</button></div>
+    <p style="color:var(--dim);font-size:12px;margin-top:14px;line-height:1.5"><b style="color:var(--text)">House rule.</b> Training spends time, not XP. Start a session and it counts down for those taking part as the clock is advanced; it never moves the clock itself, so everyone else can act meanwhile. When it is over, roll the skill and difficulty the GM names: a success banks the time spent plus 1 hour per Success (a Triumph counts 2); a failure banks half the time, or all of it with a Triumph or Advantage. The GM may award up to 6 bonus hours for the near-impossible, and hours can be lost under extreme stress. A full bar gives a skill rank or the next tier of the ability, in the GM's wording.</p>`;
+}
+
+/* ================================================================
    ENCOUNTER TAB — initiative, strict turn order and the NPCs in the scene.
    S.enc is {} when nothing is running, otherwise (synced per subkey, like the ship,
    so two players rolling initiative at once never overwrite each other):
@@ -6493,7 +6746,7 @@ function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, 
   if(T && T.adv) notes.push(`Adversary ${T.adv}: ${T.adv} upgrade${T.adv===1?'':'s'}`);
   if(a.wnote) notes.push(a.wnote);
   Object.assign(DICE_UI.pool, { p:a.p, a:a.a, b:0, k:clamp((a.k||0) + (T ? T.def : 0), 0, POOL_MAX), d, c, F:0 });
-  DICE_UI.repair = null; DICE_UI.dc = null; DICE_UI.cond = null; DICE_UI.tal = null;
+  DICE_UI.repair = null; DICE_UI.train = null; DICE_UI.dc = null; DICE_UI.cond = null; DICE_UI.tal = null;
   Object.assign(DICE_UI, { who:a.who, label:a.label, weapon:{ n:String(a.n).slice(0,60), dam:a.dam, crit:a.crit, q:String(a.q||'').slice(0,160), rng:band, note:notes.join(' · '), src:a.src||null } });
   if(a.by) DICE_UI.weapon.by = String(a.by).slice(0,60);   // an NPC's attack is rolled by the GM: the log names the NPC
   if(!ranged) DICE_UI.weapon.mel = 1;                      // Parry answers a melee hit, Reflect a ranged one
@@ -6714,6 +6967,8 @@ function renderEncPanel(){
   for(const r of talentRanks(cs)){ const tal = RULES_DB.talents[r.n] || {}, cat = abilCat(r.n, tal), [bc, bl] = abilBadge(tal.a);
     const h = `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(r.n)}${r.rank>1 ? ' '+r.rank : ''}</b><span class="badge b-${bc}">${bl}</span></div>${tal.e ? `<small>${esc(tal.e)}</small>` : ''}</div>`;
     (bc==='pas' ? passive : items)[cat].push(h); }
+  for(const k of trainOf(id, 'a_')){ const a = S.train[k], cat = trainCat(a), [bc, bl] = abilBadge(a.act==='Passive' ? '' : 'Active ('+a.act+')');   // what training has given: a Force power or a talent, filed with the rest
+    (bc==='pas' ? passive : items)[cat].push(`<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(a.n)} ${a.tier}</b><span class="badge b-${bc}">${bl}</span><span class="badge b-inc" title="Earned through training, not bought with XP">${a.ty==='f' ? 'Force power · trained' : 'Talent · trained'}</span></div>${a.e ? `<small>${esc(a.e)}</small>` : ''}</div>`); }
   const fr = cs.sheet.fr||0, free = Math.max(0, fr - (cs.force||0));
   for(const tid of Object.keys(cs.sheet.tr)){ const t = TREE_BY[tid]; if(!t || t.k==='spec') continue;
     const ups = treeNodes(cs, tid).filter(n=>!n.root);
@@ -6758,7 +7013,7 @@ function encSocial(id, key){   // a social check against the NPC picked on the p
 function encForce(id, power){   // free Force dice into the tray, without leaving the encounter
   const cs = st(id), n = Math.max(0, (cs.sheet.fr||0) - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, { p:0, a:0, b:0, k:0, d:0, c:0, F:Math.min(n, POOL_MAX) });
-  Object.assign(DICE_UI, { who:id, label:power, weapon:null, repair:null, dc:null, cond:null, tal:null });
+  Object.assign(DICE_UI, { who:id, label:power, weapon:null, repair:null, train:null, dc:null, cond:null, tal:null });
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = power;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
@@ -7209,7 +7464,7 @@ function encLoadCheck(id, skillKey, diff, label, mod){   // a plain skill check 
   const s = condPool(cs, sk); let d = clamp(diff, 0, POOL_MAX), c = 0;
   for(let i=0; i<((mod && mod.up)||0); i++){ if(d>0){ d--; c++; } else d++; }
   Object.assign(DICE_UI.pool, { p:s.p, a:s.a, b:0, k:clamp((mod && mod.setb)||0, 0, POOL_MAX), d, c, F:0 });
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, dc:null, cond:null, tal:null });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, train:null, dc:null, cond:null, tal:null });
   condApply(s.m); tdLoad(cs, skillKey);
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = label;
   renderDice();
@@ -7268,7 +7523,7 @@ function stationFire(id, system, i){   // a Gunnery check with the weapon attach
   A.pool.k = clamp(A.pool.k + wfx.setb + crew, 0, POOL_MAX); A.notes.push(...wfx.notes); if(crew) A.notes.push('thin air: 1 Setback'); if(wfx.dmg) A.notes.push(`extra power: +${wfx.dmg} damage`);
   if(w.ammo) A.notes.push(`${sh.ammo} torpedo${sh.ammo===1?'':'es'} aboard; this shot uses one`);
   Object.assign(DICE_UI.pool, A.pool);
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, dc:null, cond:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, train:null, dc:null, cond:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
   if(x){ DICE_UI.weapon.tgt = k; DICE_UI.weapon.tn = encName(k).slice(0,60); }
   condApply(s.m); tdLoad(cs, 'gunnery');
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
@@ -7374,7 +7629,7 @@ function encShipFire(k, wi){   // an enemy weapon at the Mantis, which is small 
   const sh = S.ship, A = shipAttackPool(shipPoolDice(x, 'gun'), { attSil:x.d.sil, tgtSil:SHIP.silhouette, setb:mantisBestDef(), attEv:x.ev, attSot:x.sot, tgtEv:sh.ev, tgtSot:sh.sot, q:w.q,
     arcOk:shipArcBears(w.arc, x.side), arcWhy:`this weapon covers ${w.arc.toLowerCase()}, and its ${SHIP_ARCS[x.side].toLowerCase()} faces us`, rngOk:SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
   Object.assign(DICE_UI.pool, A.pool);
-  Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, dc:null, cond:null, tal:null,
+  Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, train:null, dc:null, cond:null, tal:null,
     weapon:{ n:w.n, dam:numOr(w.dam), crit:numOr(w.crit), q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, tgt:'mantis', tn:SHIP.name, by:(x.hid ? 'an unseen ship' : encName(k)).slice(0,60) } });
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
   renderDice();
