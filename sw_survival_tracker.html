@@ -2534,6 +2534,7 @@ function droidCard(cs, c, div){
 }
 
 function render(){
+  trainFrSync();   // Force rating that training has given, onto the sheets
   document.getElementById('clock').textContent = clockStr();
   const envSel = document.getElementById('envSel');
   if(envSel.value !== S.env) envSel.value = S.env;   // keep the dropdown honest after reset/load
@@ -6179,7 +6180,8 @@ function npcEditor(n){
                         kind a (an ability or power tier) | s (a skill rank), sk the skill it raises, note,
                         p a session { h hours planned, t0 the clock when it began, who taking part } }
      a_<id>: something a finished tier gave  { n, who, tier, e the GM's wording, ty f (Force power) | t (talent),
-                        cat where it sits in the encounter options ('' = Force for a power, by its wording for a talent), act activation }
+                        cat where it sits in the encounter options ('' = Force for a power, by its wording for a talent), act activation,
+                        fr Force rating it adds (trainFrSync keeps each holder's sheet in step: sheet.trainFr is what is already counted) }
    A session is a timed status on each character taking part ("📚 Training"): it counts down as the clock is advanced and never
    moves the clock itself. When it is over, one roll decides the hours (applyTraining):
      the check succeeds   the time spent, +1 hour per net Success, +1 more per Triumph (a Triumph counts 2)
@@ -6201,7 +6203,7 @@ function normTrain(t){
       const pw = v.p && typeof v.p==='object' ? trainWho(v.p.who).filter(x=>x!=='group').join(',') : '';
       if(pw && +v.p.h>0) s.p = { h:clamp(+v.p.h, 0.25, 48), t0:+v.p.t0||0, who:pw };
     } else if(/^a_[a-z0-9_]+$/i.test(k))
-      o[k] = { n:str(v.n,80) || 'Ability', who, tier:npcInt(v.tier,1,20,1), e:str(v.e,900), ty: v.ty==='t' ? 't' : 'f', cat: v.cat && TRAIN_CATS[v.cat] ? v.cat : '', act: TRAIN_ACTS.includes(v.act) ? v.act : 'Passive' };
+      o[k] = { n:str(v.n,80) || 'Ability', who, tier:npcInt(v.tier,1,20,1), e:str(v.e,900), ty: v.ty==='t' ? 't' : 'f', cat: v.cat && TRAIN_CATS[v.cat] ? v.cat : '', act: TRAIN_ACTS.includes(v.act) ? v.act : 'Passive', fr:npcInt(v.fr,0,3,0) };
   }
   return o;
 }
@@ -6210,6 +6212,14 @@ const trainOf = (who, pre) => Object.keys(S.train||{}).filter(k=>k.startsWith(pr
 const trainNames = who => trainWho(who).map(x=>x==='group' ? 'the group' : cfg(x).name.split(' ')[0]).join(' and ');
 const trainKey = pre => pre + randomId().replace(/[^a-z0-9]/gi,'').slice(0,8).toLowerCase();
 const trainCat = a => a.cat || (a.ty==='f' ? 'force' : abilCat(a.n, { e:a.e }));   // where a trained ability sits among the encounter options
+function trainFrSync(){   // Force rating given by training: added to the sheet once, and taken off again if the entry goes
+  for(const cs of S.chars){ const sh = cs.sheet; if(!sh) continue;
+    const want = trainOf(cs.id, 'a_').reduce((a,k)=>a + (S.train[k].fr||0), 0), have = Math.round(+sh.trainFr)||0; if(want===have) continue;
+    sh.fr = clamp((Math.round(+sh.fr)||0) + want - have, 0, SHEET_NUM.fr[1]); if(want) sh.trainFr = want; else delete sh.trainFr;
+    if(cs.force > forceCap(cs)) cs.force = forceCap(cs);
+    logMsg(`✦ ${cfg(cs.id).name}'s Force rating is now <b>${sh.fr}</b> (${want>have ? '+' : ''}${want-have} from training).`, 'lf');
+  }
+}
 function trainSession(k){   // a study's session: still running, or over and waiting for its roll
   const s = S.train[k]; if(!s || !s.p) return null;
   const el = clamp(+(S.hour - s.p.t0).toFixed(3), 0, s.p.h);
@@ -6283,7 +6293,7 @@ function trainFinish(k){   // a full bar: the GM says what the tier gives, and w
     logMsg(`📚 <b>${esc(trainNames(s.who))}</b> finish${trainWho(s.who).length>1 ? '' : 'es'} ${esc(s.n)}: +1 rank of ${sk.n}.`, 'lg');
   } else {
     const e = prompt(`What does ${s.n} tier ${s.tier} give ${trainNames(s.who)}?\n\nThe GM's wording. It goes on the sheet and among the encounter options.`, ''); if(e===null) return;
-    S.train[trainKey('a_')] = { n:s.n, who:s.who, tier:s.tier, e:e.trim().slice(0,900), ty:'f', cat:'', act:'Passive' };
+    S.train[trainKey('a_')] = { n:s.n, who:s.who, tier:s.tier, e:e.trim().slice(0,900), ty:'f', cat:'', act:'Passive', fr:0 };
     logMsg(`📚 <b>${esc(trainNames(s.who))}</b> reach${trainWho(s.who).length>1 ? '' : 'es'} <b>${esc(s.n)} tier ${s.tier}</b>${e.trim() ? ': '+esc(e.trim().slice(0,300)) : ''}`, 'lg');
   }
   const g = prompt(`Hours needed for tier ${s.tier+1} of ${s.n}?\n\nLeave blank if this study is finished.`, s.g);
@@ -6293,10 +6303,10 @@ function trainFinish(k){   // a full bar: the GM says what the tier gives, and w
 function trainEarnAdd(){
   const who0 = TRAIN_UI.who, n = trainVal('trE_n').slice(0,80); if(!n){ alert('Give it a name.'); return; }
   const w = trainVal('trE_with'), who = who0==='group' ? 'group' : trainWho(who0 + (w ? ','+w : '')).join(',');
-  S.train[trainKey('a_')] = { n, who, tier:npcInt(trainVal('trE_tier'),1,20,1), e:trainVal('trE_e').slice(0,900), ty: trainVal('trE_ty')==='t' ? 't' : 'f', cat:'', act:'Passive' };
+  S.train[trainKey('a_')] = { n, who, tier:npcInt(trainVal('trE_tier'),1,20,1), e:trainVal('trE_e').slice(0,900), ty: trainVal('trE_ty')==='t' ? 't' : 'f', cat:'', act:'Passive', fr:0 };
   logMsg(`📚 ${esc(trainNames(who))}: <b>${esc(n)}</b> added to what training has given.`); render();
 }
-function trainEarnSet(k, f, v){ const a = S.train[k]; if(!a) return; if(f==='ty') a.ty = v==='t' ? 't' : 'f'; else if(f==='cat') a.cat = TRAIN_CATS[v] ? v : ''; else if(f==='act') a.act = TRAIN_ACTS.includes(v) ? v : 'Passive'; render(); }
+function trainEarnSet(k, f, v){ const a = S.train[k]; if(!a) return; if(f==='ty') a.ty = v==='t' ? 't' : 'f'; else if(f==='cat') a.cat = TRAIN_CATS[v] ? v : ''; else if(f==='act') a.act = TRAIN_ACTS.includes(v) ? v : 'Passive'; else if(f==='fr') a.fr = npcInt(v,0,3,0); render(); }
 function trainEarnEdit(k){
   const a = S.train[k]; if(!a) return;
   const n = prompt('Name', a.n); if(n===null) return;
@@ -6358,8 +6368,8 @@ function trainEarnedHtml(who, full){
   const keys = trainOf(who, 'a_'); if(!keys.length) return '';
   const sel = (k, f, cur, opts) => `<select onchange="trainEarnSet('${k}','${f}',this.value)">${opts.map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('')}</select>`;
   const one = k => { const a = S.train[k], [bc, bl] = abilBadge(a.act==='Passive' ? '' : 'Active ('+a.act+')');
-    return `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(a.n)} ${a.tier}</b><span class="badge b-${bc}">${bl}</span>${trainWho(a.who).length>1 ? `<span class="badge b-inc">shared: ${esc(trainNames(a.who))}</span>` : ''}
-      ${full ? `<span style="margin-left:auto"></span>${sel(k,'ty',a.ty,[['f','Force power'],['t','Talent']])}${sel(k,'act',a.act,TRAIN_ACTS.map(x=>[x,x]))}<label title="Where it is listed among a character's options in an encounter">in ${sel(k,'cat',a.cat,Object.entries(TRAIN_CATS).map(([v,l])=>[v, v ? l : 'by type ('+ABIL_CATS[trainCat({...a, cat:''})].replace(/^\S+\s/,'')+')']))}</label><button class="mini" onclick="trainEarnEdit('${k}')">✎</button><button class="mini" onclick="trainEarnDel('${k}')">✕</button>` : ''}</div>
+    return `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(a.n)} ${a.tier}</b><span class="badge b-${bc}">${bl}</span>${a.fr ? `<span class="badge b-force">+${a.fr} Force rating</span>` : ''}${trainWho(a.who).length>1 ? `<span class="badge b-inc">shared: ${esc(trainNames(a.who))}</span>` : ''}
+      ${full ? `<span style="margin-left:auto"></span>${sel(k,'ty',a.ty,[['f','Force power'],['t','Talent']])}${sel(k,'act',a.act,TRAIN_ACTS.map(x=>[x,x]))}<span title="Force rating this adds. It is put on the sheet of whoever holds it, and comes off again if this is removed.">${sel(k,'fr',String(a.fr||0),[['0','no Force rating'],['1','+1 Force rating'],['2','+2 Force rating'],['3','+3 Force rating']])}</span><label title="Where it is listed among a character's options in an encounter">in ${sel(k,'cat',a.cat,Object.entries(TRAIN_CATS).map(([v,l])=>[v, v ? l : 'by type ('+ABIL_CATS[trainCat({...a, cat:''})].replace(/^\S+\s/,'')+')']))}</label><button class="mini" onclick="trainEarnEdit('${k}')">✎</button><button class="mini" onclick="trainEarnDel('${k}')">✕</button>` : ''}</div>
       ${a.e ? `<small>${esc(a.e)}</small>` : ''}</div>`; };
   const part = (ty, label) => { const l = keys.filter(k=>S.train[k].ty===ty); return l.length ? `<div class="absub">${label}</div><div class="ablist"${full ? ' style="grid-template-columns:1fr"' : ''}>${l.map(one).join('')}</div>` : ''; };
   return part('f', '✦ Force powers from training') + part('t', 'Talents from training');
