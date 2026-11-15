@@ -619,6 +619,39 @@ print('\n=== SMOKE TEST — UI code paths ===');
       encEnd(); renderEnc(); if(!/Cal's options/.test(document.getElementById('encPanel').innerHTML)) throw new Error('options should stay available outside an encounter');
       print(`  encounter options: talents sort into offense / defense / force / utility; range, defense and Adversary set the pool; hits apply once after soak and Pierce; second maneuver costs strain`);
       S = keepS; setRolls(ROLLS.filter(e=>![1111,2222,3333].includes(e.ts))); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', cat:'offense' }); poolClear(); gmMode(false); showTab('tracker'); }
+    // Ship combat: the third mode, enemy ships from the profiles, squadrons, crews, hidden ships, the wire
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
+      const tie = SHIPS_DB.findIndex(s=>/TIE\/IN Interceptor/.test(s.n)), isd = SHIPS_DB.findIndex(s=>/Star Destroyer/.test(s.n)); if(tie<0 || isd<0) throw new Error('expected ship profiles missing');
+      const tk = encAddShip(tie, 4); if(!encOn() || S.enc.mode!=='ship' || !S.log.some(l=>/Ship combat begins/.test(l.m))) throw new Error('adding a ship with nothing running should start ship combat');
+      const sk = encAddShip(isd, 1), tk2 = encAddShip(tie, 1), T = S.enc[tk], D = S.enc[sk];
+      if(!T.hid || T.count!==4 || !T.cr.m || T.d.ht!==SHIPS_DB[tie].ht || D.count!==1 || D.cr.m || encName(tk2)!==SHIPS_DB[tie].n+' #2' || encShipCopies(SHIPS_DB[tie].n)!==2) throw new Error('adding ships wrong');
+      if(shipCrewRank(T,'gun')!==3 || shipPoolDice(T,'gun').p!==3 || shipPoolDice(T,'gun').a!==0) throw new Error('a squadron of four minion pilots should have three ranks');
+      const ht = T.d.ht; encShipSet(tk,'h',ht); if(shipAlive(T)!==3 || shipCondOf(T)[0]!=='3 of 4 flying' || shipCrewRank(T,'gun')!==2) throw new Error('a squadron should lose a ship per threshold of hull trauma');
+      encShipAdj(tk,'h',ht*3); if(shipAlive(T)!==0 || !encDown(tk) || shipCondOf(T)[0]!=='Destroyed') throw new Error('squadron should be destroyed');
+      encShipSet(sk,'h',1); if(shipCondOf(D)[0]!=='Damaged') throw new Error('one hull trauma is Damaged'); encShipSet(sk,'ss',D.d.ss+1); if(shipCondOf(D)[0]!=='Disabled') throw new Error('system strain past the threshold is Disabled'); encShipSet(sk,'ss',0);
+      encShipSet(sk,'h',D.d.ht+1); if(!encDown(sk)) throw new Error('hull trauma past the threshold destroys a ship'); encShipSet(sk,'h',0);
+      encShipSet(sk,'crew','ace'); if(D.cr.c!==4 || D.cr.gun!==3) throw new Error('crew preset wrong'); encShipSet(sk,'gun',5); encShipSet(sk,'c',9); if(D.cr.gun!==5 || D.cr.c!==6 || D.cr.m) throw new Error('crew numbers should clamp');
+      encShipSet(sk,'rng','Long'); encShipSet(sk,'arc','aft'); encShipSet(sk,'side','port'); encShipSet(sk,'rng','Nowhere'); encShipSet(sk,'arc','constructor'); if(D.rng!=='Long' || D.arc!=='aft' || D.side!=='port') throw new Error('range and arc pickers wrong');
+      encShipSet(sk,'spd',99); if(D.spd!==D.d.spd) throw new Error('speed should stop at the ship\'s top speed');
+      encSetInit('c_cal', 2, 0); encSetInit(sk, 2, 0); encSetInit(tk2, 3, 0); encSetInit(tk, 5, 5);
+      let o = encOrder(); if(o.join()!==[tk,tk2,'c_cal',sk].join()) throw new Error('ships should take their place in the order, PCs first on ties: '+o.join());
+      encRollShip(tk2); if(!S.enc[tk2].r || ROLLS[ROLLS.length-1].who!=='GM') throw new Error('a hidden ship should roll as GM'); encSetInit(tk2, 3, 0);
+      encNext(); if(S.enc.cur!==tk2) throw new Error('a destroyed squadron should be skipped at the top of the order: '+S.enc.cur);
+      gmMode(false); o = encOrder(); if(o.join()!=='c_cal') throw new Error('hidden ships should not be in the players\' order');
+      renderEnc(); let pv = document.getElementById('encScene').innerHTML + document.getElementById('encOrder').innerHTML;
+      if(/Interceptor|Star Destroyer|Hull trauma/.test(pv) || !/Mantis/.test(pv) || !/Nothing on the scopes/.test(pv) || /undefined|NaN|\[object/.test(pv)) throw new Error('the player view leaks hidden ships or is broken');
+      gmMode(true); encShipSet(sk,'hid',0); gmMode(false); renderEnc(); pv = document.getElementById('encScene').innerHTML;
+      if(!/Star Destroyer/.test(pv) || !/Intact/.test(pv) || !/Long range · in our aft arc · showing its port/.test(pv) || /Hull trauma|Gunnery|Armor <b>\d+<\/b> · Sil <b>\d+<\/b> · Handling/.test(pv.replace(/shipstrip[\s\S]*?<\/div>/,''))) throw new Error('a revealed ship should show name, condition and position only');
+      gmMode(true); renderEnc(); const gv = document.getElementById('encScene').innerHTML; if(!/Hull trauma/.test(gv) || !/Gunnery/.test(gv) || !/add a ship/.test(gv) || /undefined|NaN|\[object/.test(gv)) throw new Error('GM ship card wrong');
+      if(!/Ship combat/.test(document.getElementById('encHead').innerHTML)) throw new Error('mode chips missing');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).enc, syncSubset(S).enc) || !Array.isArray(wire.enc[sk].d.w) || wire.enc[sk].d.def.length!==4 || wire.enc.mode!=='ship') throw new Error('ships do not survive the wire');
+      if(normEnc({ on:1, mode:'constructor' }).mode!=='combat' || normNpcs([{ type:'toString' }])[0].type!=='rival') throw new Error('inherited object keys off the wire should not pass as valid values');
+      { const bare = normEnc(JSON.parse(JSON.stringify(prune({ on:1, mode:'ship', v_ab12:{ d:{ n:'Hulk' } } })))); if(!bare.v_ab12 || bare.v_ab12.d.w.length!==0 || bare.v_ab12.d.def.join()!=='-1,-1,-1,-1' || bare.v_ab12.cr.c!==3) throw new Error('a bare ship should come back whole'); }
+      showTab('gm'); gmSec('ships'); shipPick(isd); if(!/encounter \(1 in\)/.test(document.getElementById('shipDetail').innerHTML)) throw new Error('the Ships page should offer to send a ship to the encounter');
+      showTab('enc'); encEnd(); if(encOn() || !S.log.some(l=>/Ship combat over after 1 round/.test(l.m) && !/Interceptor/.test(l.m))) throw new Error('ending ship combat wrong: '+S.log.map(l=>l.m).join(' | '));
+      encStart('ship'); renderEnc(); if(S.enc.mode!=='ship' || !/In space/.test(document.getElementById('encScene').innerHTML)) throw new Error('starting ship combat directly wrong'); encEnd();
+      print(`  ship combat: ${SHIPS_DB.length} profiles can join an encounter; squadrons share hull and lose pilots' ranks, crews set the pools, hidden ships stay off the players' scopes, survives the wire`);
+      S = keepS; GM_UI.sec = 'species'; gmMode(false); showTab('tracker'); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');

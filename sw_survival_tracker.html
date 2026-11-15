@@ -443,6 +443,10 @@
   .encrow .who{flex:1;min-width:0} .encrow .who b{display:block;font-size:13px;overflow-wrap:anywhere} .encrow .who small{display:block;font-size:10.5px;color:var(--dim)}
   .encrow .res{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;cursor:pointer} .encrow .pos{font-size:11px;color:var(--dim);width:16px;text-align:center;flex:none}
   .encwait{margin-top:10px}
+  .shipface{width:30px;height:38px;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+  .shipstrip{border:1px solid var(--good);border-radius:10px;padding:8px 12px;background:#10241a;font-size:12.5px;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center} .shipstrip b{color:var(--text)} .shipstrip span{color:#b6bec8}
+  .enccard .arcs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0} .enccard .arcs div{border:1px solid var(--border);border-radius:6px;text-align:center;padding:2px 0;color:var(--dim);font-size:10px} .enccard .arcs b{display:block;font-size:14px;color:var(--text)}
+  .enccard .where{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:4px 0;color:var(--dim)} .enccard .crew input{width:42px}
   .enccards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
   .enccard{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--panel2);font-size:12px}
   .enccard.hid{border-style:dashed;opacity:.8} .enccard.down{opacity:.5}
@@ -2452,7 +2456,7 @@ function render(){
   renderTrees();
   if(TAB==='gm' && SPECIES_DB && !isEditing()) renderGM();
   if(TAB==='enc' && SPECIES_DB && !isEditing()) renderEnc();
-  { const tb = document.getElementById('tabE'); if(tb) tb.textContent = S.enc && S.enc.on ? (S.enc.mode==='social' ? '💬 Encounter ●' : '⚔ Encounter ●') : 'Encounter'; }
+  { const tb = document.getElementById('tabE'); if(tb) tb.textContent = S.enc && S.enc.on ? (S.enc.mode==='social' ? '💬 Encounter ●' : S.enc.mode==='ship' ? '🚀 Encounter ●' : '⚔ Encounter ●') : 'Encounter'; }
   scheduleSync();   // push any local change to the live room (no-op when solo/applying)
 }
 
@@ -5670,6 +5674,7 @@ function renderShipDetail(){
   const arcs = ['Fore','Port','Starboard','Aft'];
   box.innerHTML = `<div class="sphead"><div><h3>${esc(s.n)} ${s.hb ? '<span class="badge b-rival" title="Homebrew: the group\'s own numbers">HB</span>' : ''}</h3><small>${esc(s.grp)}</small></div></div>
     ${s.d ? `<p style="color:#c4ccd6;margin-bottom:8px">${esc(s.d)}</p>` : ''}
+    <p style="margin-bottom:8px"><button class="mini atk" onclick="encAddShip(${GM_UI.ship});renderShipDetail()" title="Put this ship into the encounter (starts ship combat if nothing is running). It arrives hidden from the players until you reveal it.">→ 🚀 encounter${encShipCopies(s.n) ? ' ('+encShipCopies(s.n)+' in)' : ''}</button></p>
     <div class="spattrs">${cell(s.sil,'Sil')}${cell(s.spd,'Speed')}${cell(s.hnd,'Handl')}${cell(s.arm,'Armor')}${cell(s.ht,'HT')}${cell(s.ss,'SS')}</div>
     <div class="shipdef" title="Defense by arc: setback dice added to attacks from that side">${arcs.map((a,i)=>`<div><b>${s.def[i]==null ? '–' : s.def[i]}</b>${a} def</div>`).join('')}</div>
     ${(s.w||[]).length ? `<h4>Weapons</h4><table class="shipw">${s.w.map(w=>`<tr><td><b>${esc(w.n)}</b><small>${esc([w.arc && 'Arc: '+w.arc, w.q].filter(Boolean).join(' · '))}</small></td>
@@ -5689,7 +5694,8 @@ function renderShipDetail(){
    Field edits save without rebuilding the form (so the cursor stays put); only
    structural changes (type, species, rows added or removed) redraw the editor.
    ================================================================ */
-const NPC_TYPES = { minion:'Minion', rival:'Rival', nemesis:'Nemesis' };
+const dict = o => Object.assign(Object.create(null), o);   // a lookup with no inherited keys, so a value off the wire like 'constructor' never matches
+const NPC_TYPES = dict({ minion:'Minion', rival:'Rival', nemesis:'Nemesis' });
 const NPC_RANGES = ['Engaged','Short','Medium','Long','Extreme'];
 const NPC_TEXT = ['n','sp','sub','k','tal','ab','gear','notes','tpl'];
 const npcInt = (v, lo, hi, d) => { const n = Math.round(+v); return isNaN(n) ? d : clamp(n, lo, hi); };
@@ -5888,22 +5894,36 @@ function npcEditor(n){
                      act / man action and maneuvers used this turn },
        ap_<ts>:    1 once the hit rolled at that time has been applied to its target,
        n_<id>:     { d NPC snapshot (see NPC BUILDER), count (minion group), w wounds, st strain,
-                     hid hidden from players, disp disposition, r / s / a / x / sk as above } }
+                     hid hidden from players, disp disposition, r / s / a / x / sk as above },
+       v_<id>:     { d ship snapshot (see normShip), count (a squadron shares hull like a minion group), h hull trauma,
+                     ss system strain, spd current speed, hid, cr crew { c characteristic, pil / gun ranks, m minion crew },
+                     rng range band from the Mantis, arc which of OUR arcs it is in, side which of ITS arcs faces us,
+                     r / s / a / x / sk as above } }
    House rule: a slot belongs to whoever rolled it — no swapping with allies.
    Honor system: hidden NPCs and NPC numbers are only drawn in GM mode, but they do sync.
    ================================================================ */
 const ENC_UI = { me:'' };
 const ENC_DISP = ['', 'Hostile', 'Wary', 'Neutral', 'Friendly'];
-const ENC_SK = { cool:'Cool', vigilance:'Vigilance' };
+const ENC_SK = dict({ cool:'Cool', vigilance:'Vigilance' });
+const ENC_MODES = dict({   // label, hover, the event-log line when it starts
+  combat: ['⚔ Combat', 'A fight on foot: turn order, NPC cards, personal-scale attacks', '⚔ An encounter begins — roll initiative.'],
+  ship:   ['🚀 Ship combat', 'The Mantis against other ships: turn order by crew member, enemy ship cards, planetary scale', '🚀 Ship combat begins — crew to stations, roll initiative.'],
+  social: ['💬 Conversation', 'No turn order: NPC cards with dispositions', '💬 A conversation begins.'] });
 function normEnc(e){
   if(!e || typeof e!=='object' || !e.on) return {};
-  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: e.mode==='social' ? 'social' : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '' };
+  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: ENC_MODES[e.mode] ? e.mode : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '' };
   const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
   for(const k in e){
     const v = e[k];
     if(/^ap_\d+$/.test(k) && v){ o[k] = 1; continue; }   // a hit from the roll feed that has been applied
     if(!v || typeof v!=='object') continue;
     if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0, act: v.act ? 1 : 0, man: npcInt(v.man, 0, 2, 0) });
+    else if(/^v_[a-z0-9]+$/.test(k) && v.d && typeof v.d==='object'){
+      const d = normShip(v.d), cr = v.cr && typeof v.cr==='object' ? v.cr : {};
+      o[k] = init(v, { d, count: npcInt(v.count, 1, 12, 1), h: npcInt(v.h, 0, 99999, 0), ss: npcInt(v.ss, 0, 9999, 0), spd: npcInt(v.spd, 0, 12, 0), hid: v.hid ? 1 : 0,
+        cr: { c: npcInt(cr.c, 1, 6, 3), pil: npcInt(cr.pil, 0, 5, 1), gun: npcInt(cr.gun, 0, 5, 1), m: cr.m ? 1 : 0 },
+        rng: SHIP_BANDS.includes(v.rng) ? v.rng : 'Medium', arc: SHIP_ARCS[v.arc] ? v.arc : 'fore', side: SHIP_ARCS[v.side] ? v.side : 'fore' });
+    }
     else if(/^n_[a-z0-9]+$/.test(k) && v.d && typeof v.d==='object')
       o[k] = init(v, { d: normNpcs([v.d])[0], count: npcInt(v.count, 1, 12, 1), w: npcInt(v.w, 0, 9999, 0), st: npcInt(v.st, 0, 999, 0), hid: v.hid ? 1 : 0, disp: ENC_DISP.includes(v.disp) ? v.disp : '' });
   }
@@ -5913,29 +5933,31 @@ const encOn = () => !!(S.enc && S.enc.on);
 const encIsGM = () => GM_UI.gm;
 const encNpcKeys = () => Object.keys(S.enc).filter(k=>k.startsWith('n_'));
 const encCopies = libId => encOn() ? encNpcKeys().filter(k=>S.enc[k].d.id===libId).length : 0;
-const encName = k => k.startsWith('c_') ? cfg(k.slice(2)).name : (S.enc[k].d.n || 'Unnamed NPC');
+const encName = k => k.startsWith('c_') ? cfg(k.slice(2)).name : (S.enc[k].d.n || (k[0]==='v' ? 'Unknown ship' : 'Unnamed NPC'));
+const encShipKeys = () => Object.keys(S.enc).filter(k=>k.startsWith('v_'));
 // a minion group loses a member for every (one member's threshold) wounds; anyone else is down past their threshold
 const encAlive = e => e.d.type==='minion' ? Math.max(0, e.count - Math.floor(e.w / e.d.wt)) : (e.w > e.d.wt ? 0 : 1);
 function encDown(k){
   const e = S.enc[k]; if(!e) return true;
   if(k.startsWith('n_')) return encAlive(e)===0;
+  if(k.startsWith('v_')) return shipAlive(e)===0;
   const cs = st(k.slice(2)), c = cfg(k.slice(2)); return !!(cs && isDown(cs, c));
 }
 function encOrder(all){   // strict initiative order: successes, then advantages, then PCs before NPCs
   if(!encOn()) return [];
-  return Object.keys(S.enc).filter(k=>/^[cn]_/.test(k) && S.enc[k].r && !S.enc[k].out && (all || encIsGM() || !S.enc[k].hid))
-    .sort((x,y)=> S.enc[y].s-S.enc[x].s || S.enc[y].a-S.enc[x].a || (x[0]===y[0] ? 0 : x[0]==='c' ? -1 : 1) || (x<y ? -1 : 1));
+  return Object.keys(S.enc).filter(k=>/^[cnv]_/.test(k) && S.enc[k].r && !S.enc[k].out && (all || encIsGM() || !S.enc[k].hid))
+    .sort((x,y)=> S.enc[y].s-S.enc[x].s || S.enc[y].a-S.enc[x].a || (x[0]==='c' ? 0 : 1) - (y[0]==='c' ? 0 : 1) || (x<y ? -1 : 1));
 }
 function encStart(mode){
   if(encOn()) return;
   S.enc = normEnc({ on:1, mode });
-  logMsg(mode==='social' ? '💬 A conversation begins.' : '⚔ An encounter begins — roll initiative.');
+  logMsg(ENC_MODES[S.enc.mode][2]);
   render();
 }
 function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
-  const e = S.enc, fallen = encNpcKeys().filter(k=>!e[k].hid && encAlive(e[k])===0).map(encName);
-  logMsg(`${e.mode==='social' ? '💬 Conversation' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode==='combat' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
+  const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
+  logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
   S.enc = {}; render();
 }
 function encSet(k, v){ if(!encOn()) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='title') scheduleSync(); else render(); }
@@ -6015,6 +6037,7 @@ function encCond(e){   // what the players are told about an NPC's health
 }
 const encFace = k => k.startsWith('c_')
   ? `<img src="img/${k.slice(2)}.png" alt="" style="object-position:${cfg(k.slice(2)).face || 'center'}" onerror="if(!this.dataset.p){this.dataset.p=1;this.src='img/${k.slice(2)}.jpg'}else{this.style.visibility='hidden'}">`
+  : k[0]==='v' ? `<span class="shipface">🚀</span>`
   : (S.enc[k].d.k ? `<img class="sp" src="img/species/${esc(S.enc[k].d.k)}.png" alt="" onerror="this.style.visibility='hidden'">` : `<img class="sp" alt="" style="visibility:hidden">`);
 const encRes = e => `${SYM.s[0]} ${e.s} ${SYM.a[0]} ${e.a}`;
 function encPcLine(id){
@@ -6030,14 +6053,14 @@ function renderEnc(){
   if(!encOn()){
     head.innerHTML = `<div class="enchead"><h2>No encounter running</h2><span style="margin-left:auto"></span>${meSel}</div>
       <p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">${gm ? 'Start a fight or a conversation. NPCs come from the library on the GM tab (→ ⚔ encounter), or add them here once it is running.' : 'When the GM starts an encounter, the turn order and the NPCs in the scene appear here.'}</p>
-      ${gm ? `<div class="enchead"><button class="primary" onclick="encStart('combat')">⚔ Start combat</button><button onclick="encStart('social')">💬 Start a conversation</button></div>` : ''}`;
+      ${gm ? `<div class="enchead"><button class="primary" onclick="encStart('combat')">⚔ Start combat</button><button onclick="encStart('ship')">🚀 Start ship combat</button><button onclick="encStart('social')">💬 Start a conversation</button></div>` : ''}`;
     orderEl.innerHTML = ''; scene.innerHTML = ''; renderMap(); renderEncPanel(); return;
   }
-  const combat = e.mode==='combat', order = encOrder(), cur = e.cur, ci = order.indexOf(cur);
+  const combat = e.mode!=='social', space = e.mode==='ship', order = encOrder(), cur = e.cur, ci = order.indexOf(cur);
   const upNext = (()=>{ for(let n=1; n<order.length; n++){ const k = order[(Math.max(ci,0)+n) % order.length]; if(!encDown(k)) return k; } return ''; })();
   head.innerHTML = `<div class="enchead">
-      ${gm ? `<input type="text" class="enctitle" value="${esc(e.title)}" placeholder="Name this encounter (optional)" onchange="encSet('title',this.value)">` : `<h2>${esc(e.title) || (combat ? 'Combat' : 'Conversation')}</h2>`}
-      ${gm ? `<button class="chip ${combat?'on':''}" onclick="encSet('mode','combat')">⚔ Combat</button><button class="chip ${combat?'':'on'}" onclick="encSet('mode','social')">💬 Conversation</button>` : ''}
+      ${gm ? `<input type="text" class="enctitle" value="${esc(e.title)}" placeholder="Name this encounter (optional)" onchange="encSet('title',this.value)">` : `<h2>${esc(e.title) || (space ? 'Ship combat' : combat ? 'Combat' : 'Conversation')}</h2>`}
+      ${gm ? Object.entries(ENC_MODES).map(([k,m])=>`<button class="chip ${e.mode===k?'on':''}" onclick="encSet('mode','${k}')" title="${m[1]}">${m[0]}</button>`).join('') : ''}
       ${combat && cur ? `<span class="encround">Round ${e.round}</span>` : ''}
       <span style="margin-left:auto"></span>${meSel}
       ${gm ? `<button class="mini" onclick="encEnd()" title="End the encounter for everyone and write a line to the event log">■ end encounter</button>` : ''}</div>
@@ -6051,16 +6074,17 @@ function renderEnc(){
   // --- initiative order + everyone who has not rolled ---
   const row = (k, i) => { const x = e[k], pc = k[0]==='c', down = encDown(k);
     return `<div class="encrow ${pc?'pc':'npc'} ${k===cur?'cur':k===upNext?'next':''} ${down?'down':''}"><span class="pos">${k===cur?'▶':i+1}</span>${encFace(k)}
-      <span class="who"><b>${esc(encName(k))}${x.hid ? ' <small style="display:inline">(hidden)</small>' : ''}</b><small>${pc ? encPcLine(k.slice(2)) : `<span class="cond-${encCond(x)[1]}">${encCond(x)[0]}</span>`}</small></span>
+      <span class="who"><b>${esc(encName(k))}${x.hid ? ' <small style="display:inline">(hidden)</small>' : ''}</b><small>${pc ? encPcLine(k.slice(2)) : `<span class="cond-${(k[0]==='v' ? shipCondOf(x) : encCond(x))[1]}">${(k[0]==='v' ? shipCondOf(x) : encCond(x))[0]}</span>`}</small></span>
       <span class="res" onclick="encManual('${k}')" title="${ENC_SK[x.sk]} — click to correct">${encRes(x)}</span></div>`; };
   const waitPc = CHARS.filter(c=>!(e['c_'+c.id] && (e['c_'+c.id].r || e['c_'+c.id].out)));
   const sitting = CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].out);
-  const waitNpc = gm ? encNpcKeys().filter(k=>!e[k].r) : [];
+  const waitNpc = gm ? encNpcKeys().filter(k=>!e[k].r) : [], waitShip = gm ? encShipKeys().filter(k=>!e[k].r) : [];
   const rollBtns = (fn, arg) => `<button class="mini atk" onclick="${fn}('${arg}','cool')" title="Ready for it: roll Cool">Cool</button><button class="mini atk" onclick="${fn}('${arg}','vigilance')" title="Caught off guard: roll Vigilance">Vigil.</button>`;
   orderEl.innerHTML = !combat ? '' : `<h4>Initiative order</h4>${order.map(row).join('') || `<p style="color:var(--dim);font-size:12px">Nobody has rolled yet.</p>`}
-    ${waitPc.length || waitNpc.length ? `<div class="encwait"><h4>Still to roll</h4>
+    ${waitPc.length || waitNpc.length || waitShip.length ? `<div class="encwait"><h4>Still to roll</h4>
       ${waitPc.map(c=>`<div class="encrow pc">${encFace('c_'+c.id)}<span class="who"><b>${esc(c.name)}</b></span>${rollBtns('encRollPC', c.id)}<button class="mini" onclick="encManual('c_${c.id}')" title="Type in a result rolled with real dice">✎</button><button class="mini" onclick="encSit('${c.id}',1)" title="Not in this encounter">sit out</button></div>`).join('')}
-      ${waitNpc.map(k=>`<div class="encrow npc">${encFace(k)}<span class="who"><b>${esc(encName(k))}</b></span>${rollBtns('encRollNPC', k)}<button class="mini" onclick="encManual('${k}')" title="Type in a result">✎</button></div>`).join('')}</div>` : ''}
+      ${waitNpc.map(k=>`<div class="encrow npc">${encFace(k)}<span class="who"><b>${esc(encName(k))}</b></span>${rollBtns('encRollNPC', k)}<button class="mini" onclick="encManual('${k}')" title="Type in a result">✎</button></div>`).join('')}
+      ${waitShip.map(k=>`<div class="encrow npc">${encFace(k)}<span class="who"><b>${esc(encName(k))}</b></span><button class="mini atk" onclick="encRollShip('${k}')" title="Roll initiative for this ship's crew">roll</button><button class="mini" onclick="encManual('${k}')" title="Type in a result">✎</button></div>`).join('')}</div>` : ''}
     ${sitting.length ? `<p style="color:var(--dim);font-size:11.5px;margin-top:8px">Sitting out: ${sitting.map(c=>`${esc(c.name.split(' ')[0])} <button class="mini" onclick="encSit('${c.id}',0)" title="Bring them in">join</button>`).join(' ')}</p>` : ''}`;
   // --- the scene: NPC cards ---
   const keys = encNpcKeys().filter(k=>gm || !e[k].hid).sort((x,y)=>encName(x)<encName(y) ? -1 : 1);
@@ -6080,11 +6104,15 @@ function renderEnc(){
       ${d.w.length ? `<div>${d.w.map((w,wi)=>`<div><button class="mini atk" onclick="encAttackNPC('${k}',${wi})" title="Load this attack into the dice tray against the chosen target">⚔</button> <b>${esc(w.n)}</b> ${npcPool(d, w.sk, g)} <span style="color:var(--dim)">dmg ${esc(w.dam)}${npcDamage(d, w) ? ' ('+npcDamage(d, w)+')' : ''} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : ''}
       ${d.sk.length ? `<details><summary>Skills</summary><div style="white-space:normal">${d.sk.map(s=>`<span class="pl">${esc(s[0])} ${npcPool(d, s[0], g)}</span>`).join('')}</div></details>` : ''}
       ${d.tal || d.ab || d.gear || d.notes ? `<details><summary>Talents, abilities, notes</summary>${d.tal ? `<div><b>Talents</b>\n${lines(d.tal)}</div>` : ''}${d.ab ? `<div><b>Abilities</b>\n${lines(d.ab)}</div>` : ''}${d.gear ? `<div><b>Gear</b> ${lines(d.gear)}</div>` : ''}${d.notes ? `<div><b>Notes</b>\n${lines(d.notes)}</div>` : ''}</details>` : ''}</div>`; };
-  scene.innerHTML = `<h4>${combat ? 'In the fight' : 'In the scene'}</h4>
+  const skeys = encShipKeys().filter(k=>gm || !e[k].hid).sort((x,y)=>encName(x)<encName(y) ? -1 : 1);
+  scene.innerHTML = (space || skeys.length ? `<h4>In space</h4>${shipOwnStrip()}
+    ${gm ? `<div class="enchead"><select onchange="encAddShip(this.value);this.value=''" title="Ships arrive hidden; reveal them when the sensors pick them up"><option value="">＋ add a ship…</option>${[...new Set((SHIPS_DB||[]).map(s=>s.grp))].map(g=>`<optgroup label="${esc(g)}">${SHIPS_DB.map((s,i)=>s.grp===g ? `<option value="${i}">${esc(s.n)}</option>` : '').join('')}</optgroup>`).join('')}</select></div>` : ''}
+    <div class="enccards">${skeys.map(shipCard).join('')}</div>${skeys.length ? '' : `<p style="color:var(--dim);font-size:12px;margin-bottom:10px">${gm ? 'No other ships yet.' : 'Nothing on the scopes.'}</p>`}` : '') +
+    (space && !encNpcKeys().length ? '' : `<h4${space ? ' style="margin-top:12px"' : ''}>${space ? 'Aboard' : combat ? 'In the fight' : 'In the scene'}</h4>
     ${gm ? `<div class="enchead"><select onchange="encAddNpc(this.value);this.value=''" title="NPCs arrive hidden; reveal them when the players would see them"><option value="">＋ add an NPC from the library…</option>${(S.npcs||[]).map(n=>`<option value="${n.id}">${esc(n.n || 'unnamed')} (${NPC_TYPES[n.type]})</option>`).join('')}</select>
       ${(S.npcs||[]).length ? '' : `<small style="color:var(--dim)">The library is empty — build NPCs on the GM tab first.</small>`}
       <label title="Who the ⚔ buttons on the NPC cards attack, and from how far. Sets the difficulty and the target's defense for you.">NPCs attack <select onchange="ENC_UI.tpc=this.value">${`<option value="">nobody yet</option>` + CHARS.filter(c=>!(e['c_'+c.id]||{}).out).map(c=>`<option value="c_${c.id}"${ENC_UI.tpc==='c_'+c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select> at ${encRangeSel()}</label></div>` : ''}
-    <div class="enccards">${keys.map(card).join('')}</div>${keys.length ? '' : `<p style="color:var(--dim);font-size:12px">${gm ? 'No NPCs in this encounter yet.' : 'Nobody else is in sight.'}</p>`}`;
+    <div class="enccards">${keys.map(card).join('')}</div>${keys.length ? '' : `<p style="color:var(--dim);font-size:12px">${gm ? 'No NPCs in this encounter yet.' : 'Nobody else is in sight.'}</p>`}`);
   renderMap(); renderEncPanel(); renderFeed();   // the feed's "apply" buttons depend on the encounter
 }
 
@@ -6097,7 +6125,7 @@ function renderEnc(){
    Setback and its Adversary ranks as upgrades; the roll's feed card then offers to
    apply the damage after soak. */
 Object.assign(ENC_UI, { pc:'', cat:'offense', tgt:'', tpc:'', rng:'' });
-const ABIL_CATS = { offense:'⚔ Offense', defense:'🛡 Defense', force:'✦ Force', utility:'🧰 Utility' };
+const ABIL_CATS = dict({ offense:'⚔ Offense', defense:'🛡 Defense', force:'✦ Force', utility:'🧰 Utility' });
 const ABIL_FIX = { 'Quick Draw':'offense', 'Grit':'defense', 'Toughened':'defense', 'Enduring':'defense', 'Durable':'defense', 'Resolve':'defense', 'Rapid Recovery':'defense', 'Second Wind':'defense' };
 function abilCat(name, tal){
   if(ABIL_FIX[name]) return ABIL_FIX[name];
@@ -6249,7 +6277,7 @@ function renderEncPanel(){
     : cat==='force' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">${fr ? `Force rating <b>${fr}</b>${cs.force ? ` · ${cs.force} committed, <b>${free}</b> free to roll` : ''}` : `${esc(c.name)} has no Force rating.`}</p>` : '';
   box.innerHTML = `<div class="abhead"><h3>${esc(c.name.split(' ')[0])}'s options</h3>${pick}<span style="margin-left:auto"></span>
       ${Object.entries(ABIL_CATS).map(([k,l])=>`<button class="chip ${cat===k?'on':''}" onclick="encPanelSet('cat','${k}')">${l} ${items[k].length + passive[k].length}</button>`).join('')}</div>
-    ${mine && mine.r && !mine.out && e.mode==='combat' ? `<div class="abturn"><b>${myTurn ? 'This turn:' : 'Next turn:'}</b>
+    ${mine && mine.r && !mine.out && e.mode!=='social' ? `<div class="abturn"><b>${myTurn ? 'This turn:' : 'Next turn:'}</b>
       <button class="mini ${mine.act?'used':''}" onclick="encTurnUse('${id}','act')" title="One action per turn: an attack, a skill check, activating an ability">Action${mine.act?' ✓':''}</button>
       <button class="mini ${mine.man?'used':''}" onclick="encTurnUse('${id}','man')" title="One free maneuver per turn">Maneuver${mine.man?' ✓':''}</button>
       <button class="mini ${mine.man>=2?'used':''}" ${mine.man>=2?'disabled':''} onclick="encTurnUse('${id}','man2')" title="A second maneuver costs 2 strain (added for you). Never more than two in a turn.">2nd maneuver${mine.man>=2?' ✓':' (2 strain)'}</button>
@@ -6537,6 +6565,99 @@ function renderScenes(){
         <small>${sc.npcs.length ? `${sc.npcs.length} NPC${sc.npcs.length===1?'':'s'}${placed<sc.npcs.length ? ` (${placed} placed)` : ''}: ${esc(sc.npcs.map(x=>(x.d.n||'unnamed')+(x.count>1?' ×'+x.count:'')).join(', '))}` : 'no NPCs'} · ${sc.sc>0 ? 'scale set' : 'no scale yet'}${sc.lines.length ? ` · ${sc.lines.length} line${sc.lines.length===1?'':'s'}` : ''} · ${sc.mode==='social' ? 'conversation' : 'combat'}</small>
         <div class="row"><button class="primary" onclick="sceneLoad('${sc.id}')" title="Put this map on the table with its NPCs where you left them">▶ bring to the table</button><span style="margin-left:auto"></span><button class="mini" onclick="sceneDel('${sc.id}')" title="Delete this saved scene">✕ delete</button></div></div></div>`; }).join('')}</div>
     ${list.length ? '' : `<p style="color:var(--dim);font-size:12px">No scenes saved yet.</p>`}`;
+}
+
+/* ---- ships in an encounter ---------------------------------------
+   An enemy (or friendly) ship is copied from the profiles (SHIPS_DB) into S.enc as v_<id>.
+   Its crew is three numbers the GM sets — a characteristic, and Piloting and Gunnery ranks —
+   or a minion crew, whose ranks are one per ship beyond the first, like any minion group.
+   Where it is relative to the Mantis is picked by hand: range band, which of our arcs it
+   sits in, and which of its sides faces us (those pick the defense dice once gunnery lands). */
+const SHIP_BANDS = ['Close','Short','Medium','Long','Extreme'];
+const SHIP_ARCS = dict({ fore:'Fore', port:'Port', stbd:'Starboard', aft:'Aft' });
+const SHIP_CREWS = dict({ rookie:['Rookie crew', {c:2, pil:1, gun:0, m:0}], trained:['Trained crew', {c:3, pil:1, gun:1, m:0}], veteran:['Veteran crew', {c:3, pil:2, gun:2, m:0}],
+  ace:['Ace crew', {c:4, pil:3, gun:3, m:0}], minion:['Minion pilots (ranks from squadron size)', {c:3, pil:0, gun:0, m:1}] });
+function normShip(d){
+  const str = (v, n) => v==null ? '' : String(v).slice(0, n), def = arrayify(d.def), w = arrayify(d.w), ab = arrayify(d.ab);
+  return { n:str(d.n, 80), grp:str(d.grp, 40), sil:npcInt(d.sil, 0, 12, 3), spd:npcInt(d.spd, 0, 12, 3), hnd:str(d.hnd, 4), arm:npcInt(d.arm, 0, 99, 0), ht:npcInt(d.ht, 1, 9999, 10), ss:npcInt(d.ss, 1, 9999, 10),
+    def: [0,1,2,3].map(i=>{ const v = Array.isArray(def) ? def[i] : null; return v==null || v==='' || v<0 ? -1 : npcInt(v, 0, 9, 0); }),   // -1 = that arc has no shield rating (shown as –)
+    w: (Array.isArray(w) ? w : []).filter(x=>x && typeof x==='object').slice(0,20).map(x=>Object.fromEntries(['n','arc','dam','crit','rng','q'].map(k=>[k, str(x[k], k==='q' ? 300 : 80)]))),
+    ab: (Array.isArray(ab) ? ab : []).map(arrayify).filter(x=>Array.isArray(x) && x[0]).slice(0,12).map(x=>[str(x[0], 60), str(x[1], 400)]) };
+}
+const shipAlive = x => x.count>1 ? Math.max(0, x.count - Math.floor(x.h / x.d.ht)) : (x.h > x.d.ht ? 0 : 1);   // a squadron loses a ship per threshold of hull trauma
+const shipCrewRank = (x, which) => x.cr.m ? Math.max(0, shipAlive(x) - 1) : x.cr[which];
+function shipPoolDice(x, which){ const c = x.cr.c, r = shipCrewRank(x, which), p = Math.min(c, r); return { p, a: Math.max(c, r) - p }; }
+const shipPool = (x, which) => { const {p, a} = shipPoolDice(x, which); return `<span class="die sm d12 t-p"></span>`.repeat(p) + `<span class="die sm d8 t-a"></span>`.repeat(a); };
+function shipCondOf(x){   // what the players are told
+  const al = shipAlive(x), total = x.d.ht * x.count;
+  if(al===0) return ['Destroyed', 3];
+  if(x.count>1) return [`${al} of ${x.count} flying`, al===x.count ? (x.h ? 1 : 0) : 2];
+  if(x.ss > x.d.ss) return ['Disabled', 2];
+  return x.h===0 ? ['Intact', 0] : x.h*2 <= total ? ['Damaged', 1] : ['Crippled', 2];
+}
+const encShipCopies = name => encOn() ? encShipKeys().filter(k=>S.enc[k].d.n.replace(/ #\d+$/,'')===name).length : 0;
+function encAddShip(idx, count){
+  const src = idx!=='' && idx!=null && SHIPS_DB ? SHIPS_DB[+idx] : null; if(!src) return null;
+  if(!encOn()){ S.enc = normEnc({ on:1, mode:'ship' }); logMsg(ENC_MODES.ship[2]); }
+  const small = src.sil<=3;
+  if(small && count==null){ const v = prompt(`How many ${src.n}? More than one flies as a squadron: shared hull, one attack, like a minion group.`, 1); if(v==null) return null; count = v; }
+  const d = normShip(JSON.parse(JSON.stringify(src))), same = encShipCopies(src.n);
+  if(same) d.n = `${d.n} #${same+1}`;
+  const n = npcInt(count, 1, 12, 1), k = 'v_'+randomId().slice(0,8);
+  S.enc[k] = normEnc({ on:1, [k]:{ d, count:n, hid:1, spd:Math.min(d.spd, 2), cr: n>1 ? SHIP_CREWS.minion[1] : SHIP_CREWS.trained[1] } })[k];
+  render(); return k;
+}
+function encShipSet(k, f, v){
+  const x = encOn() && S.enc[k]; if(!x || k[0]!=='v') return;
+  if(f==='hid'){ x.hid = v ? 1 : 0; if(!v) logMsg(`📡 <b>${esc(encName(k))}</b> appears on the scopes.`); }
+  else if(f==='rng'){ if(SHIP_BANDS.includes(v)) x.rng = v; }
+  else if(f==='arc' || f==='side'){ if(SHIP_ARCS[v]) x[f] = v; }
+  else if(f==='crew'){ if(SHIP_CREWS[v]) x.cr = { ...SHIP_CREWS[v][1] }; }
+  else if(['c','pil','gun'].includes(f)){ x.cr[f] = npcInt(v, f==='c' ? 1 : 0, f==='c' ? 6 : 5, x.cr[f]); x.cr.m = 0; }
+  else if(f==='count') x.count = npcInt(v, 1, 12, x.count);
+  else if(f==='spd') x.spd = npcInt(v, 0, x.d.spd, x.spd);
+  else if(f==='h' || f==='ss') x[f] = npcInt(v, 0, 99999, x[f]);
+  render();
+}
+function encShipAdj(k, f, d){ const x = encOn() && S.enc[k]; if(x) encShipSet(k, f, Math.max(0, x[f] + d)); }
+function encShipDel(k){ if(!encOn() || !S.enc[k] || !confirm(`Remove ${encName(k)} from the encounter?`)) return; if(S.enc.cur===k) encNext(); delete S.enc[k]; if(S.enc.cur===k) S.enc.cur = ''; render(); }
+function encRollShip(k){   // the crew's initiative: their characteristic with Piloting ranks standing in for Cool / Vigilance
+  const x = encOn() && S.enc[k]; if(!x || k[0]!=='v') return;
+  const r = rollDice(shipPoolDice(x, 'pil'));
+  if(r) postFeed({ k:'r', who: x.hid ? 'GM' : encName(k), l:'Initiative (crew)', r });
+  encRecord(k, parseRoll(r), 'cool');
+  render();
+}
+function shipOwnStrip(){   // the Mantis at a glance; the Mantis tab stays the place to change it
+  const sh = S.ship; if(!sh) return '';
+  const boost = sh.energy && sh.energy.shields===SHIP_ENERGY_MAX ? sh.shieldBoost : noBoost();
+  return `<div class="shipstrip"><b>🚀 ${esc(SHIP.name)}</b><span>Hull <b>${sh.hull}</b>/${sh.hullThr}</span><span>System strain <b>${sh.strain}</b>/${sh.strainThr}</span>
+    <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${(sh.defense[a]||0) + (boost[a]||0)}</b>`).join(' · ')}</span><span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b> · Speed <b>${SHIP.speed}</b></span>
+    <span style="margin-left:auto"></span><button class="mini" onclick="showTab('ship')" title="Hull, strain, shields, energy and crew stations are changed on the Mantis tab">open Mantis tab →</button></div>`;
+}
+function shipCard(k){
+  const e = S.enc, x = e[k], d = x.d, gm = encIsGM(), [cond, cc] = shipCondOf(x), al = shipAlive(x), total = d.ht * x.count;
+  const where = `${x.rng} range · in our ${SHIP_ARCS[x.arc].toLowerCase()} arc · showing its ${SHIP_ARCS[x.side].toLowerCase()}`;
+  const top = `<div class="top"><span class="shipface" style="font-size:24px;width:36px;height:44px">🚀</span><span style="flex:1;min-width:0"><b>${esc(encName(k))}</b>
+      <small>${esc(d.grp)}${x.count>1 ? ` · squadron of ${x.count}` : ''}</small></span>
+      ${gm ? `<button class="mini" onclick="encShipSet('${k}','hid',${x.hid?0:1})" title="${x.hid ? 'Hidden from the players. Click to reveal.' : 'Visible to the players. Click to hide.'}">${x.hid ? '🙈 reveal' : '👁 shown'}</button><button class="mini" onclick="encShipDel('${k}')" title="Remove from the encounter">✕</button>` : ''}</div>`;
+  if(!gm) return `<div class="enccard ${cc===3?'down':''}">${top}<div class="track"><b class="cond-${cc}">${cond}</b></div><div class="where">${where}</div></div>`;
+  const trk = (f, label, max) => `<span class="pl">${label} <button class="mini" onclick="encShipAdj('${k}','${f}',-1)">−</button> <input type="number" min="0" value="${x[f]}" onchange="encShipSet('${k}','${f}',this.value)"> <button class="mini" onclick="encShipAdj('${k}','${f}',1)">+</button> / <b>${max}</b></span>`;
+  const sel = (f, opts, tip) => `<select onchange="encShipSet('${k}','${f}',this.value)" title="${tip}">${opts.map(([v,l])=>`<option value="${v}"${x[f]===v?' selected':''}>${l}</option>`).join('')}</select>`;
+  const arcs = Object.entries(SHIP_ARCS), crewKey = Object.keys(SHIP_CREWS).find(c=>same(SHIP_CREWS[c][1], x.cr)) || '';
+  return `<div class="enccard ${x.hid?'hid':''} ${cc===3?'down':''}">${top}
+    <div class="track">${trk('h','Hull trauma',total)}${trk('ss','System strain',d.ss)}</div>
+    <div class="track"><b class="cond-${cc}">${cond}</b><span class="pl">speed <input type="number" min="0" max="${d.spd}" value="${x.spd}" onchange="encShipSet('${k}','spd',this.value)"> / <b>${d.spd}</b></span>${x.count>1 || d.sil<=3 ? `<span class="pl">ships <input type="number" min="1" max="12" value="${x.count}" onchange="encShipSet('${k}','count',this.value)"></span>` : ''}</div>
+    <div class="stats">Sil <b>${d.sil}</b> · Handling <b>${esc(d.hnd)}</b> · Armor <b>${d.arm}</b></div>
+    <div class="arcs" title="Defense by arc: Setback dice on attacks against that side">${arcs.map(([a,l],i)=>`<div><b>${d.def[i]<0 ? '–' : d.def[i]}</b>${l}</div>`).join('')}</div>
+    <div class="where">${sel('rng', SHIP_BANDS.map(b=>[b,b]), 'Range band from the Mantis (planetary scale)')} in our ${sel('arc', arcs, 'Which of the Mantis\'s arcs this ship sits in: decides which of our weapons can bear and which of our shields it hits')} arc, showing its ${sel('side', arcs, 'Which side of this ship faces the Mantis: decides which of its weapons can bear and which of its shields we hit')}</div>
+    <div class="where crew"><select onchange="encShipSet('${k}','crew',this.value)" title="Who is flying it. Pick a level, or type the numbers."><option value="">custom crew</option>${Object.entries(SHIP_CREWS).map(([c,[l]])=>`<option value="${c}"${crewKey===c?' selected':''}>${l}</option>`).join('')}</select>
+      <label title="The crew's Agility (and Intellect, Presence… one number for all of it)">char <input type="number" min="1" max="6" value="${x.cr.c}" onchange="encShipSet('${k}','c',this.value)"></label>
+      <label title="Piloting ranks">pilot <input type="number" min="0" max="5" value="${shipCrewRank(x,'pil')}" ${x.cr.m?'disabled':''} onchange="encShipSet('${k}','pil',this.value)"></label>
+      <label title="Gunnery ranks">guns <input type="number" min="0" max="5" value="${shipCrewRank(x,'gun')}" ${x.cr.m?'disabled':''} onchange="encShipSet('${k}','gun',this.value)"></label></div>
+    <div class="stats">Piloting ${shipPool(x,'pil')} · Gunnery ${shipPool(x,'gun')}</div>
+    ${d.w.length ? `<div>${d.w.map(w=>`<div><b>${esc(w.n)}</b> <span style="color:var(--dim)">${w.arc ? esc(w.arc)+' · ' : ''}dmg ${esc(w.dam||'—')} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : '<div class="stats">Unarmed.</div>'}
+    ${d.ab.length ? `<details><summary>Abilities</summary>${d.ab.map(([n,t])=>`<div><b>${esc(n)}${t?':':''}</b> ${esc(t)}</div>`).join('')}</details>` : ''}</div>`;
 }
 
 function initCloud(){
