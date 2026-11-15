@@ -2781,7 +2781,7 @@ function logMsg(msg, cls){
   rebuildLog();
   scheduleSync();   // log-only changes (notes, etc.) don't run render(); push them to the room
 }
-const LOG_MAX = 500;   // entries kept: a whole session, so nothing rolls off before it is exported for the lore book
+const LOG_MAX = 1000;  // entries kept: a whole session, dice rolls included, so nothing rolls off before it is exported for the lore book
 const LOG_UI = { open:false }; try{ LOG_UI.open = localStorage.getItem('st_log_open')==='1'; }catch(e){}
 function logToggle(){ LOG_UI.open = !LOG_UI.open; try{ localStorage.setItem('st_log_open', LOG_UI.open?'1':'0'); }catch(e){} rebuildLog(); }
 const LOG_CLASSES = new Set(['', 'lw', 'lb', 'lg', 'ld', 'lf', 'ln']);
