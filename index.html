@@ -1728,7 +1728,7 @@ function advanceCustom(){   // the typed span: clamp to the input's range, confi
   if(h>48 && !confirm(`Advance ${fmtDur(h)} (${(h/24).toFixed(1)} days) in one step?`)) return;
   advance(h);
 }
-function advance(hrs){
+function advance(hrs, quiet){   // quiet: the caller writes its own log line (a combat round)
   if(!hrs || hrs<=0) return;
   let left = hrs;
   while(left > 0){
@@ -1747,7 +1747,7 @@ function advance(hrs){
       if(c.hrs===0) logMsg(`⏳ <b>${esc(c.label)}</b> — countdown complete (${clockStr()}).`, 'lg');
     }
   }
-  logMsg(`⏱ Advanced ${fmtDur(hrs)} → ${clockStr()}.`);
+  if(!quiet) logMsg(`⏱ Advanced ${fmtDur(hrs)} → ${clockStr()}.`);
   render();
 }
 
@@ -6155,6 +6155,7 @@ function npcEditor(n){
    S.enc is {} when nothing is running, otherwise (synced per subkey, like the ship,
    so two players rolling initiative at once never overwrite each other):
      { on:1, title, mode combat|social, round, cur (order key of whoever is acting, '' = still rolling),
+       tm minutes the clock has already moved for this fight (one per finished round),
        c_<charId>: { r rolled, s successes, a advantages, x triumphs, sk cool|vigilance, out sitting out,
                      act / man action and maneuvers used this turn },
        ap_<ts>:    1 once the hit rolled at that time has been applied to its target (ap_<ts>_<i> / df_<ts>_<i> for its
@@ -6179,7 +6180,7 @@ const ENC_MODES = dict({   // label, hover, the event-log line when it starts
   social: ['💬 Conversation', 'No turn order: NPC cards with dispositions', '💬 A conversation begins.'] });
 function normEnc(e){
   if(!e || typeof e!=='object' || !e.on) return {};
-  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: ENC_MODES[e.mode] ? e.mode : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '', t0: Math.max(0, Math.round(+e.t0) || 0) };   // t0: when it began, so older rolls in the feed lose their apply buttons
+  const o = { on:1, title: typeof e.title==='string' ? e.title.slice(0,80) : '', mode: ENC_MODES[e.mode] ? e.mode : 'combat', round: npcInt(e.round, 1, 999, 1), cur: typeof e.cur==='string' ? e.cur.slice(0,40) : '', t0: Math.max(0, Math.round(+e.t0) || 0), tm: npcInt(e.tm, 0, 9999, 0) };   // t0: when it began, so older rolls in the feed lose their apply buttons
   const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
   for(const k in e){
     const v = e[k];
@@ -6228,13 +6229,13 @@ function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
   const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
   logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
-  const fought = e.mode!=='social' && e.cur ? CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].r && !e['c_'+c.id].out).map(c=>c.id) : [], rounds = e.round, mode = e.mode;
+  const fought = e.mode!=='social' && e.cur ? CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].r && !e['c_'+c.id].out).map(c=>c.id) : [], rounds = e.round, mode = e.mode, tm = e.tm||0;
   S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0, pun:0, patched:{} }); spaceMapSync(); render();   // critical hits stay on the ship until someone repairs them
-  if(fought.length) encAftermath(fought, rounds, mode);
+  if(fought.length) encAftermath(fought, rounds, mode, tm);
 }
 /* After a fight: everyone who took part catches their breath (Cool or Discipline, whichever is the better pool:
    1 strain back per success), and the fight takes its minutes off the clock with the fighters at Strenuous. */
-function encAftermath(ids, rounds, mode){
+function encAftermath(ids, rounds, mode, tm){   // tm: minutes the clock already moved, round by round
   const tired = ids.filter(id=>st(id) && st(id).strain>0);
   if(tired.length && confirm(`Roll end-of-encounter strain recovery for ${tired.map(id=>cfg(id).name.split(' ')[0]).join(', ')}?\n\nEach rolls Cool or Discipline, whichever is better, and recovers 1 strain per success.`)){
     for(const id of tired){ const cs = st(id);
@@ -6244,7 +6245,7 @@ function encAftermath(ids, rounds, mode){
       cs.strain -= n; logMsg(`💨 ${cfg(id).name} catches their breath: ${n} strain recovered (now ${cs.strain}).`, n ? 'lg' : '');
     }
   }
-  const v = typeof prompt==='function' ? prompt(`How many minutes did the fight take? ${rounds} round${rounds===1?'':'s'} is about ${rounds} minute${rounds===1?'':'s'}.\n\n${mode==='ship' ? 'The clock moves on and the ship burns fuel.' : 'The clock moves on, with those who fought at Strenuous/Combat for that time.'} Enter 0 or Cancel to leave the clock alone.`, rounds) : null;
+  const v = typeof prompt==='function' ? prompt(`The fight ran ${rounds} round${rounds===1?'':'s'}, about a minute each${tm ? `, and the clock has already moved ${tm} minute${tm===1?'':'s'} as the rounds went by` : ''}. How many ${tm ? 'more ' : ''}minutes to add?\n\n${mode==='ship' ? 'The clock moves on and the ship burns fuel.' : 'The clock moves on, with those who fought at Strenuous/Combat for that time.'} Enter 0 or Cancel to leave the clock alone.`, Math.max(0, rounds - (tm||0))) : null;
   const mins = clamp(Math.round(parseFloat(v)) || 0, 0, 240);
   if(mins>0){
     const was = mode==='ship' ? [] : ids.map(id=>st(id)).filter(cs=>cs && !cs.status).map(cs=>[cs, cs.activity]);
@@ -6293,11 +6294,20 @@ function encNext(){   // the next slot that can still act; past the end, a new r
   const e = S.enc; let i = order.indexOf(e.cur);
   shipPilotTurn(e.cur, 'end');
   for(let n=0; n<order.length; n++){
-    i++; if(i>=order.length){ i = 0; if(e.cur){ e.round++; shipRoundStart(); } }
+    i++; if(i>=order.length){ i = 0; if(e.cur){ e.round++; shipRoundStart(); encRoundTick(); } }
     if(!encDown(order[i])){ e.cur = order[i]; if(e.cur[0]==='c'){ e[e.cur].act = 0; e[e.cur].man = 0; } shipPilotTurn(e.cur, 'start'); render(); return; }   // a fresh turn: action and maneuver back
     if(!e.cur) e.cur = order[i];   // so a first slot that is already down still counts as "started"
   }
   render();
+}
+function encRoundTick(){   // a finished round is about a minute: the clock moves as the fight goes, with the fighters at Strenuous
+  const e = S.enc, due = e.round - 1 - (e.tm||0); if(e.mode==='social' || due<=0) return;   // stepping back and forward again never counts a round twice
+  e.tm = e.round - 1;
+  const was = e.mode==='ship' ? [] : CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].r && !e['c_'+c.id].out).map(c=>st(c.id)).filter(cs=>cs && !cs.status).map(cs=>[cs, cs.activity]);
+  for(const [cs] of was) cs.activity = 'strenuous';
+  advance(due/60, true);
+  for(const [cs, a] of was) if(!cs.status) cs.activity = a;
+  logMsg(`⏱ Round ${e.round} begins — ${clockStr()}.`);
 }
 function encBack(){
   if(!encOn() || !S.enc.cur) return;
