@@ -652,6 +652,47 @@ print('\n=== SMOKE TEST — UI code paths ===');
       encStart('ship'); renderEnc(); if(S.enc.mode!=='ship' || !/In space/.test(document.getElementById('encScene').innerHTML)) throw new Error('starting ship combat directly wrong'); encEnd();
       print(`  ship combat: ${SHIPS_DB.length} profiles can join an encounter; squadrons share hull and lose pilots' ranks, crews set the pools, hidden ships stay off the players' scopes, survives the wire`);
       S = keepS; GM_UI.sec = 'species'; gmMode(false); showTab('tracker'); }
+    // Ship stations: speed and the pilot's maneuvers, flags that last to the end of the pilot's next turn, checks by station
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true); encStart('ship'); const sh = S.ship, cal = st('cal');
+      if(sh.cspd!==0 || sh.ev || sh.sot || sh.pm) throw new Error('fresh ship combat state wrong');
+      stationSet('cal','Pilot',1); stationSet('bode','Engineer / Mechanic',1); stationSet('bode','Gunner (Blasters)',1); stationSet('cal','Nope',1);
+      if(crewId('Pilot')!=='cal' || shipStations('bode').length!==2 || shipStations('cal').join()!=='Pilot') throw new Error('stations wrong');
+      S.ship.crew['Co-Pilot'] = 'merrin'; if(crewId('Co-Pilot')!=='merrin') throw new Error('a first name typed on the Mantis tab should find the character'); S.ship.crew['Co-Pilot'] = '';
+      encSetInit('c_cal', 3, 0); encSetInit('c_bode', 1, 0); encNext(); if(S.enc.cur!=='c_cal') throw new Error('pilot should be up');
+      shipManeuver('ev'); if(sh.ev || sh.pm) throw new Error('Evasive Maneuvers needs speed 3');
+      const s0 = sh.strain, c0 = cal.strain||0; shipManeuver('accel'); if(sh.cspd!==1 || sh.pm!==1 || sh.strain!==s0) throw new Error('first Pilot Only maneuver should be free');
+      shipManeuver('accel'); if(sh.cspd!==2 || sh.pm!==2 || sh.strain!==s0+2 || cal.strain!==c0+2) throw new Error('second Pilot Only maneuver should cost 2 system strain and 2 strain');
+      shipManeuver('accel'); if(sh.cspd!==2 || sh.pm!==2) throw new Error('there is no third Pilot Only maneuver');
+      encNext(); encNext(); if(S.enc.cur!=='c_cal' || sh.pm!==0) throw new Error('the pilot\'s count should reset on their turn');
+      const s1 = sh.strain; shipManeuver('punch'); if(sh.cspd!==shipMaxSpeed() || sh.strain!==s1+shipMaxSpeed()-2) throw new Error('Punch It should cost 1 system strain per point of speed');
+      shipManeuver('ev'); if(sh.ev!==2 || sh.pm!==2) throw new Error('going evasive wrong');
+      encNext(); if(sh.ev!==1) throw new Error('evasive should outlast the turn it was called on'); encNext(); if(!sh.ev) throw new Error('evasive should still be on through the pilot\'s next turn');
+      encNext(); if(sh.ev!==0) throw new Error('evasive should end with the pilot\'s next turn');
+      encNext(); shipManeuver('sot'); shipManeuver('ev'); if(!sh.sot || !sh.ev) throw new Error('both flags should set'); shipManeuver('sot'); if(sh.sot) throw new Error('a flag should switch off by hand');
+      stationFire('bode','blasters',0); const bs = skillState(st('bode'), SKILLS.find(x=>x.k==='gunnery'));
+      if(DICE_UI.who!=='bode' || DICE_UI.pool.c!==1 || DICE_UI.pool.d!==1 || DICE_UI.pool.p!==bs.p || DICE_UI.weapon.dam!==5 || !/Linked/.test(DICE_UI.weapon.q) || !/Evasive/.test(DICE_UI.weapon.note)) throw new Error('gunnery while evasive should upgrade the difficulty and carry the weapon: '+JSON.stringify(DICE_UI.pool)+JSON.stringify(DICE_UI.weapon));
+      shipManeuver('ev'); sh.sot = 2; stationFire('bode','blasters',0); if(DICE_UI.pool.p + DICE_UI.pool.a !== bs.p + bs.a + (bs.a>0 ? 0 : 1) || DICE_UI.pool.p!==bs.p+(bs.a>0 ? 1 : 0)) throw new Error('Stay on Target should upgrade the gunner\'s ability'); sh.sot = 0;
+      sh.energy.blasters = SHIP_ENERGY_MAX; if(mantisGuns('blasters')[0].dam!==7) throw new Error('an overcharged weapon group should add its bonus'); sh.energy.blasters = SHIP_ENERGY_DEFAULT;
+      if(mantisGuns('ordnance')[0].arc!=='Forward' || !mantisGuns('ordnance')[0].ammo || mantisGuns('heavyguns').length!==2 || mantisGuns('heavyguns')[0].arc!=='Aft') throw new Error('guns should pick up arcs from the profile: '+JSON.stringify(mantisGuns('heavyguns')));
+      if(dcDiff(0,15)!==1 || dcDiff(8,15)!==2 || dcDiff(16,15)!==3) throw new Error('damage control difficulty wrong');
+      sh.strain = 8; stationCheck('bode','dcStrain'); if(DICE_UI.pool.d!==2 || DICE_UI.weapon || !/Damage Control/.test(DICE_UI.label)) throw new Error('damage control check wrong');
+      stationCheck('bode','dcHull'); if(!sh.hullFix || DICE_UI.pool.d!==1) throw new Error('hull repair check wrong'); DICE_UI.label = 'x'; stationCheck('bode','manual'); if(DICE_UI.label!=='x') throw new Error('only one hull repair per fight');
+      const vk = encAddShip(SHIPS_DB.findIndex(s=>/TIE\/IN Interceptor/.test(s.n)), 1); encShipSet(vk,'hid',0); ENC_UI.vtgt = vk; sh.cspd = 4;
+      for(const [their, want] of [[4,2],[3,1],[5,3],[6,4]]){ S.enc[vk].spd = their; stationCheck('cal','gta'); if(DICE_UI.pool.d!==want) throw new Error(`Gain the Advantage at speed 4 vs ${their} should be difficulty ${want}`); }
+      shipAngle('fore','aft'); if(sh.defense.fore!==1 || sh.defense.aft!==1) throw new Error('angling shields wrong'); shipAngle('aft','aft'); shipAngle('fore','constructor'); shipAngle('aft','fore'); if(sh.defense.fore!==2 || sh.defense.aft!==0) throw new Error('angling back wrong'); shipAngle('aft','fore'); if(sh.defense.fore!==2) throw new Error('an empty arc has nothing to give');
+      shipAdj('hull', 3); shipAdj('strain', -99); shipAdj('fuel', 5); if(sh.hull!==3 || sh.strain!==0 || sh.fuel!==SHIP.fuelCap) throw new Error('strip steppers wrong');
+      ENC_UI.pc = 'cal'; ENC_UI.lastMode = ''; renderEnc(); let ph = document.getElementById('encPanel').innerHTML;
+      if(ENC_UI.cat!=='station' || !/Punch It/.test(ph) || !/Proton Torpedo/.test(ph) || !/Pilot Only maneuvers this round/.test(ph) || /Damage Control/.test(ph) || /undefined|NaN|\[object/.test(ph)) throw new Error('pilot station panel wrong');
+      ENC_UI.pc = 'bode'; renderEncPanel(); ph = document.getElementById('encPanel').innerHTML; if(!/Damage Control/.test(ph) || !/Heavy Blaster Cannon/.test(ph) || /Punch It/.test(ph) || !/already tried/.test(ph) || /undefined|NaN|\[object/.test(ph)) throw new Error('engineer / gunner panel wrong');
+      ENC_UI.pc = 'tann'; renderEncPanel(); ph = document.getElementById('encPanel').innerHTML; if(!/has no station yet/.test(ph) || !/Pilot \(Cal\)/.test(ph)) throw new Error('a character with no station should be offered one');
+      for(const r of SHIP_STATIONS){ stationSet('tann', r, 1); } renderEncPanel(); ph = document.getElementById('encPanel').innerHTML; if(/undefined|NaN|\[object/.test(ph) || !/Fire Discipline/.test(ph) || !/Scan the Enemy/.test(ph)) throw new Error('every station should render');
+      const strip = document.getElementById('encScene').innerHTML; if(!/Speed <b>4<\/b>\/6/.test(strip)) throw new Error('the Mantis strip should show current speed');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).ship, syncSubset(S).ship) || wire.ship.cspd!==4) throw new Error('ship combat state does not survive the wire');
+      { const old = JSON.parse(JSON.stringify(syncSubset(S))); for(const k of ['cspd','ev','sot','pm','hullFix']) delete old.ship[k]; const m = migrate(old); if(m.ship.cspd!==0 || m.ship.hullFix!==0) throw new Error('a room from before ship combat should gain the new fields'); }
+      sh.ev = 2; encSet('mode','combat'); renderEnc(); if(ENC_UI.cat==='station') throw new Error('leaving ship combat should leave the station group');
+      encEnd(); if(sh.ev || sh.hullFix || sh.pm || sh.cspd!==4) throw new Error('ending the fight should clear the flags but keep the speed');
+      print(`  ship stations: Pilot Only maneuvers count and cost, Evasive / Stay on Target last to the end of the pilot's next turn, checks load by station, guns read arcs from the profile`);
+      S = keepS; Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', vtgt:'', cat:'offense', lastMode:'' }); poolClear(); gmMode(false); showTab('tracker'); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');

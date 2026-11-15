@@ -1246,7 +1246,8 @@ function freshShip(){
     sysHrs:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,0])),
     energy:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,SHIP_ENERGY_DEFAULT])), reserve:0,
     shieldBoost:noBoost(),
-    ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'' };
+    ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'',
+    cspd:0, ev:0, sot:0, pm:0, hullFix:0 };   // combat: current speed, Evasive Maneuvers / Stay on Target (turns left), Pilot Only maneuvers this round, hull repair used this fight
 }
 const noBoost   = () => ({fore:0, port:0, stbd:0, aft:0});
 const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
@@ -5958,7 +5959,7 @@ function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
   const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
   logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
-  S.enc = {}; render();
+  S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0 }); render();
 }
 function encSet(k, v){ if(!encOn()) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='title') scheduleSync(); else render(); }
 function encMe(v){
@@ -5997,9 +5998,10 @@ function encNext(){   // the next slot that can still act; past the end, a new r
   if(!encOn()) return;
   const order = encOrder(true); if(!order.length) return;
   const e = S.enc; let i = order.indexOf(e.cur);
+  shipPilotTurn(e.cur, 'end');
   for(let n=0; n<order.length; n++){
     i++; if(i>=order.length){ i = 0; if(e.cur) e.round++; }
-    if(!encDown(order[i])){ e.cur = order[i]; if(e.cur[0]==='c'){ e[e.cur].act = 0; e[e.cur].man = 0; } render(); return; }   // a fresh turn: action and maneuver back
+    if(!encDown(order[i])){ e.cur = order[i]; if(e.cur[0]==='c'){ e[e.cur].act = 0; e[e.cur].man = 0; } shipPilotTurn(e.cur, 'start'); render(); return; }   // a fresh turn: action and maneuver back
     if(!e.cur) e.cur = order[i];   // so a first slot that is already down still counts as "started"
   }
   render();
@@ -6269,14 +6271,19 @@ function renderEncPanel(){
     items[t.k==='power' ? 'force' : 'utility'].push(`<div class="abil"><div class="row"><b>${esc(t.n)}</b><span class="badge b-act">${t.k==='power' ? 'Force power' : 'Signature ability'}</span>${t.k==='power' && free ? `<span style="margin-left:auto"></span><button class="mini force" onclick="encForce('${id}','${esc(t.n).replace(/'/g,'’')}')">✦ roll ${free}</button>` : ''}</div>
       ${t.basic ? `<small>${esc(t.basic)}</small>` : ''}${ups.length ? `<small><b>Upgrades:</b> ${ups.map(n=>`<span title="${esc(n.e||'')}">${esc(n.n)}</span>`).join(' · ')}</small>` : ''}</div>`); }
   // --- draw ---
-  const cat = ABIL_CATS[ENC_UI.cat] ? ENC_UI.cat : 'offense', cb = combatStats(cs), e = S.enc, mine = encOn() && e['c_'+id], myTurn = encOn() && e.cur==='c_'+id;
+  const e = S.enc, space = encOn() && e.mode==='ship', mode = encOn() ? e.mode : '';
+  if(ENC_UI.lastMode!==mode){ ENC_UI.lastMode = mode; if(space) ENC_UI.cat = 'station'; else if(ENC_UI.cat==='station') ENC_UI.cat = 'offense'; }   // ship combat opens on your station
+  if(space){ items.station = stationItems(id); passive.station = []; }
+  const cats = space ? Object.assign({ station:'🚀 Station' }, ABIL_CATS) : ABIL_CATS;
+  const cat = cats[ENC_UI.cat] && items[ENC_UI.cat] ? ENC_UI.cat : 'offense', cb = combatStats(cs), mine = encOn() && e['c_'+id], myTurn = encOn() && e.cur==='c_'+id;
   const targets = encOn() ? encNpcKeys().filter(k=>(encIsGM() || !e[k].hid) && !encDown(k)) : [];
   if(ENC_UI.tgt && !targets.includes(ENC_UI.tgt)) ENC_UI.tgt = '';
   const lead = cat==='offense' ? `<div class="abhead"><label title="Pick who you are attacking and the dice tray sets the difficulty, their defense and Adversary upgrades for you.">Target <select onchange="ENC_UI.tgt=this.value"><option value="">no target (set the difficulty yourself)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}</option>`).join('')}</select></label><label>Range ${encRangeSel()}</label></div>`
     : cat==='defense' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">Soak <b>${cb.soak}</b> · Defense <b>${cb.defM}</b> melee / <b>${cb.defR}</b> ranged · Wounds <b>${cs.wounds||0}</b>/${cs.wt||0} · Strain <b>${cs.strain||0}</b>/${effStrainThresh(cs, c)}</p>`
+    : cat==='station' ? stationLead(id)
     : cat==='force' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">${fr ? `Force rating <b>${fr}</b>${cs.force ? ` · ${cs.force} committed, <b>${free}</b> free to roll` : ''}` : `${esc(c.name)} has no Force rating.`}</p>` : '';
   box.innerHTML = `<div class="abhead"><h3>${esc(c.name.split(' ')[0])}'s options</h3>${pick}<span style="margin-left:auto"></span>
-      ${Object.entries(ABIL_CATS).map(([k,l])=>`<button class="chip ${cat===k?'on':''}" onclick="encPanelSet('cat','${k}')">${l} ${items[k].length + passive[k].length}</button>`).join('')}</div>
+      ${Object.entries(cats).map(([k,l])=>`<button class="chip ${cat===k?'on':''}" onclick="encPanelSet('cat','${k}')">${l}${k==='station' ? '' : ' '+(items[k].length + passive[k].length)}</button>`).join('')}</div>
     ${mine && mine.r && !mine.out && e.mode!=='social' ? `<div class="abturn"><b>${myTurn ? 'This turn:' : 'Next turn:'}</b>
       <button class="mini ${mine.act?'used':''}" onclick="encTurnUse('${id}','act')" title="One action per turn: an attack, a skill check, activating an ability">Action${mine.act?' ✓':''}</button>
       <button class="mini ${mine.man?'used':''}" onclick="encTurnUse('${id}','man')" title="One free maneuver per turn">Maneuver${mine.man?' ✓':''}</button>
@@ -6631,8 +6638,10 @@ function encRollShip(k){   // the crew's initiative: their characteristic with P
 function shipOwnStrip(){   // the Mantis at a glance; the Mantis tab stays the place to change it
   const sh = S.ship; if(!sh) return '';
   const boost = sh.energy && sh.energy.shields===SHIP_ENERGY_MAX ? sh.shieldBoost : noBoost();
-  return `<div class="shipstrip"><b>🚀 ${esc(SHIP.name)}</b><span>Hull <b>${sh.hull}</b>/${sh.hullThr}</span><span>System strain <b>${sh.strain}</b>/${sh.strainThr}</span>
-    <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${(sh.defense[a]||0) + (boost[a]||0)}</b>`).join(' · ')}</span><span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b> · Speed <b>${SHIP.speed}</b></span>
+  const step = (f, label, thr) => `<span>${label} <button class="mini" onclick="shipAdj('${f}',-1)">−</button> <b>${sh[f]}</b>/${thr} <button class="mini" onclick="shipAdj('${f}',1)">+</button></span>`;
+  return `<div class="shipstrip"><b>🚀 ${esc(SHIP.name)}</b>${step('hull','Hull',sh.hullThr)}${step('strain','System strain',sh.strainThr)}
+    <span>Speed <b>${sh.cspd}</b>/${shipMaxSpeed()}</span>${sh.ev ? `<span class="badge b-man" title="Evasive Maneuvers: attacks against the Mantis, and by it, upgrade their difficulty once">Evasive</span>` : ''}${sh.sot ? `<span class="badge b-act" title="Stay on Target: attacks by the Mantis, and against it, upgrade their ability once">On target</span>` : ''}
+    <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${(sh.defense[a]||0) + (boost[a]||0)}</b>`).join(' · ')}</span><span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b></span>
     <span style="margin-left:auto"></span><button class="mini" onclick="showTab('ship')" title="Hull, strain, shields, energy and crew stations are changed on the Mantis tab">open Mantis tab →</button></div>`;
 }
 function shipCard(k){
@@ -6658,6 +6667,139 @@ function shipCard(k){
     <div class="stats">Piloting ${shipPool(x,'pil')} · Gunnery ${shipPool(x,'gun')}</div>
     ${d.w.length ? `<div>${d.w.map(w=>`<div><b>${esc(w.n)}</b> <span style="color:var(--dim)">${w.arc ? esc(w.arc)+' · ' : ''}dmg ${esc(w.dam||'—')} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : '<div class="stats">Unarmed.</div>'}
     ${d.ab.length ? `<details><summary>Abilities</summary>${d.ab.map(([n,t])=>`<div><b>${esc(n)}${t?':':''}</b> ${esc(t)}</div>`).join('')}</details>` : ''}</div>`;
+}
+
+/* ---- the Mantis in a fight: speed, the pilot's maneuvers, and what each station can do ----
+   State lives on S.ship (synced per key): cspd current speed, ev / sot turns left of Evasive
+   Maneuvers / Stay on Target (they last to the end of the pilot's NEXT turn), pm Pilot Only
+   maneuvers this round (a second costs the ship 2 system strain and the pilot 2 strain; there
+   is no third), hullFix 1 once the fight's single hull repair has been tried.
+   Stations are S.ship.crew (role → character name, set here or on the Mantis tab). */
+const shipMaxSpeed = () => SHIP.speed + (overcharged('engines') ? SHIP_ENERGY_BONUS.engines.speed : 0);
+const crewId = role => { const v = String((S.ship.crew||{})[role]||'').trim().toLowerCase(); const c = v && CHARS.find(c=>c.name.toLowerCase()===v || c.name.toLowerCase().split(' ')[0]===v); return c ? c.id : ''; };
+const shipStations = id => SHIP_STATIONS.filter(r=>crewId(r)===id);
+function stationSet(id, role, on){ if(!SHIP_STATIONS.includes(role) || !cfg(id)) return; S.ship.crew[role] = on ? cfg(id).name : ''; render(); }
+function shipAdj(f, d){ const sh = S.ship; if(!['hull','strain'].includes(f)) return; sh[f] = Math.max(0, (sh[f]||0) + d); render(); }
+function shipPilotTurn(key, when){   // called as a turn ends and as the next begins
+  const pid = crewId('Pilot'), sh = S.ship; if(!pid || key!=='c_'+pid) return;
+  if(when==='end'){ for(const f of ['ev','sot']) if(sh[f]>0) sh[f]--; } else sh.pm = 0;
+}
+function shipPilotOnly(name){   // counts a Pilot Only maneuver; false when the ship has had its two
+  const sh = S.ship, pid = crewId('Pilot');
+  if(sh.pm>=2){ logMsg(`🚀 The ${SHIP.name} has already taken two Pilot Only maneuvers this round.`, 'lw'); render(); return false; }
+  if(sh.pm===1){ sh.strain += 2; const cs = pid && st(pid); if(cs) cs.strain = (cs.strain||0) + 2;
+    logMsg(`🚀 Second Pilot Only maneuver (${name}): 2 system strain${cs ? `, and 2 strain to ${cfg(pid).name}` : ''}.`); }
+  sh.pm++; return true;
+}
+function shipManeuver(kind){
+  const sh = S.ship, max = shipMaxSpeed(), fast = sh.cspd>=3;
+  if(kind==='accel'){ if(sh.cspd>=max || !shipPilotOnly('Accelerate')) return; sh.cspd++; }
+  else if(kind==='decel'){ if(sh.cspd<=0 || !shipPilotOnly('Decelerate')) return; sh.cspd--; }
+  else if(kind==='fly'){ if(sh.cspd<=0 || !shipPilotOnly('Fly')) return; }
+  else if(kind==='punch'){ const d = max - sh.cspd; if(d<=0 || !shipPilotOnly('Punch It')) return; sh.cspd = max; sh.strain += d; logMsg(`🚀 <b>Punch It!</b> The ${SHIP.name} leaps to speed ${max} — ${d} system strain.`); }
+  else if(kind==='ev' || kind==='sot'){
+    if(sh[kind]){ sh[kind] = 0; render(); return; }   // switching one off early costs nothing
+    if(!fast || !shipPilotOnly(kind==='ev' ? 'Evasive Maneuvers' : 'Stay on Target')) return;
+    sh[kind] = 2; logMsg(kind==='ev' ? `🚀 The ${SHIP.name} goes evasive: attacks against it, and by it, upgrade their difficulty once.` : `🚀 The ${SHIP.name} stays on target: attacks by it, and against it, upgrade their ability once.`);
+  } else return;
+  render();
+}
+function shipAngle(from, to){   // Angle Deflector Shields: one point of defense from one arc to another
+  const d = S.ship.defense; if(!SHIP_ARCS[from] || !SHIP_ARCS[to] || from===to || !(d[from]>0) || d[to]>=4) return;
+  d[from]--; d[to]++; logMsg(`🛡 Shields angled: 1 defense from ${SHIP_ARCS[from].toLowerCase()} to ${SHIP_ARCS[to].toLowerCase()}.`); render();
+}
+function encLoadCheck(id, skillKey, diff, label){   // a plain skill check into the dice tray, without leaving the encounter
+  const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===skillKey); if(!sk) return;
+  const s = skillState(cs, sk);
+  Object.assign(DICE_UI.pool, { p:s.p, a:s.a, b:0, k:0, d:clamp(diff, 0, POOL_MAX), c:0, F:0 });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, tal:null });
+  tdLoad(cs, skillKey);
+  const lab = document.getElementById('diceLabel'); if(lab) lab.value = label;
+  renderDice();
+  const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+const dcDiff = (v, thr) => v>thr ? 3 : v*2>=thr ? 2 : 1;   // Damage Control: Easy under half, Average from half, Hard past the threshold
+function gtaDiff(k){   // Gain the Advantage: by the difference in speed with the chosen ship
+  const x = encOn() && S.enc[k], d = x ? S.ship.cspd - x.spd : 0;
+  return d===0 ? 2 : d>0 ? 1 : d===-1 ? 3 : 4;
+}
+function stationCheck(id, what){
+  const sh = S.ship;
+  const T = { copilot:['pilot_space',2,'Co-Pilot (Piloting)'], dcStrain:['mechanics',dcDiff(sh.strain, sh.strainThr),'Damage Control: system strain'], dcHull:['mechanics',dcDiff(sh.hull, sh.hullThr),'Damage Control: hull trauma'],
+    boost:['mechanics',3,'Boost Shields'], manual:['athletics',3,'Manual Repairs'], jam:['computers',2,'Jamming'], scan:['perception',3,'Scan the Enemy'], slice:['computers',3,"Slice Enemy's Systems"],
+    spoof:['computers',2,'Spoof Missiles'], spoofV:['vigilance',3,'Spoof Missiles'], plot:['astrogation',2,'Plot Course'], plotP:['perception',3,'Plot Course'], fire:['leadership',3,'Fire Discipline'], fireD:['discipline',3,'Fire Discipline'],
+    gta:['pilot_space',gtaDiff(ENC_UI.vtgt),'Gain the Advantage'+(encOn() && S.enc[ENC_UI.vtgt] ? ' on '+encName(ENC_UI.vtgt) : '')] }[what];
+  if(!T) return;
+  if(what==='dcHull' || what==='manual'){ if(sh.hullFix){ logMsg('🔧 The one hull repair of this fight has already been tried.', 'lw'); render(); return; } sh.hullFix = 1; render(); }
+  encLoadCheck(id, T[0], T[1], T[2]);
+}
+// the Mantis's guns: the Mantis tab's list, with arc and qualities read from the ship profile where it has them
+function mantisGuns(system){
+  const prof = ((SHIPS_DB||[]).find(s=>/mantis/i.test(s.n)) || {}).w || [], key = n => /torpedo/i.test(n) ? 'torpedo' : /turbolaser/i.test(n) ? 'turbolaser' : /laser cannon/i.test(n) ? 'laser cannon' : 'blaster cannon';
+  return SHIP_WEAPONS.filter(g=>g.system===system).flatMap(g=>g.items.map(w=>{ const pw = prof.find(x=>x.n.toLowerCase().includes(key(w.name))) || {};
+    return { n:w.name, system:g.system, ammo:!!g.ammo, dam:w.dmg + (overcharged(g.system) ? SHIP_ENERGY_BONUS[g.system].dmg : 0), crit:w.crit, rng:w.range, arc:pw.arc||'', q:pw.q||'' }; }));
+}
+function stationFire(id, system, i){   // a Gunnery check with the weapon attached; the target's numbers arrive with gunnery resolution
+  const cs = st(id), w = mantisGuns(system)[i]; if(!cs || !w) return;
+  const sh = S.ship, s = skillState(cs, SKILLS.find(x=>x.k==='gunnery'));
+  let p = s.p, a = s.a, d = 2, c = 0; const notes = ['Average until a target sets it'];
+  if(sh.sot){ if(a>0){ a--; p++; } else a++; notes.push('Stay on Target: ability upgraded'); }
+  if(sh.ev){ d--; c++; notes.push('Evasive Maneuvers: difficulty upgraded'); }
+  if(w.ammo) notes.push(`${sh.ammo} torpedoes left — take one off on the Mantis tab`);
+  Object.assign(DICE_UI.pool, { p, a, b:0, k:0, d, c, F:0 });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}`, repair:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:notes.join(' · '), src:null } });
+  tdLoad(cs, 'gunnery');
+  const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
+  renderDice();
+  const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function stationLead(id){
+  const targets = encShipKeys().filter(k=>(encIsGM() || !S.enc[k].hid) && !encDown(k));
+  if(ENC_UI.vtgt && !targets.includes(ENC_UI.vtgt)) ENC_UI.vtgt = '';
+  return `<div class="abhead"><label title="The ship you are dealing with: sets the difficulty of Gain the Advantage now, and of gunnery once that is wired up">Target ship <select onchange="ENC_UI.vtgt=this.value;renderEncPanel()"><option value="">none picked</option>${targets.map(k=>`<option value="${k}"${ENC_UI.vtgt===k?' selected':''}>${esc(encName(k))} (${S.enc[k].rng})</option>`).join('')}</select></label></div>`;
+}
+function stationItems(id){
+  const sh = S.ship, mine = shipStations(id), max = shipMaxSpeed(), out = [];
+  const card = (n, kind, text, btn) => `<div class="abil"><div class="row"><b>${n}</b>${kind ? `<span class="badge b-${abilBadge('Active ('+kind+')')[0]}">${kind}</span>` : ''}<span style="margin-left:auto"></span>${btn||''}</div><small>${text}</small></div>`;
+  const b = (label, js, tip, off) => `<button class="mini atk" ${off?'disabled':''} onclick="${js}" title="${tip||''}">${label}</button>`;
+  const chk = (label, what) => b(label, `stationCheck('${id}','${what}')`, 'Load this check into the dice tray');
+  const head = r => `<div class="abil pas" style="grid-column:1/-1;opacity:1;border-color:var(--gold)"><div class="row"><b style="color:var(--gold)">${esc(r)}</b><span style="margin-left:auto"></span><button class="mini" onclick="stationSet('${id}','${esc(r)}',0)" title="Leave this station">leave</button></div></div>`;
+  const guns = sys => mantisGuns(sys).map((w,i)=>`<div class="abil wpn"><div class="row"><b>${esc(w.n)}</b><span style="margin-left:auto"></span>${b('🎯 fire', `stationFire('${id}','${sys}',${i})`, 'Load a Gunnery check with this weapon')}</div>
+      <span class="meta">Gunnery · damage ${w.dam} · crit ${w.crit} · ${w.rng}${w.arc ? ' · '+esc(w.arc)+' arc' : ''}${w.ammo ? ` · ${sh.ammo} left` : ''}</span>${w.q ? `<small>${esc(w.q)}</small>` : ''}${sh.systems[sys]<=3 ? `<small style="color:var(--warn)">${sysName(sys)} is ${shipCond(sh.systems[sys]).name}: ${shipCond(sh.systems[sys]).fx}</small>` : ''}</div>`);
+  const angle = () => card('Angle deflector shields', 'Maneuver', `Move one point of defense between arcs. Now: ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a]} ${sh.defense[a]||0}`).join(' · ')}.`,
+    `<select id="angFrom_${id}">${Object.keys(SHIP_ARCS).map(a=>`<option value="${a}">${SHIP_ARCS[a]}</option>`).join('')}</select> → <select id="angTo_${id}">${Object.keys(SHIP_ARCS).map(a=>`<option value="${a}"${a==='aft'?' selected':''}>${SHIP_ARCS[a]}</option>`).join('')}</select> ${b('move', `shipAngle(document.getElementById('angFrom_${id}').value,document.getElementById('angTo_${id}').value)`)}`);
+  const S_ = {
+    'Pilot': () => [
+      card('Speed', 'Maneuver', `Now <b>${sh.cspd}</b> of ${max}. Accelerate or Decelerate changes it by one. ${sh.cspd===0 ? 'At speed 0 the ship cannot Fly.' : sh.cspd===1 ? 'One maneuver moves within close range; two between close and short.' : sh.cspd<=4 ? 'One maneuver moves within close, or between close and short; two between close and medium.' : 'One maneuver moves within close, or between close and medium; two between close and long.'}`,
+        b('−', `shipManeuver('decel')`, 'Decelerate', sh.cspd<=0) + ' ' + b('+', `shipManeuver('accel')`, 'Accelerate', sh.cspd>=max) + ' ' + b('fly', `shipManeuver('fly')`, 'Fly: change range with something (set the range on its card)', sh.cspd<=0)),
+      card('Evasive Maneuvers', 'Maneuver', 'Speed 3+. Until the end of your next turn, attacks against the ship upgrade their difficulty once, and so do the ship\'s own attacks.', b(sh.ev ? 'stop' : 'go evasive', `shipManeuver('ev')`, '', !sh.ev && sh.cspd<3)),
+      card('Stay on Target', 'Maneuver', 'Speed 3+. Until the end of your next turn, the ship\'s attacks upgrade their ability once, and so do attacks against it.', b(sh.sot ? 'stop' : 'stay on target', `shipManeuver('sot')`, '', !sh.sot && sh.cspd<3)),
+      card('Punch It', 'Maneuver', `Jump straight to top speed, at 1 system strain per point of speed gained (${Math.max(0, max - sh.cspd)} now).`, b('punch it', `shipManeuver('punch')`, '', sh.cspd>=max)),
+      card('Gain the Advantage', 'Action', `Speed 4+, against the target ship picked above. Piloting check, harder the slower you are than them. Success: ignore Evasive Maneuvers penalties on both sides until the end of the next round, and you choose which of their defense zones you hit.${sh.cspd<4 ? ' <span style="color:var(--warn)">Needs speed 4.</span>' : ''}`, chk('roll', 'gta')),
+      `<div class="abil pas" style="opacity:1"><small>Pilot Only maneuvers this round: <b>${sh.pm}</b> of 2. The second costs the ship 2 system strain and you 2 strain, added for you.</small></div>`,
+      ...guns('ordnance') ],
+    'Co-Pilot': () => [ card('Co-Pilot', 'Action', 'Average Piloting. Each success downgrades the difficulty of the pilot\'s next Piloting check by one.', chk('roll', 'copilot')), angle(), ...guns('ordnance') ],
+    'Engineer / Mechanic': () => [
+      card('Damage Control: system strain', 'Action', `Mechanics, ${['','Easy','Average','Hard'][dcDiff(sh.strain, sh.strainThr)]} at ${sh.strain}/${sh.strainThr}. Recover 1 system strain per success. As often as you like.`, chk('roll', 'dcStrain')),
+      card('Damage Control: hull trauma', 'Action', `Mechanics, ${['','Easy','Average','Hard'][dcDiff(sh.hull, sh.hullThr)]} at ${sh.hull}/${sh.hullThr}. Repair 1 hull trauma per success. <b>Once per fight</b>${sh.hullFix ? ' — already tried' : ''}.`, sh.hullFix ? '' : chk('roll', 'dcHull')),
+      card('Boost Shields', 'Action', 'Hard Mechanics. Success: 1 system strain, and +1 defense to one arc until your next turn, a round longer per extra success.', chk('roll', 'boost')),
+      card('Manual Repairs', 'Action', `Hard Athletics, with tools and the GM's nod. Removes 1 hull trauma, +1 per two extra successes. Counts as the fight's one hull repair${sh.hullFix ? ' — already tried' : ''}.`, sh.hullFix ? '' : chk('roll', 'manual')),
+      angle() ],
+    'Gunner (Blasters)': () => guns('blasters'),
+    'Gunner (Heavy Guns)': () => guns('heavyguns'),
+    'Sensors / Comms': () => [
+      card('Scan the Enemy', 'Action', 'Hard Perception. Learn the target\'s weapons, modifications and thresholds; two Advantage also give its current hull trauma and system strain.', chk('roll', 'scan')),
+      card('Slice Enemy\'s Systems', 'Action', 'Hard Computers. Reduce the defense of one of the target\'s zones for one round per success. A Triumph disables a weapon for a round; two Advantage inflict 1 system strain.', chk('roll', 'slice')),
+      card('Jamming', 'Action', 'Average Computers. The enemy must pass an Average Computers check to use its comms; harder per two extra successes, one more target per Advantage.', chk('roll', 'jam')),
+      card('Spoof Missiles', 'Action', 'Average Computers or Hard Vigilance. Until your next turn, Guided attacks against the ship upgrade their difficulty once, and once more per two Advantage.', chk('Computers', 'spoof') + ' ' + chk('Vigilance', 'spoofV')),
+      card('Plot Course', 'Action', 'Average Astrogation or Hard Perception. Each success removes one Setback the ship suffers for difficult terrain.', chk('Astrogation', 'plot') + ' ' + chk('Perception', 'plotP')) ],
+    'Commander': () => [ card('Fire Discipline', 'Action', 'Hard Leadership or Discipline. The next crew member to fire adds a Boost die; one more gunner per two extra successes. Three Advantage: every hit also inflicts 1 system strain until your next turn.', chk('Leadership', 'fire') + ' ' + chk('Discipline', 'fireD')) ]
+  };
+  for(const r of mine){ out.push(head(r)); out.push(...S_[r]()); }
+  const free = SHIP_STATIONS.filter(r=>!mine.includes(r));
+  out.push(`<div class="abil pas" style="grid-column:1/-1;opacity:1"><div class="row"><b>${mine.length ? 'Take another station' : esc(cfg(id).name.split(' ')[0])+' has no station yet'}</b>${free.map(r=>`<button class="mini" onclick="stationSet('${id}','${esc(r)}',1)" title="${crewId(r) ? 'Held by '+esc(cfg(crewId(r)).name)+' — this takes it over' : 'Nobody is here'}">${esc(r)}${crewId(r) ? ' ('+esc(cfg(crewId(r)).name.split(' ')[0])+')' : ''}</button>`).join('')}</div>
+    <small>Anyone aboard can still act for themselves: aim a turret, hand someone a tool, patch up a wounded crewmate.</small></div>`);
+  return out;
 }
 
 function initCloud(){
