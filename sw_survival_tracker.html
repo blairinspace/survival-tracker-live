@@ -558,7 +558,7 @@
 
 <div class="topbar">
   <div class="group">
-    <span class="clock" id="clock"></span>
+    <span class="clock" id="clock" style="cursor:pointer" onclick="setClockAsk()" title="Click to set the campaign day and time. No time passes: nobody gets hungrier or more tired."></span>
     <button class="primary" onclick="advance(0.25)">+15 min</button>
     <button class="primary" onclick="advance(0.5)">+30 min</button>
     <button class="primary" onclick="advance(1)">+1 hr</button>
@@ -1401,6 +1401,27 @@ const dayNow = () => Math.floor(S.hour/24);           // days begin at 00:00
 function clockStr(){
   const tot = Math.round(S.hour*60), h = Math.floor(tot/60)%24, m = tot%60;
   return `Day ${dayNow()+1} — ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+// Set the campaign calendar without passing time: needs, fuel, wear and countdowns are untouched, and the
+// few things that remember a clock reading (stim windows, the last drink, droid orders) move with it.
+function setClock(day, hh, mm){
+  day = Math.round(+day); hh = Math.round(+hh)||0; mm = Math.round(+mm)||0;
+  if(!(day>=1 && day<=99999) || hh<0 || hh>23 || mm<0 || mm>59) return false;
+  const now = +((day-1)*24 + hh + mm/60).toFixed(3), d = now - S.hour; if(!d) return true;
+  for(const cs of S.chars){
+    for(const k of ['stimWindowStart','lastDrinkAt']) if(typeof cs[k]==='number') cs[k] = +(cs[k] + d).toFixed(3);
+    const m = typeof cmdOf==='function' ? cmdOf(cs) : null; if(m && Array.isArray(m.orders)) for(const o of m.orders) if(typeof o.at==='number') o.at = +(o.at + d).toFixed(3);
+  }
+  S.hour = now;
+  logMsg(`🕰 Calendar set to <b>${clockStr()}</b>. No time has passed for anyone.`);
+  render(); return true;
+}
+function setClockAsk(){
+  const tot = Math.round(S.hour*60), cur = `${dayNow()+1} ${String(Math.floor(tot/60)%24).padStart(2,'0')}:${String(tot%60).padStart(2,'0')}`;
+  const v = prompt('Set the campaign day and time, for example "87 18:15" (the time is optional).\nNo time passes: needs, fuel and countdowns stay as they are.', cur);
+  if(v==null) return;
+  const m = String(v).trim().match(/^(?:day\s*)?(\d{1,5})(?:\D+(\d{1,2})(?::(\d{2}))?)?$/i);
+  if(!m || !setClock(m[1], m[2]==null ? Math.floor(tot/60)%24 : m[2], m[2]==null ? tot%60 : (m[3]||0))) alert('I could not read that. Type a day number, optionally followed by a time, like 87 18:15.');
 }
 const fmtDur = h => h>=1 ? `${(+h.toFixed(2))} hr` : `${Math.round(h*60)} min`;
 const plainLabel = s => s.replace(/^\S+ /,'');          // '🍲 Eating (meal)' → 'Eating (meal)'

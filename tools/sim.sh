@@ -849,6 +849,18 @@ print('\n=== SMOKE TEST — UI code paths ===');
       if(!/Athletics/.test(logText())) throw new Error('rolls should be in the exported log');
       print(`  dice log: every roll writes one event-log line with its net result (and damage on a hit); destiny flips stay in the feed`);
       S = keepS; poolClear(); }
+    // Setting the calendar: the day and time change, nobody's needs do, and remembered clock readings move with it
+    { const keepS = S; S = freshState(); advance(30); const cal = st('cal'); cal.stimWindowStart = S.hour - 2; cal.stimsToday = 1; cal.lastDrinkAt = S.hour - 0.1;
+      const before = JSON.stringify(S.chars.map(c=>[c.water, c.hunger, c.rest, c.strain])), fuel = S.ship.fuel, left0 = stimResetIn(cal);
+      if(!setClock(87, 18, 15) || clockStr()!=='Day 87 — 18:15' || dayNow()!==86) throw new Error('setting the calendar wrong: '+clockStr());
+      if(JSON.stringify(S.chars.map(c=>[c.water, c.hunger, c.rest, c.strain]))!==before || S.ship.fuel!==fuel) throw new Error('setting the calendar should not pass time');
+      if(Math.abs(stimResetIn(cal)-left0)>0.01 || Math.abs((S.hour - cal.lastDrinkAt) - 0.1)>0.01) throw new Error('stim windows and the last drink should move with the calendar');
+      if(setClock(0, 0, 0) || setClock(5, 24, 0) || setClock(5, 3, 60) || setClock('x', 1, 1) || clockStr()!=='Day 87 — 18:15') throw new Error('bad calendar values should be refused');
+      advance(6); if(clockStr()!=='Day 88 — 00:15') throw new Error('time should run on from the new calendar: '+clockStr());
+      setClock(1, 0, 0); if(clockStr()!=='Day 1 — 00:00' || !/Calendar set to/.test(S.log[0].m)) throw new Error('setting back to Day 1 wrong');
+      const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(w.hour!==0) throw new Error('the calendar should survive the wire');
+      print(`  calendar: the day and time can be set without passing time; needs, fuel and stim windows are untouched`);
+      S = keepS; }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
