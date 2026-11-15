@@ -1247,7 +1247,7 @@ function freshShip(){
     energy:Object.fromEntries(SHIP_SYSTEMS.map(s=>[s.id,SHIP_ENERGY_DEFAULT])), reserve:0,
     shieldBoost:noBoost(),
     ammo:SHIP.torpedoes, fuelLog:[], crew:{}, cargo:[], smuggle:[], img:'',
-    cspd:0, ev:0, sot:0, pm:0, hullFix:0 };   // combat: current speed, Evasive Maneuvers / Stay on Target (turns left), Pilot Only maneuvers this round, hull repair used this fight
+    cspd:0, ev:0, sot:0, pm:0, hullFix:0, crits:[] };   // combat: current speed, Evasive Maneuvers / Stay on Target (turns left), Pilot Only maneuvers this round, hull repair used this fight
 }
 const noBoost   = () => ({fore:0, port:0, stbd:0, aft:0});
 const boostUsed = sh => Object.values(sh.shieldBoost).reduce((a,b)=>a+b, 0);
@@ -1334,9 +1334,10 @@ function migrate(s){ // patch older saves (and room snapshots)
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
-    for(const k of ['cargo','smuggle','fuelLog']) s.ship[k] = arrayify(s.ship[k]);
+    for(const k of ['cargo','smuggle','fuelLog','crits']) s.ship[k] = arrayify(s.ship[k]);
     const d = freshShip();
     for(const k in d) if(s.ship[k]===undefined) s.ship[k]=d[k];
+    s.ship.crits = (Array.isArray(s.ship.crits) ? s.ship.crits : []).filter(c=>c && typeof c==='object').slice(0,30).map(c=>({ id:String(c.id||randomId().slice(0,6)).slice(0,12), n:String(c.n||'').slice(0,40), sev:String(c.sev||'').slice(0,12) }));
     for(const sy of SHIP_SYSTEMS){
       if(s.ship.systems[sy.id]===undefined) s.ship.systems[sy.id]=5;
       if(s.ship.sysHrs[sy.id]===undefined)  s.ship.sysHrs[sy.id]=0;
@@ -4171,7 +4172,8 @@ function rollPool(){
   const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(ignored ? {...p, k:p.k-ignored} : p) };
   const talNote = tdSummary(ignored); if(talNote) e.tal = talNote;
   if(DICE_UI.weapon){
-    const {src, note, ...card} = DICE_UI.weapon; e.w = card;
+    const {src, note, ord, ...card} = DICE_UI.weapon; e.w = card;
+    if(ord && S.ship){ S.ship.ammo = Math.max(0, (S.ship.ammo||0) - 1); render(); }   // a torpedo leaves the tube
     const it = src && st(src.id) && st(src.id).inv[src.i];   // the attack wears the weapon a little
     if(it && it.name===src.name && isWeapon(it)){ it.wear = clamp((it.wear||0)+WEAR_PER_ATTACK, 0, 100); render(); }
   }
@@ -4222,7 +4224,7 @@ function weaponCardHtml(w, dice, e){   // w comes off the wire: coerce and escap
   const r = tally(dice), dam = numOr(w.dam), crit = numOr(w.crit), hit = r.netS>0;
   const critOn = hit && crit>0 && (r.netA>=crit || r.x>0);
   return `<div class="wcard"><b>${esc(String(w.n||'Weapon').slice(0,60))}</b> · ` +
-    (hit ? `Damage ${dam} + ${r.netS} = <b>${dam+r.netS}</b> <span style="color:var(--dim)">before soak</span>` : `Damage ${dam} — <span style="color:var(--dim)">missed</span>`) +
+    (hit ? `Damage ${dam} + ${r.netS} = <b>${dam+r.netS}</b> <span style="color:var(--dim)">before ${w.sv ? 'armor' : 'soak'}</span>` : `Damage ${dam} — <span style="color:var(--dim)">missed</span>`) +
     ` · Crit ${crit||'—'}` + (critOn ? ` <span class="crit" title="Enough Advantage (or a Triumph) to inflict a critical injury">critical available</span>` : '') +
     (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') + encHitHtml(w, r, e, critOn) + `</div>`;
 }
@@ -4235,7 +4237,7 @@ function feedEntryHtml(e){
   }
   if(e.k==='p'){
     return `<div class="roll"><div class="rhead"><b>${esc(String(e.h||'Destiny pool').slice(0,40))}</b><span>${by} · ${t}</span></div>
-      <div class="rres">${esc(String(e.m||'').slice(0,160))}</div></div>`;
+      <div class="rres">${esc(String(e.m||'').slice(0,280))}</div></div>`;
   }
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
@@ -4316,7 +4318,7 @@ function renderDice(){
       <button class="mini" onclick="poolUpgrade('d','c')" title="Upgrade the difficulty: one Difficulty die becomes Challenge (if none are left, add a Difficulty die). Used for adversaries, Dodge, or a Destiny point spent against the roller.">⬆ upgrade difficulty</button>
       <button class="mini" onclick="poolClear()">clear</button>
     </div>
-    ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}. Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
+    ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}.${DICE_UI.weapon.sv ? '' : ' Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.'}${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     ${DICE_UI.repair ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.repair.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the repair">✕</button></div>` : ''}
     ${DICE_UI.tal ? (()=>{ const T = DICE_UI.tal, ig = Math.min(p.k, T.ign);
       return `<div class="talbox"><b>✦ Talents</b>${T.notes.length ? ` <span>${T.notes.map(esc).join(' · ')}</span>` : ''}${T.ign ? ` <span class="${ig?'hit':''}">${ig ? `${ig} of ${p.k} Setback will be ignored` : `up to ${T.ign} Setback will be ignored when added`}</span>` : ''}
@@ -5897,7 +5899,7 @@ function npcEditor(n){
        n_<id>:     { d NPC snapshot (see NPC BUILDER), count (minion group), w wounds, st strain,
                      hid hidden from players, disp disposition, r / s / a / x / sk as above },
        v_<id>:     { d ship snapshot (see normShip), count (a squadron shares hull like a minion group), h hull trauma,
-                     ss system strain, spd current speed, hid, cr crew { c characteristic, pil / gun ranks, m minion crew },
+                     ss system strain, spd current speed, hid, ev / sot evasive / staying on target, kh / kn critical hits (count, names), cr crew { c characteristic, pil / gun ranks, m minion crew },
                      rng range band from the Mantis, arc which of OUR arcs it is in, side which of ITS arcs faces us,
                      r / s / a / x / sk as above } }
    House rule: a slot belongs to whoever rolled it — no swapping with allies.
@@ -5921,7 +5923,7 @@ function normEnc(e){
     if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0, act: v.act ? 1 : 0, man: npcInt(v.man, 0, 2, 0) });
     else if(/^v_[a-z0-9]+$/.test(k) && v.d && typeof v.d==='object'){
       const d = normShip(v.d), cr = v.cr && typeof v.cr==='object' ? v.cr : {};
-      o[k] = init(v, { d, count: npcInt(v.count, 1, 12, 1), h: npcInt(v.h, 0, 99999, 0), ss: npcInt(v.ss, 0, 9999, 0), spd: npcInt(v.spd, 0, 12, 0), hid: v.hid ? 1 : 0,
+      o[k] = init(v, { d, count: npcInt(v.count, 1, 12, 1), h: npcInt(v.h, 0, 99999, 0), ss: npcInt(v.ss, 0, 9999, 0), spd: npcInt(v.spd, 0, 12, 0), hid: v.hid ? 1 : 0, ev: v.ev ? 1 : 0, sot: v.sot ? 1 : 0, kh: npcInt(v.kh, 0, 99, 0), kn: typeof v.kn==='string' ? v.kn.slice(0,300) : '',
         cr: { c: npcInt(cr.c, 1, 6, 3), pil: npcInt(cr.pil, 0, 5, 1), gun: npcInt(cr.gun, 0, 5, 1), m: cr.m ? 1 : 0 },
         rng: SHIP_BANDS.includes(v.rng) ? v.rng : 'Medium', arc: SHIP_ARCS[v.arc] ? v.arc : 'fore', side: SHIP_ARCS[v.side] ? v.side : 'fore' });
     }
@@ -5959,7 +5961,7 @@ function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
   const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
   logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
-  S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0 }); render();
+  S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0 }); render();   // critical hits stay on the ship until someone repairs them
 }
 function encSet(k, v){ if(!encOn()) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='title') scheduleSync(); else render(); }
 function encMe(v){
@@ -6216,6 +6218,7 @@ function encAttackNPC(k, wi){
 // the feed card of an attack that named a target: damage after soak, and buttons to apply it
 function encHit(w, r){
   if(!w || !encOn() || !(r.netS>0)) return null;
+  if(w.tgt==='mantis' || /^v_[a-z0-9]+$/.test(String(w.tgt))) return shipHit(w, r);
   const T = encTargetStats(w.tgt, true); if(!T || (w.tgt[0]==='c' && (S.enc[w.tgt]||{}).out)) return null;
   const soak = Math.max(0, T.soak - qualN(w.q,'Pierce') - 10*qualN(w.q,'Breach'));
   return { T, soak, dmg: Math.max(0, numOr(w.dam) + r.netS - soak), stun: /stun (setting|damage)/i.test(String(w.q||'')) };
@@ -6223,20 +6226,30 @@ function encHit(w, r){
 function encHitHtml(w, r, e, critOn){
   const h = encHit(w, r); if(!h || !e) return '';
   const ts = Math.round(+e.ts)||0, see = h.T.pc || encIsGM(), done = S.enc['ap_'+ts];
-  return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> after soak ${h.soak}` : ' — the GM applies soak'}
-    ${done ? ' <span style="color:var(--good)">✓ applied</span>' : see && ts ? ` <button class="mini atk" onclick="encApply(${ts},'w')" title="Add this to ${esc(h.T.name)}'s wounds">apply ${h.dmg} wounds</button>${h.stun ? ` <button class="mini" onclick="encApply(${ts},'st')" title="Stun: the damage goes to strain instead">as strain</button>` : ''}` : ''}
-    ${critOn && ts ? ` <button class="mini" onclick="encCrit(${ts})" title="Roll d100 for the critical injury (Vicious is added for you)">🎲 crit</button>` : ''}</span>`;
+  const unit = h.ship ? (h.ion ? 'system strain' : 'hull trauma') : 'wounds', taken = h.ship ? `after armor ${h.soak}` : `after soak ${h.soak}`;
+  return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> ${taken}` : h.ship ? ' — the GM applies armor' : ' — the GM applies soak'}
+    ${done ? ' <span style="color:var(--good)">✓ applied</span>' : see && ts ? ` <button class="mini atk" onclick="encApply(${ts},'w')" title="Add this to ${esc(h.T.name)}">apply ${h.dmg} ${unit}</button>${h.stun ? ` <button class="mini" onclick="encApply(${ts},'st')" title="Stun: the damage goes to strain instead">as strain</button>` : ''}` : ''}
+    ${critOn && ts && (!h.ship || (h.dmg>0 && !h.ion)) ? ` <button class="mini" onclick="${h.ship ? 'shipCrit' : 'encCrit'}(${ts})" title="${h.ship ? 'Roll d100 on the vehicle critical hit table (+10 per critical the target already has)' : 'Roll d100 for the critical injury (Vicious is added for you)'}">🎲 crit</button>` : ''}
+    ${h.linked ? `<small style="display:block;color:var(--dim)">Linked ${h.linked}: spend 2 Advantage per extra hit (up to ${h.linked}), each for the same damage — apply again by hand.</small>` : ''}</span>`;
 }
 const encFeedRoll = ts => ROLLS.find(e=>e && e.k==='r' && Math.round(+e.ts)===ts && e.w);
 function encApply(ts, how){
   const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts]) return;
   const h = encHit(e.w, tally(parseRoll(e.r))); if(!h) return;
-  const key = e.w.tgt, strain = how==='st';
+  const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.who||'an attack').slice(0,40))}'s ${esc(String(e.w.n||'attack').slice(0,60))}`;
+  if(h.ship){   // planetary scale: hull trauma, or system strain from ion weapons
+    const f = h.ion ? 'strain' : 'hull';
+    if(key==='mantis'){ const sh = S.ship; sh[f] = (sh[f]||0) + h.dmg;
+      logMsg(`🚀 The <b>${esc(SHIP.name)}</b> takes ${h.dmg} ${h.ion ? 'system strain' : 'hull trauma'} from ${by}${!h.ion && sh.hull>sh.hullThr ? ' — <b>past its threshold</b>: it suffers a critical hit and is adrift' : h.ion && sh.strain>sh.strainThr ? ' — <b>systems overloaded</b>: speed drops to 0 next round, weapons and shields are down' : ''}.`, 'lb'); }
+    else { const x = S.enc[key]; x[h.ion ? 'ss' : 'h'] += h.dmg;
+      if(!x.hid) logMsg(`🚀 <b>${esc(h.T.name)}</b> takes ${h.dmg} ${h.ion ? 'system strain' : 'hull trauma'} from ${by}${encDown(key) ? ' and is <b>destroyed</b>' : ''}.`, 'lb'); }
+    S.enc['ap_'+ts] = 1; render(); renderFeed(); return;
+  }
   if(key[0]==='n'){ const x = S.enc[key]; if(strain && x.d.type==='nemesis' && x.d.st>0) x.st += h.dmg; else x.w += h.dmg; }   // minions and rivals take strain as wounds
   else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = (cs.wounds||0) + h.dmg; }
   S.enc['ap_'+ts] = 1;
   const hidden = key[0]==='n' && S.enc[key].hid;
-  if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : 'wound'}${h.dmg===1?'':'s'} from ${esc(String(e.who||'an attack').slice(0,40))}'s ${esc(String(e.w.n||'attack').slice(0,60))}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
+  if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : 'wound'}${h.dmg===1?'':'s'} from ${by}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
   render(); renderFeed();
 }
 function encCrit(ts){
@@ -6623,6 +6636,8 @@ function encShipSet(k, f, v){
   else if(['c','pil','gun'].includes(f)){ x.cr[f] = npcInt(v, f==='c' ? 1 : 0, f==='c' ? 6 : 5, x.cr[f]); x.cr.m = 0; }
   else if(f==='count') x.count = npcInt(v, 1, 12, x.count);
   else if(f==='spd') x.spd = npcInt(v, 0, x.d.spd, x.spd);
+  else if(f==='ev' || f==='sot') x[f] = v ? 1 : 0;
+  else if(f==='kh'){ x.kh = 0; x.kn = ''; }
   else if(f==='h' || f==='ss') x[f] = npcInt(v, 0, 99999, x[f]);
   render();
 }
@@ -6642,6 +6657,7 @@ function shipOwnStrip(){   // the Mantis at a glance; the Mantis tab stays the p
   return `<div class="shipstrip"><b>🚀 ${esc(SHIP.name)}</b>${step('hull','Hull',sh.hullThr)}${step('strain','System strain',sh.strainThr)}
     <span>Speed <b>${sh.cspd}</b>/${shipMaxSpeed()}</span>${sh.ev ? `<span class="badge b-man" title="Evasive Maneuvers: attacks against the Mantis, and by it, upgrade their difficulty once">Evasive</span>` : ''}${sh.sot ? `<span class="badge b-act" title="Stay on Target: attacks by the Mantis, and against it, upgrade their ability once">On target</span>` : ''}
     <span>Defense ${Object.keys(SHIP_ARCS).map(a=>`${SHIP_ARCS[a].slice(0,1)} <b>${(sh.defense[a]||0) + (boost[a]||0)}</b>`).join(' · ')}</span><span>Armor <b>${SHIP.armor}</b> · Sil <b>${SHIP.silhouette}</b></span>
+    ${(sh.crits||[]).map(c=>`<span class="badge b-nemesis" title="Critical hit (${esc(c.sev)} to repair with Damage Control). Each one adds +10 to the next critical roll.">💥 ${esc(c.n)} <span class="x" onclick="shipCritFix('${esc(c.id)}')" title="Repaired">✕</span></span>`).join('')}
     <span style="margin-left:auto"></span><button class="mini" onclick="showTab('ship')" title="Hull, strain, shields, energy and crew stations are changed on the Mantis tab">open Mantis tab →</button></div>`;
 }
 function shipCard(k){
@@ -6665,7 +6681,10 @@ function shipCard(k){
       <label title="Piloting ranks">pilot <input type="number" min="0" max="5" value="${shipCrewRank(x,'pil')}" ${x.cr.m?'disabled':''} onchange="encShipSet('${k}','pil',this.value)"></label>
       <label title="Gunnery ranks">guns <input type="number" min="0" max="5" value="${shipCrewRank(x,'gun')}" ${x.cr.m?'disabled':''} onchange="encShipSet('${k}','gun',this.value)"></label></div>
     <div class="stats">Piloting ${shipPool(x,'pil')} · Gunnery ${shipPool(x,'gun')}</div>
-    ${d.w.length ? `<div>${d.w.map(w=>`<div><b>${esc(w.n)}</b> <span style="color:var(--dim)">${w.arc ? esc(w.arc)+' · ' : ''}dmg ${esc(w.dam||'—')} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : '<div class="stats">Unarmed.</div>'}
+    <div class="where"><label title="Evasive Maneuvers (silhouette 4 or less, speed 3+): attacks against it, and by it, upgrade their difficulty once"><input type="checkbox" ${x.ev?'checked':''} onchange="encShipSet('${k}','ev',this.checked)"> evasive</label>
+      <label title="Stay on Target: attacks by it, and against it, upgrade their ability once"><input type="checkbox" ${x.sot?'checked':''} onchange="encShipSet('${k}','sot',this.checked)"> on target</label>
+      ${x.kh ? `<span title="Critical hits it is carrying: each adds +10 to the next roll">💥 ${x.kh}: ${esc(x.kn)}</span> <button class="mini" onclick="encShipSet('${k}','kh',0)" title="Clear its critical hits">clear</button>` : ''}</div>
+    ${d.w.length ? `<div>${d.w.map((w,wi)=>`<div><button class="mini atk" onclick="encShipFire('${k}',${wi})" title="Fire this at the ${esc(SHIP.name)}: loads the gunnery check with silhouette, our best shield and both ships' maneuvers counted">🎯</button> <b>${esc(w.n)}</b> <span style="color:var(--dim)">${w.arc ? esc(w.arc)+' · ' : ''}dmg ${esc(w.dam||'—')} · crit ${esc(w.crit||'—')} · ${esc(w.rng)}${w.q ? ' · '+esc(w.q) : ''}</span></div>`).join('')}</div>` : '<div class="stats">Unarmed.</div>'}
     ${d.ab.length ? `<details><summary>Abilities</summary>${d.ab.map(([n,t])=>`<div><b>${esc(n)}${t?':':''}</b> ${esc(t)}</div>`).join('')}</details>` : ''}</div>`;
 }
 
@@ -6739,15 +6758,18 @@ function mantisGuns(system){
   return SHIP_WEAPONS.filter(g=>g.system===system).flatMap(g=>g.items.map(w=>{ const pw = prof.find(x=>x.n.toLowerCase().includes(key(w.name))) || {};
     return { n:w.name, system:g.system, ammo:!!g.ammo, dam:w.dmg + (overcharged(g.system) ? SHIP_ENERGY_BONUS[g.system].dmg : 0), crit:w.crit, rng:w.range, arc:pw.arc||'', q:pw.q||'' }; }));
 }
-function stationFire(id, system, i){   // a Gunnery check with the weapon attached; the target's numbers arrive with gunnery resolution
+function stationFire(id, system, i){   // a Gunnery check with the weapon attached, against the target ship picked on the Station panel
   const cs = st(id), w = mantisGuns(system)[i]; if(!cs || !w) return;
   const sh = S.ship, s = skillState(cs, SKILLS.find(x=>x.k==='gunnery'));
-  let p = s.p, a = s.a, d = 2, c = 0; const notes = ['Average until a target sets it'];
-  if(sh.sot){ if(a>0){ a--; p++; } else a++; notes.push('Stay on Target: ability upgraded'); }
-  if(sh.ev){ d--; c++; notes.push('Evasive Maneuvers: difficulty upgraded'); }
-  if(w.ammo) notes.push(`${sh.ammo} torpedoes left — take one off on the Mantis tab`);
-  Object.assign(DICE_UI.pool, { p, a, b:0, k:0, d, c, F:0 });
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}`, repair:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:notes.join(' · '), src:null } });
+  if(w.ammo && !(sh.ammo>0)){ logMsg(`🚀 The ${SHIP.name} is out of torpedoes.`, 'lw'); render(); return; }
+  const k = encOn() && S.enc[ENC_UI.vtgt] && !encDown(ENC_UI.vtgt) ? ENC_UI.vtgt : '', x = k ? S.enc[k] : null;
+  const A = shipAttackPool({ p:s.p, a:s.a }, { attSil:SHIP.silhouette, tgtSil:x ? x.d.sil : null, setb:x ? shipZoneDef(x) : 0, attEv:sh.ev, attSot:sh.sot, tgtEv:x && x.ev, tgtSot:x && x.sot, q:w.q,
+    arcOk:!x || shipArcBears(w.arc, x.arc), arcWhy:x ? `not in this weapon's ${w.arc.toLowerCase()} arc (it is in our ${SHIP_ARCS[x.arc].toLowerCase()})` : '', rngOk:!x || SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
+  if(!x) A.notes.unshift('no target picked: Average');
+  if(w.ammo) A.notes.push(`${sh.ammo} torpedo${sh.ammo===1?'':'es'} aboard; this shot uses one`);
+  Object.assign(DICE_UI.pool, A.pool);
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
+  if(x){ DICE_UI.weapon.tgt = k; DICE_UI.weapon.tn = encName(k).slice(0,60); }
   tdLoad(cs, 'gunnery');
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
   renderDice();
@@ -6801,6 +6823,73 @@ function stationItems(id){
     <small>Anyone aboard can still act for themselves: aim a turret, hand someone a tool, patch up a wounded crewmate.</small></div>`);
   return out;
 }
+
+/* ---- gunnery: ship against ship -----------------------------------
+   Difficulty comes from the two silhouettes, never from range. The target's defense in the
+   zone hit is Setback: a ship of silhouette 4 or less shows its best shield, a bigger one
+   whichever side faces the attacker. Evasive Maneuvers (either ship) upgrade the difficulty,
+   Stay on Target (either ship) upgrades the ability. Damage is planetary scale: armor comes
+   off it (Breach ignores armor), the rest is hull trauma — or system strain from Ion weapons.
+   A weapon that cannot bear, or is out of range, is flagged in the tray but not blocked. */
+const SHIP_CRITS = [   // [top of the d100 band, severity (the Damage Control difficulty to repair it), name, effect]
+  [9,'Easy','Mechanical Stress','1 system strain.'], [18,'Easy','Jostled','All crew suffer 1 strain and are disoriented for one round.'],
+  [27,'Easy','Losing Power to Shields','−1 defense in the zone hit until repaired (no defense: 1 system strain).'],
+  [36,'Easy','Knocked Off Course','The pilot gets no maneuvers next turn and must pass a Piloting check to regain control.'],
+  [45,'Easy','Tailspin','All the ship\'s fire suffers 2 Setback and the crew are immobilized until the end of the pilot\'s next turn.'],
+  [54,'Easy','Component Hit','One component of the attacker\'s choice is offline until the end of the next round.'],
+  [63,'Average','Shields Failing','−1 defense in every zone until repaired (no defense: 2 system strain).'], [72,'Average','Navicomputer Failure','No jump to hyperspace until repaired.'],
+  [81,'Average','Power Fluctuations','The pilot cannot voluntarily inflict system strain until repaired.'],
+  [90,'Hard','Shields Down','The zone hit drops to 0 defense and every other zone loses 1 until repaired (no defense: 4 system strain).'],
+  [99,'Hard','Engine Damaged','Top speed −1 (minimum 1) until repaired.'], [108,'Hard','Shield Overload','All defense to 0 and 2 system strain. Cannot be repaired this encounter.'],
+  [117,'Hard','Engines Down','Top speed 0 and no maneuvers until repaired; it drifts on its present course.'], [126,'Hard','Major System Failure','One component of the attacker\'s choice is inoperable until repaired.'],
+  [133,'Daunting','Major Hull Breach','The ship depressurizes in a number of rounds equal to its silhouette.'], [138,'Daunting','Destabilized','Hull trauma and system strain thresholds are halved until repaired.'],
+  [144,'Daunting','Fire!','2 system strain, and anyone caught in the fire takes damage.'], [153,'Daunting','Breaking Up','Destroyed at the end of the next round. Abandon ship.'],
+  [Infinity,'—','Vaporized','Destroyed outright. Nothing survives.'] ];
+const shipCritFor = total => SHIP_CRITS.find(c=>total<=c[0]);
+function shipGunDiff(att, tgt){ const d = att - tgt; return d<=-2 ? 1 : d<=1 ? 2 : d===2 ? 3 : d===3 ? 4 : 5; }
+const shipArcBears = (arc, pos) => { const a = String(arc||'').toLowerCase(); return !a || /all|down|up|dorsal|ventral/.test(a) || { fore:/for(e|ward)/, aft:/aft|rear/, port:/port/, stbd:/starboard/ }[pos].test(a); };
+const mantisBestDef = () => { const sh = S.ship, boost = sh.energy && sh.energy.shields===SHIP_ENERGY_MAX ? sh.shieldBoost : noBoost(); return Math.max(0, ...Object.keys(SHIP_ARCS).map(a=>(sh.defense[a]||0) + (boost[a]||0))); };
+const shipZoneDef = x => x.d.sil<=4 ? Math.max(0, ...x.d.def) : Math.max(0, x.d.def[Object.keys(SHIP_ARCS).indexOf(x.side)]);
+function shipAttackPool(base, o){
+  let p = base.p, a = base.a, d = o.tgtSil==null ? 2 : shipGunDiff(o.attSil, o.tgtSil), c = 0; const notes = [];
+  if(o.tgtSil!=null) notes.push(`silhouette ${o.attSil} firing at ${o.tgtSil}: ${['Simple','Easy','Average','Hard','Daunting','Formidable'][d]}`);
+  const up = (o.attEv ? 1 : 0) + (o.tgtEv ? 1 : 0), sot = (o.attSot ? 1 : 0) + (o.tgtSot ? 1 : 0);
+  for(let i=0; i<up; i++){ if(d>0){ d--; c++; } else d++; }
+  for(let i=0; i<sot; i++){ if(a>0){ a--; p++; } else a++; }
+  if(up) notes.push(`Evasive Maneuvers: difficulty upgraded${up>1 ? ' twice' : ''}`);
+  if(sot) notes.push(`Stay on Target: ability upgraded${sot>1 ? ' twice' : ''}`);
+  if(o.setb) notes.push(`shields: ${o.setb} Setback`);
+  const acc = qualN(o.q, 'Accurate'); if(acc) notes.push(`Accurate ${acc}: ${acc} Boost`);
+  if(o.arcOk===false) notes.push('⚠ '+o.arcWhy);
+  if(o.rngOk===false) notes.push(`⚠ out of range (this weapon reaches ${String(o.rng||'').toLowerCase()})`);
+  return { pool:{ p, a, b:clamp(acc, 0, POOL_MAX), k:clamp(o.setb||0, 0, POOL_MAX), d, c, F:0 }, notes };
+}
+function encShipFire(k, wi){   // an enemy weapon at the Mantis, which is small enough to show its best shield
+  const x = encOn() && S.enc[k], w = x && x.d && x.d.w[wi]; if(!w) return;
+  const sh = S.ship, A = shipAttackPool(shipPoolDice(x, 'gun'), { attSil:x.d.sil, tgtSil:SHIP.silhouette, setb:mantisBestDef(), attEv:x.ev, attSot:x.sot, tgtEv:sh.ev, tgtSot:sh.sot, q:w.q,
+    arcOk:shipArcBears(w.arc, x.side), arcWhy:`this weapon covers ${w.arc.toLowerCase()}, and its ${SHIP_ARCS[x.side].toLowerCase()} faces us`, rngOk:SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
+  Object.assign(DICE_UI.pool, A.pool);
+  Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, tal:null,
+    weapon:{ n:w.n, dam:numOr(w.dam), crit:numOr(w.crit), q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, tgt:'mantis', tn:SHIP.name } });
+  const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
+  renderDice();
+  const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function shipHit(w, r){   // what a ship-scale hit does: null when the target is gone
+  const own = w.tgt==='mantis', x = own ? null : S.enc[w.tgt]; if(!own && (!x || !x.d)) return null;
+  const armor = Math.max(0, (own ? SHIP.armor : x.d.arm) - qualN(w.q, 'Breach'));
+  return { ship:1, T:{ name: own ? SHIP.name : encName(w.tgt), pc:own }, soak:armor, dmg:Math.max(0, numOr(w.dam) + r.netS - armor), ion:/\bion\b/i.test(String(w.q||'')), stun:false, linked:qualN(w.q, 'Linked') };
+}
+function shipCrit(ts){   // d100 on the vehicle critical table, +10 for each critical the target already carries; the result is noted on the target
+  const e = encFeedRoll(ts); if(!e || !encOn()) return;
+  const own = e.w.tgt==='mantis', x = own ? null : S.enc[e.w.tgt]; if(!own && !x) return;
+  const have = own ? (S.ship.crits||[]).length : x.kh, roll = rollInt(100)+1, total = roll + 10*have, c = shipCritFor(total);
+  if(own) S.ship.crits.push({ id:randomId().slice(0,6), n:c[2], sev:c[1] }); else { x.kh++; x.kn = (x.kn ? x.kn+', ' : '') + c[2]; x.kn = x.kn.slice(0,300); }
+  postFeed({ k:'p', h:'Critical hit', m:`${own ? SHIP.name : encName(e.w.tgt)}: d100 ${roll}${have ? ` + ${10*have}` : ''} = ${total} — ${c[2]} (${c[1]}). ${c[3]}` });
+  if(own || !x.hid) logMsg(`💥 Critical hit on <b>${esc(own ? SHIP.name : encName(e.w.tgt))}</b>: ${esc(c[2])}. ${esc(c[3])}`, 'lb');
+  render();
+}
+function shipCritFix(id){ const sh = S.ship, i = (sh.crits||[]).findIndex(c=>c.id===id); if(i<0) return; const c = sh.crits.splice(i,1)[0]; logMsg(`🔧 Critical hit repaired on the ${esc(SHIP.name)}: ${esc(c.n)}.`); render(); }
 
 function initCloud(){
   const savedName = lsGet('st_player');

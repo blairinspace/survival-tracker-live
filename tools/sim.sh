@@ -693,6 +693,49 @@ print('\n=== SMOKE TEST — UI code paths ===');
       encEnd(); if(sh.ev || sh.hullFix || sh.pm || sh.cspd!==4) throw new Error('ending the fight should clear the flags but keep the speed');
       print(`  ship stations: Pilot Only maneuvers count and cost, Evasive / Stay on Target last to the end of the pilot's next turn, checks load by station, guns read arcs from the profile`);
       S = keepS; Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', vtgt:'', cat:'offense', lastMode:'' }); poolClear(); gmMode(false); showTab('tracker'); }
+    // Ship gunnery: silhouette difficulty, shields, maneuvers, armor and Breach, ion, torpedoes, criticals
+    { const keepS = S; S = freshState(); showTab('enc'); gmMode(true); const sh = S.ship, f1 = DICE.a.faces.find(x=>x==='s');
+      for(const [a, b, want] of [[3,3,2],[3,4,2],[3,2,2],[3,5,1],[3,8,1],[5,3,3],[6,3,4],[8,3,5],[9,3,5]]) if(shipGunDiff(a,b)!==want) throw new Error(`silhouette ${a} at ${b} should be difficulty ${want}`);
+      if(!shipArcBears('Forward','fore') || shipArcBears('Forward','aft') || !shipArcBears('All','port') || !shipArcBears('Port or Starboard','stbd') || shipArcBears('Aft','port') || !shipArcBears('Down','fore') || !shipArcBears('','aft')) throw new Error('fire arcs wrong');
+      if(shipCritFor(1)[2]!=='Mechanical Stress' || shipCritFor(54)[2]!=='Component Hit' || shipCritFor(55)[2]!=='Shields Failing' || shipCritFor(153)[2]!=='Breaking Up' || shipCritFor(400)[2]!=='Vaporized') throw new Error('critical table bands wrong');
+      const isd = encAddShip(SHIPS_DB.findIndex(s=>/Star Destroyer/.test(s.n)), 1), tie = encAddShip(SHIPS_DB.findIndex(s=>/TIE\/IN Interceptor/.test(s.n)), 1), D = S.enc[isd], T = S.enc[tie];
+      encShipSet(isd,'hid',0); encShipSet(tie,'hid',0); stationSet('bode','Gunner (Blasters)',1); stationSet('bode','Gunner (Heavy Guns)',1); stationSet('cal','Pilot',1);
+      encShipSet(isd,'side','aft'); if(shipZoneDef(D)!==D.d.def[3]) throw new Error('a big ship is hit on the side it shows'); encShipSet(isd,'side','fore'); if(shipZoneDef(D)!==D.d.def[0] || shipZoneDef(T)!==Math.max(0,...T.d.def)) throw new Error('zone defense wrong');
+      const bs = skillState(st('bode'), SKILLS.find(x=>x.k==='gunnery'));
+      ENC_UI.vtgt = isd; encShipSet(isd,'rng','Close'); encShipSet(isd,'arc','fore'); stationFire('bode','blasters',0);
+      if(DICE_UI.pool.d!==1 || DICE_UI.pool.c!==0 || DICE_UI.pool.k!==D.d.def[0] || DICE_UI.weapon.tgt!==isd || /⚠/.test(DICE_UI.weapon.note) || !/silhouette 3 firing at 8: Easy/.test(DICE_UI.weapon.note)) throw new Error('firing at a Star Destroyer should be Easy plus its shields: '+JSON.stringify(DICE_UI.pool)+DICE_UI.weapon.note);
+      encShipSet(isd,'arc','aft'); encShipSet(isd,'rng','Long'); stationFire('bode','blasters',0); if(!/not in this weapon's forward arc/.test(DICE_UI.weapon.note) || !/out of range/.test(DICE_UI.weapon.note)) throw new Error('a weapon that cannot bear or reach should say so: '+DICE_UI.weapon.note);
+      ENC_UI.vtgt = tie; encShipSet(tie,'ev',1); sh.cspd = 4; sh.ev = 2; sh.sot = 2; stationFire('bode','blasters',0);
+      if(DICE_UI.pool.d!==0 || DICE_UI.pool.c!==2 || DICE_UI.pool.p + DICE_UI.pool.a !== bs.p + bs.a + (bs.a>0 ? 0 : 1) || !/difficulty upgraded twice/.test(DICE_UI.weapon.note)) throw new Error('both ships evasive should upgrade the difficulty twice: '+JSON.stringify(DICE_UI.pool));
+      sh.ev = 0; sh.sot = 0; encShipSet(tie,'ev',0);
+      encShipFire(isd, 0); const w0 = D.d.w[0];
+      if(DICE_UI.who!=='gm' || DICE_UI.pool.d!==5 || DICE_UI.pool.k!==mantisBestDef() || DICE_UI.weapon.tgt!=='mantis' || DICE_UI.weapon.dam!==numOr(w0.dam)) throw new Error('a Star Destroyer firing at the Mantis should be Formidable against our best shield: '+JSON.stringify(DICE_UI.pool));
+      sh.sot = 2; encShipFire(tie, 0); const tp = shipPoolDice(T,'gun'); if(DICE_UI.pool.d!==2 || DICE_UI.pool.p!==tp.p+(tp.a>0?1:0)) throw new Error('our Stay on Target should upgrade their ability too'); sh.sot = 0;
+      ROLLS.push({ k:'r', who:'Bode Akuna', ts:5001, r:`a:${f1} a:${f1}`, w:{ n:'Heavy Blaster Cannon', dam:5, crit:4, q:'Linked 1', tgt:tie, tn:'TIE' } });
+      let h = encHit(ROLLS[ROLLS.length-1].w, tally(parseRoll(ROLLS[ROLLS.length-1].r))); if(!h || !h.ship || h.soak!==T.d.arm || h.dmg!==Math.max(0, 7-T.d.arm) || h.linked!==1) throw new Error('ship hit should take armor off: '+JSON.stringify(h));
+      let card = feedEntryHtml(ROLLS[ROLLS.length-1]); if(!/hull trauma/.test(card) || !/after armor/.test(card) || !/Linked 1/.test(card)) throw new Error('GM ship hit card wrong: '+card.slice(0,300));
+      gmMode(false); card = feedEntryHtml(ROLLS[ROLLS.length-1]); if(/after armor|apply \d/.test(card) || !/the GM applies armor/.test(card)) throw new Error('players should not see an enemy ship\'s armor');
+      gmMode(true); encApply(5001,'w'); if(T.h!==h.dmg || !S.enc.ap_5001) throw new Error('hull trauma did not apply'); encApply(5001,'w'); if(T.h!==h.dmg) throw new Error('a ship hit should apply once');
+      ROLLS.push({ k:'r', who:'Bode Akuna', ts:5002, r:`a:${f1}`, w:{ n:'Medium Turbolaser', dam:10, crit:3, q:'Breach 3, Slow-Firing 1', tgt:isd, tn:'ISD' } });
+      h = encHit(ROLLS[ROLLS.length-1].w, {netS:1}); if(h.soak!==D.d.arm-3 || h.dmg!==11-(D.d.arm-3)) throw new Error('Breach should ignore armor');
+      ROLLS.push({ k:'r', who:'GM', ts:5003, r:`a:${f1}`, w:{ n:'Ion cannon battery', dam:9, crit:4, q:'Breach 3, Ion, Slow-Firing 2', tgt:'mantis', tn:'Mantis' } });
+      h = encHit(ROLLS[ROLLS.length-1].w, {netS:1}); if(!h.ion || !h.T.pc || h.soak!==SHIP.armor-3 || h.dmg!==10-(SHIP.armor-3)) throw new Error('ion hit on the Mantis wrong: '+JSON.stringify(h));
+      gmMode(false); if(!/apply 9 system strain/.test(feedEntryHtml(ROLLS[ROLLS.length-1]))) throw new Error('anyone may apply a hit on the Mantis, and ion goes to system strain: '+feedEntryHtml(ROLLS[ROLLS.length-1]).slice(0,300));
+      const hull0 = sh.hull; encApply(5003,'w'); if(sh.strain!==9 || sh.hull!==hull0) throw new Error('ion damage should be system strain only'); gmMode(true);
+      ROLLS.push({ k:'r', who:'GM', ts:5004, r:`a:${f1}`, w:{ n:'Turbolaser', dam:11, crit:3, q:'Breach 4', tgt:'mantis', tn:'Mantis' } }); sh.hull = sh.hullThr - 3; encApply(5004,'w');
+      if(sh.hull!==sh.hullThr-3+12 || !S.log.some(l=>/past its threshold/.test(l.m))) throw new Error('hull trauma past the threshold should say so');
+      const n0 = ROLLS.length; shipCrit(5004); shipCrit(5004); if(sh.crits.length!==2 || ROLLS.length!==n0+2 || !/Critical hit/.test(ROLLS[ROLLS.length-1].h) || !/\+ 10 =/.test(ROLLS[ROLLS.length-1].m)) throw new Error('criticals on the Mantis should stack +10: '+ROLLS[ROLLS.length-1].m);
+      shipCrit(5001); shipCrit(5001); if(T.kh!==2 || T.kn.split(', ').length!==2) throw new Error('criticals on an enemy ship should be noted');
+      renderEnc(); const sv = document.getElementById('encScene').innerHTML; if(!/💥 2:/.test(sv) || !/shipCritFix/.test(sv) || !/encShipFire/.test(sv) || /undefined|NaN|\[object/.test(sv)) throw new Error('criticals or fire buttons missing from the scene');
+      shipCritFix(sh.crits[0].id); if(sh.crits.length!==1) throw new Error('repairing a critical wrong'); encShipSet(tie,'kh',0); if(T.kh || T.kn) throw new Error('clearing criticals wrong');
+      stationSet('cal','Co-Pilot',1); ENC_UI.vtgt = tie; const am = sh.ammo; stationFire('cal','ordnance',0); if(!DICE_UI.weapon.ord || !/uses one/.test(DICE_UI.weapon.note)) throw new Error('torpedo setup wrong');
+      rollPool(); const sent = ROLLS[ROLLS.length-1]; if(sh.ammo!==am-1 || sent.w.ord!==undefined || sent.w.tgt!==tie) throw new Error('firing a torpedo should take one off and keep the flag private');
+      sh.ammo = 0; DICE_UI.label = 'x'; stationFire('cal','ordnance',0); if(DICE_UI.label!=='x') throw new Error('no torpedoes, no shot');
+      ROLLS.push({ k:'r', who:'x', ts:5009, r:`a:${f1}`, w:{ n:'x', dam:5, tgt:'v_nope', tn:'x' } }); if(encHit(ROLLS[ROLLS.length-1].w, {netS:1})) throw new Error('a ship that is gone should not be hit');
+      const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))); if(!same(syncSubset(wire).ship, syncSubset(S).ship) || !same(syncSubset(wire).enc, syncSubset(S).enc) || wire.ship.crits.length!==1) throw new Error('criticals do not survive the wire');
+      { const keep = sh.crits.length; encEnd(); if(S.ship.crits.length!==keep) throw new Error('critical hits should stay on the ship after the fight'); }
+      print(`  ship gunnery: silhouette sets difficulty, shields and maneuvers shape the pool, armor and Breach, ion to system strain, torpedoes count down, ${SHIP_CRITS.length} critical results stack +10`);
+      S = keepS; setRolls(ROLLS.filter(e=>!(e.ts>=5001 && e.ts<=5009))); Object.assign(ENC_UI, { me:'', pc:'', tgt:'', tpc:'', rng:'', vtgt:'', cat:'offense', lastMode:'' }); poolClear(); gmMode(false); showTab('tracker'); }
     // Map: sources, tokens, scale and range bands, lines, range fed into attacks, hidden tokens, per-key merge, the wire
     { const keepS = S; S = freshState(); showTab('enc'); gmMode(true);
       if('map' in syncSubset(S)) throw new Error('no map should mean no map key on the wire');
