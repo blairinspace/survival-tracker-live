@@ -642,6 +642,7 @@
     <select id="itemSkill" onchange="itemsSet('sk',this.value)" title="Weapon skill"></select>
     <label title="Sort the results">sort <select id="itemSort" onchange="itemsSet('sort',this.value)"><option value="name">name</option><option value="price">price</option><option value="rare">rarity</option></select></label>
     <label title="Hide (R) restricted items"><input type="checkbox" id="itemHideR" onchange="itemsSet('hideR',this.checked)"> hide restricted</label>
+    <label title="On: sending an item to a character with → 🎒 takes its price from their credits (it asks first if they cannot afford it). Off: the item is handed over free, for loot and gifts. Remembered on this device."><input type="checkbox" id="itemBuy" checked onchange="itemsSet('buy',this.checked)"> 🛒 charge credits</label>
     <button class="mini" onclick="hbAdd()" title="Add a homebrew item — shared with the room and saved with everything else">✨ add homebrew item</button>
   </div>
   <div id="itemsBody"></div>
@@ -1446,6 +1447,17 @@ const FORCE_COMMIT_MAX = 8;
 const forceCap  = cs => clamp((cs.sheet && cs.sheet.fr)||0, 0, FORCE_COMMIT_MAX);   // can't commit more dice than your Force rating (Sheets tab)
 const forceMult = cs => cfg(cs.id).fs ? 1 - FORCE_PER_PT*clamp(cs.force||0, 0, 8) : 1;
 const envMult = (m, adapt) => m<=1 ? m : 1+(m-1)*(adapt??1);
+/* Gear the simulation reads. Climate protection: a carried (not stowed) item whose name, nickname or catalog
+   text says so keeps the wearer from being Chilled or Overheated by exposure. Water: every extra canteen
+   carried adds to what the character can hold (the Imperial Army Canteen is 1.5 L). */
+const CLIMATE_GEAR = { cold:/thermal cloak|cold assault|(against|from) (the )?cold|cooling or heating|environmental temperature|cold[- ]weather|parka|snow ?suit/i,
+                       heat:/thermal cloak|hotspot|hot environments|cooling or heating|environmental temperature|cooling (suit|vest|unit)|desert robes?/i };
+const invText = it => `${it.name||''} ${it.alias||''} ${((it.ref && typeof dbFind==='function' && dbFind(it.ref)) || {}).f || ''}`;
+const hasQty = it => it.qty==null || +it.qty>0;
+const climateGear = (cs, heat) => (cs.inv||[]).find(it=>!it.auto && isCarried(it) && hasQty(it) && CLIMATE_GEAR[heat ? 'heat' : 'cold'].test(invText(it))) || null;
+const canteenCap = cs => OZ_PER_CANTEEN + (cs.inv||[]).reduce((n, it)=>{
+  if(it.auto || !isCarried(it)) return n; const nm = String(it.ref || it.name || '');
+  return n + (/imperial army canteen/i.test(nm) ? 50 : /^canteen\b/i.test(nm) ? OZ_PER_CANTEEN : 0) * Math.max(0, Math.round(+(it.qty ?? 1)) || 0); }, 0);
 const climateAdapt = (c, heat) => heat ? (c.mods.heatAdapt??1) : (c.mods.coldAdapt??1);   // 1 = feels all of it
 function tierOf(x, tiers){ let t=tiers[0]; for(const ti of tiers){ if(x>=ti.min) t=ti; } return t; }
 const recoverStrain = (cs, n) => { cs.strain = Math.max(0, cs.strain - n); };
@@ -1697,9 +1709,9 @@ function applyHourly(cs, c, events, woundCap, isStandby, actKey){
   if(base){
     const heat = !!ENVS[S.env].heat, condId = heat ? 'overheated' : 'chilled';
     const chance = base * climateAdapt(c, heat);
-    if(!cs.conds.some(x=>x.id===condId) && Math.random()<chance){
+    if(!cs.conds.some(x=>x.id===condId) && !climateGear(cs, heat) && Math.random()<chance){
       cs.conds.push({id:condId});
-      events.push(['lw',`${c.name} is ${condId} by the ${ENVS[S.env].label.toLowerCase()} (GM may waive with proper gear).`]);
+      events.push(['lw',`${c.name} is ${condId} by the ${ENVS[S.env].label.toLowerCase()} (a thermal cloak or other climate gear, carried, prevents this).`]);
     }
   }
 }
@@ -1839,12 +1851,12 @@ function drink(id, oz){
   cs.lastDrinkAt = S.hour;
   cs.canteen = +(cs.canteen - ozUsed).toFixed(1);
   cs.water = clamp(cs.water - pts, 0, 100);
-  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?` — severely dehydrated, the body keeps down only ~${REHYDRATE.capOz} oz per ${Math.round(REHYDRATE.waitHrs*60)} min; sip and rest`:''}. Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  logMsg(`${c.name} drinks ${ozUsed} oz (−${pts.toFixed(1)} thirst)${capped?` — severely dehydrated, the body keeps down only ~${REHYDRATE.capOz} oz per ${Math.round(REHYDRATE.waitHrs*60)} min; sip and rest`:''}. Canteen: ${cs.canteen}/${canteenCap(cs)} oz.`);
   render();
 }
 function refill(id){
-  st(id).canteen = OZ_PER_CANTEEN;
-  logMsg(`${cfg(id).name} refills their canteen (water source required — GM approves).`);
+  const cap = canteenCap(st(id)); st(id).canteen = cap;
+  logMsg(`${cfg(id).name} refills ${cap>OZ_PER_CANTEEN ? `their canteens (${cap} oz)` : 'their canteen'} (water source required — GM approves).`);
   render();
 }
 function eatSnack(id){
@@ -1864,7 +1876,7 @@ function wipeDown(id){
   if(cs.canteen < HYG.wipeOz){ logMsg(`${c.name} needs ${HYG.wipeOz} oz of water for a wipe-down — canteen too low (a sonic shower works too; GM approves).`,'lw'); render(); return; }
   cs.canteen = +(cs.canteen - HYG.wipeOz).toFixed(1);
   cs.hygiene = clamp(cs.hygiene - HYG.wipe, 0, 100);
-  logMsg(`🧻 ${c.name} field-cleans with ${HYG.wipeOz} oz from the canteen (−${HYG.wipe} hygiene). Canteen: ${cs.canteen}/${OZ_PER_CANTEEN} oz.`);
+  logMsg(`🧻 ${c.name} field-cleans with ${HYG.wipeOz} oz from the canteen (−${HYG.wipe} hygiene). Canteen: ${cs.canteen}/${canteenCap(cs)} oz.`);
   render();
 }
 function cleanClothes(id){
@@ -2426,6 +2438,7 @@ function organicCard(cs, c, div){
   const badges = statusBadge(cs) +
     (cs.stimHrs>0 ? `<span class="badge b-stim" title="Stimulant active — effects listed in the box below">💉 Stim<span class="cdt">⏳${fmtDur(cs.stimHrs)}</span></span> ` : '') +
     (over>0 ? `<span class="badge b-enc">⚖ over +${over}</span> ` : '') +
+    (ENV_COND_CHANCE[S.env] && climateGear(cs, !!ENVS[S.env].heat) ? `<span class="badge b-force" title="${esc(invLabel(climateGear(cs, !!ENVS[S.env].heat)))}: no risk of being ${ENVS[S.env].heat ? 'Overheated' : 'Chilled'} by exposure while it is carried">🧥 ${ENVS[S.env].heat ? 'heat' : 'cold'} gear</span> ` : '') +
     (isFS(cs) && cs.force>0 ? `<span class="badge b-force">Morichro ${cs.force} (−${Math.round((1-forceMult(cs))*100)}%)</span>` : '') +
     condBadges(cs);
   div.className = 'card'+(dead?' dead':uncon?' uncon':'');
@@ -2444,7 +2457,7 @@ function organicCard(cs, c, div){
     ${badges ? `<div style="margin-bottom:6px">${badges}</div>` : ''}
     ${customCondForm(cs)}
     ${needRow(cs,'water','💧 Thirst',
-      `<button class="mini" onclick="drink('${cs.id}',5)">5oz</button><button class="mini" onclick="drink('${cs.id}',10)">10oz</button><button class="mini" onclick="drink('${cs.id}',${OZ_PER_CANTEEN})">all</button>`, tier('water'))}
+      `<button class="mini" onclick="drink('${cs.id}',5)">5oz</button><button class="mini" onclick="drink('${cs.id}',10)">10oz</button><button class="mini" onclick="drink('${cs.id}',${canteenCap(cs)})">all</button>`, tier('water'))}
     ${needRow(cs,'hunger','🍞 Hunger',
       `<button class="mini" onclick="eatSnack('${cs.id}')" title="Eat one Snack item from the inventory (${stockOf(cs,'Snack')} carried) — a third of a ration, no time cost">snack</button><button class="mini" onclick="startStatus('${cs.id}','ration')" title="Eat one Ration item from the inventory (${stockOf(cs,'Ration')} carried) — 15 min. A ration is one meal: ${c.name} needs ${c.rationsDay} a day at light activity.">ration</button><button class="mini" onclick="startStatus('${cs.id}','meal')" title="Eat one Meal item from the inventory (${stockOf(cs,'Meal')} carried) — 30 min. A cooked meal fills a quarter more than a ration and eases fatigue.">meal</button>`, tier('hunger'))}
     ${needRow(cs,'hygiene','🧼 Hygiene',
@@ -2455,7 +2468,7 @@ function organicCard(cs, c, div){
       `<button class="mini" onclick="startStatus('${cs.id}','rest15')">15m</button><button class="mini" onclick="startStatus('${cs.id}','rest30')">30m</button>`+
       (isFS(cs)?`<button class="mini force" onclick="startStatus('${cs.id}','med15')">🧘15</button><button class="mini force" onclick="startStatus('${cs.id}','med30')">🧘30</button>`:''), tier('rest'))}
     <div class="gearrow">
-      <span class="gi">🥤 <b>${cs.canteen}</b>/${OZ_PER_CANTEEN}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
+      <span class="gi">🥤 <b>${cs.canteen}</b>/${canteenCap(cs)}oz <button class="mini" onclick="refill('${cs.id}')">refill</button></span>
       <span class="gi">💉 <b title="Stimpacks carried — the Stimpack rows in the inventory; change the quantity on the Sheets tab">${stockOf(cs,'Stim')}</b> <button class="mini" onclick="useStim('${cs.id}')">use</button> <span title="Doses in the current ${STIM.windowHrs} h window / safe limit">${cs.stimsToday}/${STIM.maxHeals}${cs.stimsToday>0?` (resets in ${fmtDur(stimResetIn(cs))})`:''}</span></span>
       ${isFS(cs)?`<span class="gi" title="Morichro — the Jedi technique of turning the Force inward to slow the body's need for food, water, rest and air">✨ Morichro <input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${cs.id}',this.value)" title="Committed Force dice (0–${forceCap(cs)}, your Force rating on the Sheets tab). Each one slows bodily needs and is not rolled for Force powers."></span>`:''}
     </div>
@@ -3172,15 +3185,15 @@ function invCreateEntry(id, i){
 // itself so the roll shows damage (base + net successes) and whether a critical is on.
 function rollAttack(id, i){
   const cs = st(id), it = cs.inv[i]; if(!it) return;
-  const w = weaponState(cs, it), s = skillState(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
+  const w = weaponState(cs, it), s = condPool(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
   const upg = t.upg||0;   // a failing weapon: upgrade the difficulty once
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:t.setb||0, d:2-Math.min(2,upg), c:Math.min(2,upg), F:0});
-  DICE_UI.repair = null;
+  DICE_UI.repair = null; DICE_UI.dc = null; DICE_UI.cond = null;
   Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:w.skill.n,
     weapon:{ n:(invLabel(it)||'weapon').slice(0,60), dam:w.total, crit:w.crit, q:w.q.slice(0,160), rng:w.rng,
              note: t.setb ? `${t.name} weapon: ${t.setb} Setback${upg?' and an upgraded difficulty':''} already added` : '', src:{id, i, name:it.name} } });
-  tdLoad(cs, w.skill.k);
+  condApply(s.m); tdLoad(cs, w.skill.k);
   document.getElementById('diceLabel').value = w.skill.n;
   showTab('dice');
 }
@@ -3338,19 +3351,70 @@ function tdSummary(ignored){   // one line for the roll feed: which talents shap
   for(const o of T.opts) if(T.on[o.id]) parts.push(`${o.n}: ${o.t==='b'?'+'+o.amt+' Boost':o.t==='k'?'ignores '+o.amt+' Setback':o.amt+' '+TD_WORD[o.t]}`);
   return parts.join(' · ').slice(0, 240);
 }
+/* ---- a character's present state, applied to the dice ----------------------------
+   DICE_FX says in data what the tier and condition text (NEEDS, DTIERS, CONDS) says in words, so a
+   check loaded into the tray already carries it. Each entry is [kind, amount, scope]:
+   kind   k Setback · b Boost · up one difficulty upgrade · at a change to the characteristic rolled
+   scope  characteristic keys and skill keys, or: all · combat · social · nocoerce (social except Coercion)
+   Keep the two in step: change a tier's fx text, change its line here. */
+const DFX_MALF = [['k',3,'all'],['up',2,'all'],['at',-1,'all']];
+const DICE_FX = {
+  water:  { Parched:[['k',1,'br ag']], Dehydrated:[['at',-1,'br ag'],['up',1,'int cun']], Desiccated:[['at',-2,'br ag'],['at',-1,'wil'],['up',1,'all']] },
+  hunger: { Gnawing:[['k',1,'int cun']], Famished:[['k',1,'int cun br ag']], Starving:[['at',-1,'br int'],['up',1,'br ag']], Emaciated:[['at',-2,'br int'],['at',-1,'ag wil'],['up',1,'all']] },
+  hygiene:{ Grubby:[['k',1,'charm negotiation leadership'],['b',1,'coercion']], Filthy:[['k',1,'nocoerce'],['b',1,'coercion']], Squalid:[['at',-1,'pr'],['up',1,'nocoerce']],
+            Diseased:[['at',-1,'pr br'],['k',1,'nocoerce'],['up',1,'nocoerce'],['b',1,'coercion']] },
+  sleep:  { Drowsy:[['k',1,'int cun perception vigilance']], 'Sleep-Deprived':[['at',-1,'int cun'],['up',1,'perception vigilance']],
+            Delirious:[['at',-2,'int'],['at',-1,'cun wil'],['up',1,'int cun wil social']], Wrecked:[['at',-2,'int cun wil'],['up',1,'all']] },
+  rest:   { Winded:[['k',1,'br ag']], Weary:[['at',-1,'br ag'],['up',1,'athletics coordination combat']], Exhausted:[['at',-2,'br ag'],['up',1,'br ag']], Spent:[['at',-2,'br ag'],['up',1,'br ag']] },
+  droid:  { Degraded:[['k',1,'all']], Strained:[['k',2,'all']], Impaired:[['k',2,'all'],['up',1,'all'],['at',-1,'ag int']], Malfunctioning:DFX_MALF, Failing:DFX_MALF, 'SHUTDOWN IMMINENT':DFX_MALF },
+  cond:   { sick:l=> l>=3 ? [['at',-1,'br int']].concat(l>3 ? [['up',l-3,'all']] : []) : l>=2 ? [['up',1,'br ag'],['at',-1,'br']] : [['k',1,'br ag']],
+            fear:l=>[['k',l,'all']], chilled:[['k',1,'ag']], overheated:[['k',1,'all']], soaked:[['k',1,'ag']], poisoned:[['k',1,'all']], limping:[['k',1,'coordination athletics']],
+            crash:l=> l>=3 ? [['k',2,'all'],['up',1,'all']] : [['k',l,'all']], inspired:[['b',1,'all']],
+            drunk:l=> l>=3 ? [['k',2,'all'],['up',2,'coordination athletics vigilance']]
+                   : l>=2 ? [['up',1,'br ag int cun wil'],['k',1,'coordination vigilance perception'],['b',1,'charm coercion cool']]
+                   :        [['b',1,'charm coercion cool'],['k',1,'coordination vigilance perception']],
+            caffeinated:[['b',1,'vigilance perception']], ion:[['k',1,'all']], actuator:[['k',1,'ag']] } };
+const SOCIAL_KEYS = ['charm','coercion','deception','leadership','negotiation'];
+function checkMods(cs, sk){   // sk = { k skill key, ch the characteristic it rolls with } → Setback, Boost, upgrades, characteristic change, and why
+  const c = cfg(cs.id), out = { setb:0, boost:0, up:0, at:0, notes:[] };
+  const social = SOCIAL_KEYS.includes(sk.k), combat = COMBAT_SKILLS.some(x=>x.k===sk.k), chName = (ATTRS.find(a=>a[0]===sk.ch) || ['',''])[1];
+  const hit = scope => scope.split(' ').some(t=> t==='all' || t===sk.ch || t===sk.k || (t==='combat' && combat) || (t==='social' && social) || (t==='nocoerce' && social && sk.k!=='coercion'));
+  const take = (label, list) => { const said = [];
+    for(const [kind, n, scope] of list || []){ if(!n || !hit(scope)) continue;
+      if(kind==='k'){ out.setb += n; said.push(`${n} Setback`); }
+      else if(kind==='b'){ out.boost += n; said.push(`${n} Boost`); }
+      else if(kind==='up'){ out.up += n; said.push(n>1 ? `difficulty upgraded ${n} times` : 'difficulty upgraded'); }
+      else if(kind==='at'){ out.at += n; said.push(`−${-n} ${chName}`); } }
+    if(said.length) out.notes.push(`${label}: ${said.join(', ')}`); };
+  if(c.droid){ const t = tierOf(exhaustion(cs), DTIERS); take(t.name, DICE_FX.droid[t.name]); }
+  else for(const key of NEED_KEYS){ const t = tierOf(cs[key], NEEDS[key].tiers); take(t.name, DICE_FX[key][t.name]); }
+  for(const cd of cs.conds || []){ const f = DICE_FX.cond[cd.id]; if(f) take(plainLabel(CONDS[cd.id].label), typeof f==='function' ? f(cd.lvl||1) : f); }
+  const over = overload(cs); if(over>0) take('Encumbered', [['k', over, 'br ag']]);
+  return out;
+}
+function condPool(cs, sk){   // a skill's dice as the character's present state leaves them (a lowered characteristic never drops below 1)
+  const s = skillState(cs, sk), m = checkMods(cs, { k:sk.k, ch:s.ch });
+  const cv = s.cv>0 ? Math.max(1, s.cv + m.at) : s.cv;
+  return { ...s, cv, p:Math.min(cv, s.rank), a:Math.max(cv, s.rank) - Math.min(cv, s.rank), m };
+}
+function condApply(m){   // the rest of it, into the tray: call once the pool has been set
+  const p = DICE_UI.pool; p.k = clamp(p.k + m.setb, 0, POOL_MAX); p.b = clamp(p.b + m.boost, 0, POOL_MAX);
+  for(let i=0; i<m.up; i++){ if(p.d>0){ p.d--; p.c = Math.min(POOL_MAX, p.c+1); } else p.d++; }
+  DICE_UI.cond = m.notes.length ? m.notes.join(' · ').slice(0,300) : null;
+}
 function rollSkill(id, key){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
-  const s = skillState(cs, sk);
+  const s = condPool(cs, sk);
   Object.assign(DICE_UI.pool, {p:s.p, a:s.a, b:0, k:0, d:2, c:0, F:0});
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null });
-  tdLoad(cs, key);
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:sk.n, weapon:null, repair:null, dc:null, cond:null });
+  condApply(s.m); tdLoad(cs, key);
   document.getElementById('diceLabel').value = sk.n;
   showTab('dice');
 }
 function rollForce(id){
   const cs = st(id), n = Math.max(0, cs.sheet.fr - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, {p:0, a:0, b:0, k:0, d:0, c:0, F:n});
-  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null, repair:null });
+  Object.assign(DICE_UI, { who:id, label:'Force power', weapon:null, repair:null, dc:null, cond:null });
   document.getElementById('diceLabel').value = 'Force power';
   showTab('dice');
 }
@@ -4212,7 +4276,7 @@ const SYM_TIPS = {
 };
 const DIFFS = [['Simple',0],['Easy',1],['Average',2],['Hard',3],['Daunting',4],['Formidable',5]];
 const FEED_MAX = 50, POOL_MAX = 12;
-const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null, repair:null };
+const DICE_UI = { pool:{b:0,k:0,a:0,d:0,p:0,c:0,F:0}, label:'', who:'', ch:2, rk:0, weapon:null, repair:null, dc:null, cond:null };
 let ROLLS = [];   // feed entries, oldest first
 
 const rollInt = n => (typeof crypto!=='undefined' && crypto.getRandomValues)
@@ -4238,8 +4302,8 @@ const dieHtml  = (t,f) => `<span class="die ${DICE[t].cls} t-${t}" title="${face
 
 /* ---- pool builder ---- */
 function poolAdj(t, d){ DICE_UI.pool[t] = clamp(DICE_UI.pool[t]+d, 0, POOL_MAX); renderDice(); }
-function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.tal=null; renderDice(); }
-function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; renderDice(); }
+function poolClear(){ for(const t in DICE_UI.pool) DICE_UI.pool[t]=0; DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.dc=null; DICE_UI.cond=null; DICE_UI.tal=null; renderDice(); }
+function poolNoWeapon(){ DICE_UI.weapon=null; DICE_UI.repair=null; DICE_UI.dc=null; renderDice(); }
 function poolUpgrade(from, to){   // upgrade: turn one base die into its d12; with none left to turn, add a base die
   const p = DICE_UI.pool;
   if(p[from]>0){ p[from]--; p[to] = Math.min(POOL_MAX, p[to]+1); } else p[from] = 1;
@@ -4262,6 +4326,7 @@ function rollPool(){
   const ignored = DICE_UI.tal ? Math.min(p.k, DICE_UI.tal.ign) : 0;   // talents that remove Setback
   const e = { k:'r', who:diceWhoName(), l:(DICE_UI.label||'').trim().slice(0,80), r:rollDice(ignored ? {...p, k:p.k-ignored} : p) };
   const talNote = tdSummary(ignored); if(talNote) e.tal = talNote;
+  if(DICE_UI.cond) e.cnd = String(DICE_UI.cond).slice(0,300);
   if(DICE_UI.weapon){
     const {src, note, ord, ...card} = DICE_UI.weapon; e.w = card;
     if(ord && S.ship){ S.ship.ammo = Math.max(0, (S.ship.ammo||0) - 1); render(); }   // a torpedo leaves the tube
@@ -4272,6 +4337,10 @@ function rollPool(){
     const text = applyRepair(DICE_UI.repair.holder, tally(parseRoll(e.r)));
     DICE_UI.repair = null;
     if(text){ e.rep = text.slice(0,300); logMsg('🔧 '+esc(text), 'ld'); render(); }
+  }
+  if(DICE_UI.dc){   // Damage Control and Manual Repairs: the successes come off the ship
+    const text = applyDamageControl(DICE_UI.dc, tally(parseRoll(e.r)));
+    DICE_UI.dc = null; if(text) e.rep = text.slice(0,300);
   }
   postFeed(e);
   renderDice();
@@ -4350,7 +4419,7 @@ function feedEntryHtml(e){
   const dice = parseRoll(e.r); if(!dice.length) return '';
   const who = esc(String(e.who||e.by||'Player').slice(0,40)), label = esc(String(e.l||'').slice(0,80));
   return `<div class="roll"><div class="rhead"><span><b>${who}</b>${label?` — ${label}`:''}</span><span>${who===by?'':by+' · '}${t}</span></div>
-    ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
+    ${weaponCardHtml(e.w, dice, e)}${e.rep ? `<div class="wcard" style="border-color:#1d4a4e;background:#0f1a1c">🔧 ${esc(String(e.rep).slice(0,300))}</div>` : ''}${e.tal ? `<div class="rtal">✦ ${esc(String(e.tal).slice(0,240))}</div>` : ''}${e.cnd ? `<div class="rtal">🩺 ${esc(String(e.cnd).slice(0,300))}</div>` : ''}<div class="rdice">${dice.map(([d,f])=>dieHtml(d,f)).join('')}</div>
     <div class="rres">${resultHtml(dice)}</div></div>`;
 }
 function renderFeed(){
@@ -4428,6 +4497,8 @@ function renderDice(){
     </div>
     ${DICE_UI.weapon ? `<div class="wchip"><span>⚔ Attacking with <b>${esc(DICE_UI.weapon.n)}</b> — damage ${DICE_UI.weapon.dam}, crit ${DICE_UI.weapon.crit||'—'}, ${esc(DICE_UI.weapon.rng||'')}.${DICE_UI.weapon.sv ? '' : ' Ranged difficulty: Short Easy · Medium Average · Long Hard · Extreme Daunting.'}${DICE_UI.weapon.note ? ` <b style="color:var(--warn)">${esc(DICE_UI.weapon.note)}.</b>` : ''}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without the weapon card">✕</button></div>` : ''}
     ${DICE_UI.repair ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.repair.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the repair">✕</button></div>` : ''}
+    ${DICE_UI.dc ? `<div class="wchip" style="border-color:#1d4a4e;background:#0f1a1c"><span>🔧 ${esc(DICE_UI.dc.note)}</span><button class="mini" onclick="poolNoWeapon()" title="Roll without applying it to the ship">✕</button></div>` : ''}
+    ${DICE_UI.cond ? `<div class="wchip" style="border-color:#4a3d1d;background:#1c170f" title="From this character's needs and conditions on the Tracker tab. It is already in the pool: change the dice by hand if the GM rules otherwise."><span>🩺 Already in the pool — ${esc(DICE_UI.cond)}.</span></div>` : ''}
     ${DICE_UI.tal ? (()=>{ const T = DICE_UI.tal, ig = Math.min(p.k, T.ign);
       return `<div class="talbox"><b>✦ Talents</b>${T.notes.length ? ` <span>${T.notes.map(esc).join(' · ')}</span>` : ''}${T.ign ? ` <span class="${ig?'hit':''}">${ig ? `${ig} of ${p.k} Setback will be ignored` : `up to ${T.ign} Setback will be ignored when added`}</span>` : ''}
         ${T.opts.map(o=>`<label title="${esc(o.c)}"><input type="checkbox" ${T.on[o.id]?'checked':''} onchange="tdToggle('${esc(o.id).replace(/'/g,"\\'")}',this.checked)"> <b>${esc(o.n)}</b>: ${o.t==='b'?`+${o.amt} Boost`:o.t==='k'?`ignore ${o.amt} Setback`:o.t==='up'?`upgrade ${o.amt}×`:o.t==='dn'?`downgrade difficulty ${o.amt}×`:`${o.amt} fewer Difficulty`} <i>— ${esc(o.c)}</i></label>`).join('')}</div>`; })() : ''}
@@ -4926,7 +4997,8 @@ function invTypeFor(it){
   return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other');
 }
 /* per-device view state for the tab — never synced */
-const ITEMS_UI = { q:'', g:'', c:'', sk:'', sort:'name', hideR:false, edit:null };
+const ITEMS_UI = { q:'', g:'', c:'', sk:'', sort:'name', hideR:false, edit:null, buy:true };   // buy: → 🎒 charges the price (per device)
+try{ ITEMS_UI.buy = localStorage.getItem('st_buy')!=='0'; }catch(e){}
 const CATALOG_SKILLS = [...new Set(CATALOG.map(it=>it.sk).filter(Boolean))].sort();
 
 const fmtPrice = it => it.pt ? esc(it.pt) : it.p!=null ? it.p.toLocaleString('en-US') : '—';
@@ -4955,6 +5027,7 @@ const colsFor = g => !g ? ITEM_COLS.all : g==='Armour' ? ITEM_COLS.armour : WEAP
 
 function itemsSet(k, v){
   ITEMS_UI[k] = v;
+  if(k==='buy'){ ITEMS_UI.buy = !!v; lsSet('st_buy', v ? '1' : '0'); return; }
   if(k==='g'){ ITEMS_UI.c=''; if(!WEAPON_GROUPS.includes(v) && v) ITEMS_UI.sk=''; }
   renderItems();   // view-only change: no state touched, so no full render / sync
 }
@@ -5056,10 +5129,17 @@ function hbDel(id){
 /* ---- → 🎒 send a catalog/homebrew item into a character's inventory rows ---- */
 function giveItem(key, id){
   const it = itemByKey(key), cs = id && st(id); if(!it || !cs) return;
+  let paid = '';
+  if(ITEMS_UI.buy){   // a purchase: the price comes off the buyer's credits
+    const have = cs.sheet.credits||0, cr = n => n.toLocaleString('en-US');
+    if(it.p==null) paid = it.pt ? ` Its price is listed as “${it.pt}”: take the credits off by hand.` : '';
+    else if(it.p>have){ if(!confirm(`${cfg(id).name} has ${cr(have)} credits and ${it.n} costs ${cr(it.p)}.\n\nAdd it anyway, without paying?`)) return; paid = ' Not paid for.'; }
+    else if(it.p>0){ cs.sheet.credits = have - it.p; paid = ` Paid ${cr(it.p)} cr; ${cr(cs.sheet.credits)} left.`; }
+  }
   const row = rowFromDb(it), type = row.type;
   cs.inv.push(row);
   const d = itemDetails(it);
-  logMsg(`🛒 ${cfg(id).name} picks up <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
+  logMsg(`🛒 ${cfg(id).name} ${ITEMS_UI.buy ? 'buys' : 'picks up'} <b>${esc(it.n)}</b> (${type}, enc ${it.e||0}${it.p!=null?`, ${it.p.toLocaleString('en-US')} cr`:''}${it.r?', restricted':''}) from the catalog.${esc(paid)}${d?` <span style="opacity:.8">${esc(d)}</span>`:''}`, 'lg');
   render();
 }
 
@@ -5312,7 +5392,8 @@ function buildRules(){
   <table><tr><th>Group</th><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${SHIP_WEAPONS.map(g=>g.items.map((w,i)=>`<tr><td>${i===0?g.group:''}</td><td>${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td>${w.dmg}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('')).join('')}</table>
   <p>Weapon groups reference their system's condition (a degraded Heavy Guns system penalizes the Laser Cannon and Turbolaser together). The <b>Proton Torpedo Launcher</b> tracks limited ammo (starts at ${SHIP.torpedoes}) — <b>fire</b> to decrement, <b>reload</b> at port.</p>
   <h2>🛒 Items — the shop catalog</h2>
-  <p>The <b>Items</b> tab is the party's shopping list: ${CATALOG.length ? `<b>${CATALOG.length.toLocaleString('en-US')} pieces of FFG gear</b> in ${CATALOG_GROUPS.length} groups — ${CATALOG_GROUPS.map(g=>`<b>${g.g}</b> (${CATALOG.filter(it=>it.g===g.g).length})`).join(', ')}` : '<span style="color:var(--bad)">the catalog file (items.js) did not load</span>'}. Search matches names, qualities, features and requirements (every word must match); the chips and dropdowns narrow by group, category and weapon skill. Prices are credits; an <span class="badge b-rest">R</span> marks a <b>restricted</b> item — black market or a licence, and the GM's call on availability. Rarity sets the difficulty of finding it (${[0,1,2,3,4,5,6,7,8,9,10].filter(r=>r%2===0).map(r=>`${r}–${r+1}: ${['Easy','Average','Hard','Daunting','Formidable','Formidable + Setback'][r/2]}`).join(' · ')}), modified by where you are shopping.</p>
+  <p>The <b>Items</b> tab is the party's shopping list: ${CATALOG.length ? `<b>${CATALOG.length.toLocaleString('en-US')} pieces of FFG gear</b> in ${CATALOG_GROUPS.length} groups — ${CATALOG_GROUPS.map(g=>`<b>${g.g}</b> (${CATALOG.filter(it=>it.g===g.g).length})`).join(', ')}` : '<span style="color:var(--bad)">the catalog file (items.js) did not load</span>'}. Search matches names, qualities, features and requirements (every word must match); the chips and dropdowns narrow by group, category and weapon skill. Prices are credits; an <span class="badge b-rest">R</span> marks a <b>restricted</b> item — black market or a licence, and the GM's call on availability. Rarity sets the difficulty of finding it (${[0,1,2,3,4,5,6,7,8,9,10].filter(r=>r%2===0).map(r=>`${r}–${r+1}: ${['Easy','Average','Hard','Daunting','Formidable','Formidable + Setback'][r/2]}`).join(' · ')}), modified by where you are shopping. With <b>🛒 charge credits</b> ticked, sending an item to a character takes its price from their credits (it asks first if they cannot afford it); untick it for loot and gifts.</p>
+  <p><b>Gear the tracker reads:</b> a carried thermal cloak, body glove, temperature-control pack or climate armor keeps its wearer from being Chilled or Overheated by exposure (a 🧥 badge shows on the card), and each extra canteen carried adds to the water a character can hold. <b>Dice:</b> a check loaded from a sheet, the Encounter tab or a ship station already carries what the character's needs, conditions and encumbrance do to it (the 🩺 line in the dice tray says what was added); change the dice by hand if the GM rules otherwise. <b>After a fight</b> the GM is offered a strain-recovery roll for everyone who took part and asked how many minutes it took.</p>
   <p><b>✨ Homebrew items</b> are added at the table and <b>shared with the room</b> — they save, load and sync like everything else and <i>survive 🆕 New</i>, since they are catalog entries rather than session state. Give one a group so the ${'→ 🎒'} button knows what kind of thing it is.</p>
   <p><b>→ 🎒 sends an item to a character's pack</b>: it adds an inventory row (quantity 1, the catalog encumbrance) and logs the pickup. The group decides the row's type — ${Object.entries(ITEM_INV_TYPE).map(([g,t])=>`${g} → <b>${t}</b>`).join(', ')}; Gear from the ${ITEM_MEDICAL_SUBS.join(', ')} categories lands as <b>Medical</b>. Weapons get a wear track, Armor is worn and stays out of encumbrance. Credits are not tracked — pay the GM.</p>
 
@@ -6126,7 +6207,31 @@ function encEnd(){
   if(!encOn() || !confirm('End this encounter for everyone? The NPCs in it are removed (the library keeps them).')) return;
   const e = S.enc, fallen = encNpcKeys().concat(encShipKeys()).filter(k=>!e[k].hid && encDown(k)).map(encName);
   logMsg(`${e.mode==='social' ? '💬 Conversation' : e.mode==='ship' ? '🚀 Ship combat' : '⚔ Encounter'}${e.title ? ' <b>'+esc(e.title)+'</b>' : ''} over${e.mode!=='social' && e.cur ? ` after ${e.round} round${e.round===1?'':'s'}` : ''}${fallen.length ? '. Defeated: '+esc(fallen.join(', ')) : ''}.`);
+  const fought = e.mode!=='social' && e.cur ? CHARS.filter(c=>e['c_'+c.id] && e['c_'+c.id].r && !e['c_'+c.id].out).map(c=>c.id) : [], rounds = e.round, mode = e.mode;
   S.enc = {}; if(S.ship) Object.assign(S.ship, { ev:0, sot:0, pm:0, hullFix:0, pun:0, patched:{} }); spaceMapSync(); render();   // critical hits stay on the ship until someone repairs them
+  if(fought.length) encAftermath(fought, rounds, mode);
+}
+/* After a fight: everyone who took part catches their breath (Cool or Discipline, whichever is the better pool:
+   1 strain back per success), and the fight takes its minutes off the clock with the fighters at Strenuous. */
+function encAftermath(ids, rounds, mode){
+  const tired = ids.filter(id=>st(id) && st(id).strain>0);
+  if(tired.length && confirm(`Roll end-of-encounter strain recovery for ${tired.map(id=>cfg(id).name.split(' ')[0]).join(', ')}?\n\nEach rolls Cool or Discipline, whichever is better, and recovers 1 strain per success.`)){
+    for(const id of tired){ const cs = st(id);
+      const [sk, s] = ['cool','discipline'].map(k=>SKILLS.find(x=>x.k===k)).map(k=>[k, condPool(cs, k)]).sort((x,y)=>(y[1].p+y[1].a)*10 + y[1].p - (x[1].p+x[1].a)*10 - x[1].p)[0];
+      const r = rollDice({ p:s.p, a:s.a, b:Math.min(s.m.boost, POOL_MAX), k:Math.min(s.m.setb, POOL_MAX) }), n = Math.min(cs.strain, Math.max(0, tally(parseRoll(r)).netS));
+      if(r) postFeed({ k:'r', who:cfg(id).name, l:`Recover strain (${sk.n})`, r });
+      cs.strain -= n; logMsg(`💨 ${cfg(id).name} catches their breath: ${n} strain recovered (now ${cs.strain}).`, n ? 'lg' : '');
+    }
+  }
+  const v = typeof prompt==='function' ? prompt(`How many minutes did the fight take? ${rounds} round${rounds===1?'':'s'} is about ${rounds} minute${rounds===1?'':'s'}.\n\n${mode==='ship' ? 'The clock moves on and the ship burns fuel.' : 'The clock moves on, with those who fought at Strenuous/Combat for that time.'} Enter 0 or Cancel to leave the clock alone.`, rounds) : null;
+  const mins = clamp(Math.round(parseFloat(v)) || 0, 0, 240);
+  if(mins>0){
+    const was = mode==='ship' ? [] : ids.map(id=>st(id)).filter(cs=>cs && !cs.status).map(cs=>[cs, cs.activity]);
+    for(const [cs] of was) cs.activity = 'strenuous';
+    advance(mins/60);
+    for(const [cs, a] of was) if(!cs.status) cs.activity = a;
+  }
+  render();
 }
 function encSet(k, v){ if(!encOn()) return; if(k==='mode' && !ENC_MODES[v]) return; S.enc[k] = k==='title' ? String(v).slice(0,80) : v; if(k==='mode') spaceMapSync(); if(k==='title') scheduleSync(); else render(); }
 function encMe(v){
@@ -6140,7 +6245,7 @@ function encRecord(k, dice, sk){   // an initiative roll: every success symbol c
 function encRollPC(id, key){
   if(!encOn() || !ENC_SK[key]) return;
   const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===key); if(!sk) return;
-  const s = skillState(cs, sk), td = talentDice(cs, key), r = rollDice({ p:s.p, a:s.a, b:Math.min(td.auto||0, POOL_MAX) });
+  const s = condPool(cs, sk), td = talentDice(cs, key), r = rollDice({ p:s.p, a:s.a, b:Math.min((td.auto||0) + s.m.boost, POOL_MAX), k:Math.min(s.m.setb, POOL_MAX) });
   if(r) postFeed({ k:'r', who:cfg(id).name, l:`Initiative (${sk.n})`, r });
   encRecord('c_'+id, parseRoll(r), key); S.enc['c_'+id].out = 0;
   render();
@@ -6352,10 +6457,11 @@ function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, 
   if(T && T.adv) notes.push(`Adversary ${T.adv}: ${T.adv} upgrade${T.adv===1?'':'s'}`);
   if(a.wnote) notes.push(a.wnote);
   Object.assign(DICE_UI.pool, { p:a.p, a:a.a, b:0, k:clamp((a.k||0) + (T ? T.def : 0), 0, POOL_MAX), d, c, F:0 });
-  DICE_UI.repair = null; DICE_UI.tal = null;
+  DICE_UI.repair = null; DICE_UI.dc = null; DICE_UI.cond = null; DICE_UI.tal = null;
   Object.assign(DICE_UI, { who:a.who, label:a.label, weapon:{ n:String(a.n).slice(0,60), dam:a.dam, crit:a.crit, q:String(a.q||'').slice(0,160), rng:band, note:notes.join(' · '), src:a.src||null } });
   if(a.by) DICE_UI.weapon.by = String(a.by).slice(0,60);   // an NPC's attack is rolled by the GM: the log names the NPC
   if(T){ DICE_UI.weapon.tgt = a.tgt; DICE_UI.weapon.tn = T.name.slice(0,60); }
+  if(a.m) condApply(a.m);   // the attacker's own state: fatigue, thirst, conditions
   if(a.cs) tdLoad(a.cs, a.skillKey);
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = a.label;
   renderDice();
@@ -6365,13 +6471,13 @@ function encAttackPC(id, i){   // i = inventory row, or -1 for fists
   const cs = st(id); if(!cs) return;
   const tgt = S.enc && S.enc[ENC_UI.tgt] && !encDown(ENC_UI.tgt) ? ENC_UI.tgt : '';
   if(i<0){
-    const sk = SKILLS.find(x=>x.k==='brawl'), s = skillState(cs, sk);
-    return encLoadAttack({ ak:'c_'+id, who:id, label:'Brawl'+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, skillKey:'brawl', n:'Unarmed', dam:cs.attr.br||0, crit:5, q:'Disorient 1, Knockdown, Stun Setting', tgt, cs });
+    const sk = SKILLS.find(x=>x.k==='brawl'), s = condPool(cs, sk);
+    return encLoadAttack({ m:s.m, ak:'c_'+id, who:id, label:'Brawl'+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, skillKey:'brawl', n:'Unarmed', dam:cs.attr.br||0, crit:5, q:'Disorient 1, Knockdown, Stun Setting', tgt, cs });
   }
   const it = cs.inv[i]; if(!it) return;
-  const w = weaponState(cs, it), s = skillState(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
+  const w = weaponState(cs, it), s = condPool(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
-  encLoadAttack({ ak:'c_'+id, who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
+  encLoadAttack({ m:s.m, ak:'c_'+id, who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
     wnote: t.setb ? `${t.name} weapon: ${t.setb} Setback${t.upg?' and an upgraded difficulty':''}` : '', src:{ id, i, name:it.name }, tgt, cs });
 }
 function encAttackNPC(k, wi){
@@ -6431,7 +6537,7 @@ function renderEncPanel(){
   const pick = `<label>Options for <select onchange="encPanelSet('pc',this.value)"><option value="">${ENC_UI.me && cfg(ENC_UI.me) ? 'me ('+esc(cfg(ENC_UI.me).name.split(' ')[0])+')' : 'pick a character…'}</option>${CHARS.map(x=>`<option value="${x.id}"${ENC_UI.pc===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label>`;
   if(!cs){ box.innerHTML = `<div class="abhead"><h3>What can I do?</h3>${pick}</div><p style="color:var(--dim);font-size:12.5px">Pick a character (or set “I am” above) to see their attacks, defenses, Force powers and other options in one place.</p>`; return; }
   // --- gather ---
-  const items = { offense:[], defense:[], force:[], utility:[] };
+  const items = { offense:[], defense:[], force:[], utility:[], social:[] };
   const eqW = cs.inv.map((it,i)=>[it,i]).filter(([it])=>isEquipped(it) && isWeapon(it));
   const pool = s => `<span class="die sm d12 t-p"></span>`.repeat(s.p) + `<span class="die sm d8 t-a"></span>`.repeat(s.a);
   for(const [it,i] of eqW){ const w = weaponState(cs, it), s = skillState(cs, w.skill);
@@ -6442,7 +6548,7 @@ function renderEncPanel(){
       <span class="meta">Brawl · damage ${cs.attr.br||0} · crit 5 · Engaged</span><small>Disorient 1, Knockdown. May deal its damage as strain.</small></div>`); }
   const std = ([n, kind, e]) => `<div class="abil"><div class="row"><b>${n}</b><span class="badge b-${abilBadge('Active ('+kind+')')[0]}">${kind}</span></div><small>${e}</small></div>`;
   for(const k in ENC_STD) items[k].push(...ENC_STD[k].map(std));
-  const passive = { offense:[], defense:[], force:[], utility:[] };
+  const passive = { offense:[], defense:[], force:[], utility:[], social:[] };
   for(const r of talentRanks(cs)){ const tal = RULES_DB.talents[r.n] || {}, cat = abilCat(r.n, tal), [bc, bl] = abilBadge(tal.a);
     const h = `<div class="abil ${bc==='pas'?'pas':''}"><div class="row"><b>${esc(r.n)}${r.rank>1 ? ' '+r.rank : ''}</b><span class="badge b-${bc}">${bl}</span></div>${tal.e ? `<small>${esc(tal.e)}</small>` : ''}</div>`;
     (bc==='pas' ? passive : items)[cat].push(h); }
@@ -6453,15 +6559,19 @@ function renderEncPanel(){
       ${t.basic ? `<small>${esc(t.basic)}</small>` : ''}${ups.length ? `<small><b>Upgrades:</b> ${ups.map(n=>`<span title="${esc(n.e||'')}">${esc(n.n)}</span>`).join(' · ')}</small>` : ''}</div>`); }
   // --- draw ---
   const e = S.enc, space = encOn() && e.mode==='ship', mode = encOn() ? e.mode : '';
-  if(ENC_UI.lastMode!==mode){ ENC_UI.lastMode = mode; if(space) ENC_UI.cat = 'station'; else if(ENC_UI.cat==='station') ENC_UI.cat = 'offense'; }   // ship combat opens on your station
+  if(ENC_UI.lastMode!==mode){ ENC_UI.lastMode = mode; if(space) ENC_UI.cat = 'station'; else if(mode==='social') ENC_UI.cat = 'social'; else if(ENC_UI.cat==='station' || ENC_UI.cat==='social') ENC_UI.cat = 'offense'; }   // ship combat opens on your station, a conversation on the social skills
+  if(mode==='social') for(const key of SOCIAL_KEYS){ const sk = SKILLS.find(x=>x.k===key), s = condPool(cs, sk);
+    items.social.push(`<div class="abil wpn"><div class="row"><b>${sk.n}</b><span>${pool(s) || '<span style="color:var(--dim)">—</span>'}</span><span style="margin-left:auto"></span><button class="mini atk" onclick="encSocial('${id}','${key}')" title="Load this check against whoever is picked above">🎲 roll</button></div>
+      <span class="meta">opposed by ${SOCIAL_SK[key][0]}</span><small>${SOCIAL_SK[key][1]}${s.m.notes.length ? ` <span style="color:var(--warn)">${esc(s.m.notes.join(' · '))}</span>` : ''}</small></div>`); }   // ship combat opens on your station
   if(space){ items.station = stationItems(id); passive.station = []; }
-  const cats = space ? Object.assign({ station:'🚀 Station' }, ABIL_CATS) : ABIL_CATS;
+  const cats = space ? Object.assign({ station:'🚀 Station' }, ABIL_CATS) : mode==='social' ? Object.assign({ social:'💬 Social' }, ABIL_CATS) : ABIL_CATS;
   const cat = cats[ENC_UI.cat] && items[ENC_UI.cat] ? ENC_UI.cat : 'offense', cb = combatStats(cs), mine = encOn() && e['c_'+id], myTurn = encOn() && e.cur==='c_'+id;
   const targets = encOn() ? encNpcKeys().filter(k=>(encIsGM() || !e[k].hid) && !encDown(k)) : [];
   if(ENC_UI.tgt && !targets.includes(ENC_UI.tgt)) ENC_UI.tgt = '';
   const lead = cat==='offense' ? `<div class="abhead"><label title="Pick who you are attacking and the dice tray sets the difficulty, their defense and Adversary upgrades for you.">Target <select onchange="ENC_UI.tgt=this.value"><option value="">no target (set the difficulty yourself)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}</option>`).join('')}</select></label><label>Range ${encRangeSel()}</label></div>`
     : cat==='defense' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">Soak <b>${cb.soak}</b> · Defense <b>${cb.defM}</b> melee / <b>${cb.defR}</b> ranged · Wounds <b>${cs.wounds||0}</b>/${cs.wt||0} · Strain <b>${cs.strain||0}</b>/${effStrainThresh(cs, c)}</p>`
     : cat==='station' ? stationLead(id)
+    : cat==='social' ? `<div class="abhead"><label title="Pick who you are talking to and the dice tray takes its difficulty from their opposing skill. With nobody picked the check is Average.">Talking to <select onchange="ENC_UI.tgt=this.value"><option value="">nobody picked (Average)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}${S.enc[k].disp ? ' · '+S.enc[k].disp : ''}</option>`).join('')}</select></label></div>`
     : cat==='force' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">${fr ? `Force rating <b>${fr}</b>${cs.force ? ` · ${cs.force} committed, <b>${free}</b> free to roll` : ''}` : `${esc(c.name)} has no Force rating.`}</p>` : '';
   box.innerHTML = `<div class="abhead"><h3>${esc(c.name.split(' ')[0])}'s options</h3>${pick}<span style="margin-left:auto"></span>
       ${Object.entries(cats).map(([k,l])=>`<button class="chip ${cat===k?'on':''}" onclick="encPanelSet('cat','${k}')">${l}${k==='station' ? '' : ' '+(items[k].length + passive[k].length)}</button>`).join('')}</div>
@@ -6473,10 +6583,20 @@ function renderEncPanel(){
     ${lead}<div class="ablist">${items[cat].join('')}</div>${items[cat].length ? '' : `<p style="color:var(--dim);font-size:12px">Nothing here yet.</p>`}
     ${passive[cat].length ? `<div class="absub">Always on</div><div class="ablist">${passive[cat].join('')}</div>` : ''}`;
 }
+const SOCIAL_SK = { charm:['Cool','Win them over: warmth, flattery, an honest appeal.'], coercion:['Discipline','Threaten, intimidate, lean on them.'], deception:['Discipline','Lie, bluff, mislead.'],
+  leadership:['Discipline','Rally, command, sway a crowd.'], negotiation:['Negotiation','Strike a deal. Opposed by their Negotiation, or Cool if they have none.'] };
+function encSocial(id, key){   // a social check against the NPC picked on the panel: their opposing skill is the difficulty
+  const cs = st(id), def = SOCIAL_SK[key], sk = SKILLS.find(x=>x.k===key); if(!cs || !def) return;
+  const k = encOn() && /^n_/.test(String(ENC_UI.tgt)) && S.enc[ENC_UI.tgt] ? ENC_UI.tgt : '', x = k ? S.enc[k] : null;
+  let d = 2, c = 0, label = sk.n;
+  if(x){ const g = encAlive(x) || 1, opp = key==='negotiation' && !npcRank(x.d, 'Negotiation', g) ? 'Cool' : def[0], o = npcPoolDice(x.d, opp, g) || { p:0, a:2 };
+    d = o.a; c = o.p; label = `${sk.n} vs ${encName(k)} (${opp})`; }
+  encLoadCheck(id, key, d + c, label.slice(0,80), { up:c });   // upgrading c of the d+c dice gives their pool back as difficulty
+}
 function encForce(id, power){   // free Force dice into the tray, without leaving the encounter
   const cs = st(id), n = Math.max(0, (cs.sheet.fr||0) - (cs.force||0)); if(!n) return;
   Object.assign(DICE_UI.pool, { p:0, a:0, b:0, k:0, d:0, c:0, F:Math.min(n, POOL_MAX) });
-  Object.assign(DICE_UI, { who:id, label:power, weapon:null, repair:null, tal:null });
+  Object.assign(DICE_UI, { who:id, label:power, weapon:null, repair:null, dc:null, cond:null, tal:null });
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = power;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
@@ -6924,11 +7044,11 @@ function shipAngle(from, to){   // Angle Deflector Shields: one point of defense
 }
 function encLoadCheck(id, skillKey, diff, label, mod){   // a plain skill check into the dice tray, without leaving the encounter; mod = { setb, up } from a damaged system
   const cs = st(id), sk = cs && skillList(cs).find(x=>x.k===skillKey); if(!sk) return;
-  const s = skillState(cs, sk); let d = clamp(diff, 0, POOL_MAX), c = 0;
+  const s = condPool(cs, sk); let d = clamp(diff, 0, POOL_MAX), c = 0;
   for(let i=0; i<((mod && mod.up)||0); i++){ if(d>0){ d--; c++; } else d++; }
   Object.assign(DICE_UI.pool, { p:s.p, a:s.a, b:0, k:clamp((mod && mod.setb)||0, 0, POOL_MAX), d, c, F:0 });
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, tal:null });
-  tdLoad(cs, skillKey);
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label, weapon:null, repair:null, dc:null, cond:null, tal:null });
+  condApply(s.m); tdLoad(cs, skillKey);
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = label;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
@@ -6945,12 +7065,26 @@ function stationCheck(id, what){
     reroute:['mechanics',2,'Reroute power'], spoof:['computers',2,'Spoof Missiles'], spoofV:['vigilance',3,'Spoof Missiles'], plot:['astrogation',2,'Plot Course'], plotP:['perception',3,'Plot Course'], fire:['leadership',3,'Fire Discipline'], fireD:['discipline',3,'Fire Discipline'],
     gta:['pilot_space',gtaDiff(ENC_UI.vtgt),'Gain the Advantage'+(encOn() && S.enc[ENC_UI.vtgt] ? ' on '+encName(ENC_UI.vtgt) : '')] }[what];
   if(!T) return;
-  if(what==='dcHull' || what==='manual'){ if(sh.hullFix){ logMsg('🔧 The one hull repair of this fight has already been tried.', 'lw'); render(); return; } sh.hullFix = 1; render(); }
+  if((what==='dcHull' || what==='manual') && sh.hullFix){ logMsg('🔧 The one hull repair of this fight has already been tried.', 'lw'); render(); return; }   // it is spent when the dice are rolled, not when the check is loaded
   const sys = what==='gta' ? 'engines' : ['jam','scan','slice','spoof'].includes(what) ? 'sensors' : '';   // the system this check leans on
   if(sys==='sensors' && (shipE('sensors')===0 || shipV('sensors')===0)){ logMsg('📡 The sensors are dark: nothing to scan, slice or jam with.', 'lw'); render(); return; }
   const crew = crewSetback(id), fx = sys==='engines' ? engineFx() : sys ? { setb:condSetback(shipV(sys)), up:condUpgrade(shipV(sys)) } : { setb:0, up:0 };
   const why = [sys && condNote(sys), crew && 'thin air: 1 Setback'].filter(Boolean).join(' · ');
   encLoadCheck(id, T[0], T[1], T[2] + (why ? ` (${why})` : ''), { setb:fx.setb + crew, up:fx.up });
+  const dcNote = { dcStrain:'When you roll: each success takes 1 system strain off the '+SHIP.name+'.', dcHull:'When you roll: each success repairs 1 hull trauma. This is the one hull repair of the fight.',
+    manual:'When you roll: success removes 1 hull trauma, and 1 more per two extra successes. This is the one hull repair of the fight.' }[what];
+  if(dcNote){ DICE_UI.dc = { what, label:T[2], note:dcNote }; renderDice(); }
+}
+function applyDamageControl(dc, r){   // called by rollPool with the tally of the roll
+  const sh = S.ship; if(!sh || !dc) return '';
+  const hull = dc.what!=='dcStrain', f = hull ? 'hull' : 'strain', thr = hull ? sh.hullThr : sh.strainThr;
+  const n = r.netS<=0 ? 0 : dc.what==='manual' ? 1 + Math.floor((r.netS-1)/2) : r.netS, fixed = Math.min(n, sh[f]||0);
+  if(hull) sh.hullFix = 1;
+  sh[f] = (sh[f]||0) - fixed; shipSettle();
+  const text = `${dc.label}: ` + (fixed ? `${fixed} ${hull ? 'hull trauma repaired' : 'system strain recovered'} on the ${SHIP.name} (now ${sh[f]}/${thr}).` : n ? `nothing left to ${hull ? 'repair' : 'recover'}.` : 'no successes, nothing changes.')
+    + (hull ? ' That was the one hull repair of this fight.' : '');
+  logMsg('🔧 '+esc(text), fixed ? 'lg' : 'lw'); render();
+  return text;
 }
 // the Mantis's guns: the Mantis tab's list, with arc and qualities read from the ship profile where it has them
 function mantisGuns(system){
@@ -6960,7 +7094,7 @@ function mantisGuns(system){
 }
 function stationFire(id, system, i){   // a Gunnery check with the weapon attached, against the target ship picked on the Station panel
   const cs = st(id), w = mantisGuns(system)[i]; if(!cs || !w) return;
-  const sh = S.ship, s = skillState(cs, SKILLS.find(x=>x.k==='gunnery'));
+  const sh = S.ship, s = condPool(cs, SKILLS.find(x=>x.k==='gunnery'));
   if(w.ammo && !(sh.ammo>0)){ logMsg(`🚀 The ${SHIP.name} is out of torpedoes.`, 'lw'); render(); return; }
   const wfx = weaponFx(system), crew = crewSetback(id);
   if(!wfx.ok){ logMsg(`🚀 ${esc(w.n)} cannot fire: ${esc(wfx.why)}.`, 'lw'); render(); return; }
@@ -6972,9 +7106,9 @@ function stationFire(id, system, i){   // a Gunnery check with the weapon attach
   A.pool.k = clamp(A.pool.k + wfx.setb + crew, 0, POOL_MAX); A.notes.push(...wfx.notes); if(crew) A.notes.push('thin air: 1 Setback'); if(wfx.dmg) A.notes.push(`extra power: +${wfx.dmg} damage`);
   if(w.ammo) A.notes.push(`${sh.ammo} torpedo${sh.ammo===1?'':'es'} aboard; this shot uses one`);
   Object.assign(DICE_UI.pool, A.pool);
-  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
+  Object.assign(DICE_UI, { who:id, ch:s.cv, rk:s.rank, label:`Gunnery: ${w.n}${x ? ' vs '+encName(k) : ''}`, repair:null, dc:null, cond:null, tal:null, weapon:{ n:w.n, dam:w.dam, crit:w.crit, q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, ord:w.ammo ? 1 : 0 } });
   if(x){ DICE_UI.weapon.tgt = k; DICE_UI.weapon.tn = encName(k).slice(0,60); }
-  tdLoad(cs, 'gunnery');
+  condApply(s.m); tdLoad(cs, 'gunnery');
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
   renderDice();
   const dw = document.getElementById('diceWrap'); if(dw && dw.scrollIntoView && TAB==='enc') dw.scrollIntoView({ behavior:'smooth', block:'start' });
@@ -7078,7 +7212,7 @@ function encShipFire(k, wi){   // an enemy weapon at the Mantis, which is small 
   const sh = S.ship, A = shipAttackPool(shipPoolDice(x, 'gun'), { attSil:x.d.sil, tgtSil:SHIP.silhouette, setb:mantisBestDef(), attEv:x.ev, attSot:x.sot, tgtEv:sh.ev, tgtSot:sh.sot, q:w.q,
     arcOk:shipArcBears(w.arc, x.side), arcWhy:`this weapon covers ${w.arc.toLowerCase()}, and its ${SHIP_ARCS[x.side].toLowerCase()} faces us`, rngOk:SHIP_BANDS.indexOf(x.rng) <= Math.max(0, SHIP_BANDS.indexOf(w.rng)), rng:w.rng });
   Object.assign(DICE_UI.pool, A.pool);
-  Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, tal:null,
+  Object.assign(DICE_UI, { who:'gm', label:`${x.hid ? 'Unseen ship' : encName(k)}: ${w.n}`.slice(0,80), repair:null, dc:null, cond:null, tal:null,
     weapon:{ n:w.n, dam:numOr(w.dam), crit:numOr(w.crit), q:w.q, rng:w.rng, note:A.notes.join(' · '), src:null, sv:1, tgt:'mantis', tn:SHIP.name, by:(x.hid ? 'an unseen ship' : encName(k)).slice(0,60) } });
   const lab = document.getElementById('diceLabel'); if(lab) lab.value = DICE_UI.label;
   renderDice();

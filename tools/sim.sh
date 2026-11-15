@@ -178,7 +178,13 @@ print('\n=== SMOKE TEST — UI code paths ===');
   if(!/7 \+ 1 = <b>8<\/b>/.test(card) || !/critical available/.test(card) || /<b>X/.test(card.replace('<div class="wcard"><b>','')) ) throw new Error('weapon card wrong: '+card);
   const wearB = cal.inv[saber].wear||0; rollAttack('cal',saber); rollPool(); if(Math.abs((cal.inv[saber].wear||0)-(wearB+WEAR_PER_ATTACK))>1e-9) throw new Error('attack did not wear the weapon');
   if(ROLLS[ROLLS.length-1].w.src || ROLLS[ROLLS.length-1].w.note!==undefined) throw new Error('weapon source leaked into the feed');
-  cal.inv[saber].wear = 85; rollAttack('cal',saber); if(DICE_UI.pool.k!==2 || DICE_UI.pool.c!==1 || DICE_UI.pool.d!==1) throw new Error('failing weapon penalties not applied: '+JSON.stringify(DICE_UI.pool));
+  cal.inv[saber].wear = 85; rollAttack('cal',saber);
+  { const cm = checkMods(cal, {k:'lightsaber', ch:'br'});   // the wielder's own state (thirst, fatigue, load) is added on top of the weapon's
+    if(DICE_UI.pool.k!==2+cm.setb || DICE_UI.pool.c!==1+cm.up || DICE_UI.pool.d!==1-cm.up+Math.max(0,cm.up-1)*2) throw new Error('failing weapon penalties not applied: '+JSON.stringify(DICE_UI.pool)+JSON.stringify(cm)); }
+  { const keep = [cal.rest, cal.water, cal.conds]; cal.rest = 60; cal.water = 0; cal.conds = [{id:'overheated'}];   // Weary and Overheated
+    const cm = checkMods(cal, {k:'lightsaber', ch:'br'}), cn = checkMods(cal, {k:'negotiation', ch:'pr'});
+    if(cm.at!==-1 || cm.up!==1 || cm.setb<1 || cn.at!==0 || cn.up!==0 || cn.setb<1) throw new Error('state not applied to the dice: '+JSON.stringify([cm, cn]));
+    [cal.rest, cal.water, cal.conds] = keep; }
   cal.inv[saber].wear = 100; poolClear(); rollAttack('cal',saber); if(DICE_UI.weapon) throw new Error('broken weapon could attack'); cal.inv[saber].wear = 0;
   rollSkill('cal','stealth'); if(DICE_UI.weapon) throw new Error('weapon stuck to a skill roll');
   // inventory overhaul: kits link to the database, aliases survive, food buttons eat whole items of their type
@@ -676,7 +682,11 @@ print('\n=== SMOKE TEST — UI code paths ===');
       if(mantisGuns('ordnance')[0].arc!=='Forward' || !mantisGuns('ordnance')[0].ammo || mantisGuns('heavyguns').length!==2 || mantisGuns('heavyguns')[0].arc!=='Aft') throw new Error('guns should pick up arcs from the profile: '+JSON.stringify(mantisGuns('heavyguns')));
       if(dcDiff(0,15)!==1 || dcDiff(8,15)!==2 || dcDiff(16,15)!==3) throw new Error('damage control difficulty wrong');
       sh.strain = 8; stationCheck('bode','dcStrain'); if(DICE_UI.pool.d!==2 || DICE_UI.weapon || !/Damage Control/.test(DICE_UI.label)) throw new Error('damage control check wrong');
-      stationCheck('bode','dcHull'); if(!sh.hullFix || DICE_UI.pool.d!==1) throw new Error('hull repair check wrong'); DICE_UI.label = 'x'; stationCheck('bode','manual'); if(DICE_UI.label!=='x') throw new Error('only one hull repair per fight');
+      if(!DICE_UI.dc || DICE_UI.dc.what!=='dcStrain') throw new Error('damage control should be wired to the roll');
+      applyDamageControl(DICE_UI.dc, {netS:3}); DICE_UI.dc = null; if(sh.strain!==5 || sh.hullFix) throw new Error('damage control should take its successes off system strain'); sh.strain = 8;
+      sh.hull = 5; stationCheck('bode','dcHull'); if(sh.hullFix || DICE_UI.pool.d + DICE_UI.pool.c!==1 || DICE_UI.dc.what!=='dcHull') throw new Error('hull repair check wrong: loading it must not spend it');
+      applyDamageControl(DICE_UI.dc, {netS:2}); DICE_UI.dc = null; if(sh.hull!==3 || !sh.hullFix) throw new Error('hull repair should take its successes off hull trauma and be spent'); sh.hull = 0;
+      DICE_UI.label = 'x'; stationCheck('bode','manual'); if(DICE_UI.label!=='x') throw new Error('only one hull repair per fight');
       const vk = encAddShip(SHIPS_DB.findIndex(s=>/TIE\/IN Interceptor/.test(s.n)), 1); encShipSet(vk,'hid',0); ENC_UI.vtgt = vk; sh.cspd = 4;
       for(const [their, want] of [[4,2],[3,1],[5,3],[6,4]]){ S.enc[vk].spd = their; stationCheck('cal','gta'); if(DICE_UI.pool.d!==want) throw new Error(`Gain the Advantage at speed 4 vs ${their} should be difficulty ${want}`); }
       shipAngle('fore','aft'); if(sh.defense.fore!==1 || sh.defense.aft!==1) throw new Error('angling shields wrong'); shipAngle('aft','aft'); shipAngle('fore','constructor'); shipAngle('aft','fore'); if(sh.defense.fore!==2 || sh.defense.aft!==0) throw new Error('angling back wrong'); shipAngle('aft','fore'); if(sh.defense.fore!==2) throw new Error('an empty arc has nothing to give');
@@ -994,7 +1004,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     SHEET_UI.id = 'cal'; render(); const row = skillRowHtml(cal, SKILLS.find(x=>x.k==='stealth')), rowM = skillRowHtml(cal, SKILLS.find(x=>x.k==='mechanics')), rowR = skillRowHtml(cal, SKILLS.find(x=>x.k==='ranged_light'));
     if(!/die sm d6 t-b/.test(row) || !/−2 ■/.test(rowM) || !/\+1 option/.test(rowR) || /undefined|NaN/.test(row+rowM+rowR)) throw new Error('skill rows should show talent dice');
     rollSkill('cal','stealth'); if(DICE_UI.pool.b!==1 || !DICE_UI.tal) throw new Error('always-on Boost should load with the pool'); rollPool(); if(!/Sleight of Mind/.test(ROLLS[ROLLS.length-1].tal||'')) throw new Error('feed should name the talent');
-    rollSkill('cal','mechanics'); poolAdj('k',1); poolAdj('k',1); poolAdj('k',1); rollPool(); const rm = ROLLS[ROLLS.length-1];
+    rollSkill('cal','mechanics'); DICE_UI.pool.k = 0;   /* his own state may have added Setback: start from none */ poolAdj('k',1); poolAdj('k',1); poolAdj('k',1); rollPool(); const rm = ROLLS[ROLLS.length-1];
     if(!/2 Setback ignored/.test(rm.tal||'') || parseRoll(rm.r).filter(d=>d[0]==='k').length!==1) throw new Error('two of three Setback should be ignored: '+JSON.stringify(rm));
     rollSkill('cal','ranged_light'); const p0 = JSON.stringify(DICE_UI.pool), oid = DICE_UI.tal.opts[0].id; tdToggle(oid,true); if(DICE_UI.pool.b!==2) throw new Error('ticking Quick Strike should add 2 Boost');
     tdToggle(oid,false); if(JSON.stringify(DICE_UI.pool)!==p0) throw new Error('unticking should put the pool back');
