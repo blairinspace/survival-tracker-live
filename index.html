@@ -4416,7 +4416,8 @@ function weaponCardHtml(w, dice, e){   // w comes off the wire: coerce and escap
   return `<div class="wcard"><b>${esc(String(w.n||'Weapon').slice(0,60))}</b> · ` +
     (hit ? `Damage ${dam} + ${r.netS} = <b>${dam+r.netS}</b> <span style="color:var(--dim)">before ${w.sv ? 'armor' : 'soak'}</span>` : `Damage ${dam} — <span style="color:var(--dim)">missed</span>`) +
     ` · Crit ${crit||'—'}` + (critOn ? ` <span class="crit" title="Enough Advantage (or a Triumph) to inflict a critical injury">critical available</span>` : '') +
-    (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') + encHitHtml(w, r, e, critOn) + `</div>`;
+    (w.q ? `<span class="q">${esc(String(w.q).slice(0,160))}</span>` : '') +
+    (w.w2 && typeof w.w2==='object' ? `<span class="q">＋ second weapon: <b>${esc(String(w.w2.n||'weapon').slice(0,60))}</b> · damage ${numOr(w.w2.dam)}${w.w2.q ? ' · '+esc(String(w.w2.q).slice(0,160)) : ''}</span>` : '') + encHitHtml(w, r, e, critOn) + `</div>`;
 }
 function feedEntryHtml(e){
   const by = esc(String(e.by||'Player').slice(0,40)), t = esc(String(e.t||'').slice(0,40));
@@ -6156,7 +6157,8 @@ function npcEditor(n){
      { on:1, title, mode combat|social, round, cur (order key of whoever is acting, '' = still rolling),
        c_<charId>: { r rolled, s successes, a advantages, x triumphs, sk cool|vigilance, out sitting out,
                      act / man action and maneuvers used this turn },
-       ap_<ts>:    1 once the hit rolled at that time has been applied to its target,
+       ap_<ts>:    1 once the hit rolled at that time has been applied to its target (ap_<ts>_<i> / df_<ts>_<i> for its
+                     extra hits: a second weapon, Linked),
        df_<ts>:    how the target met that hit: { k parry|reflect, red damage taken off, neg 1 = cleanly deflected,
                      duel / can / tri a duel roll and the successes and Triumphs it rolled, imp / thr / redir what was in force },
        n_<id>:     { d NPC snapshot (see NPC BUILDER), count (minion group), w wounds, st strain,
@@ -6181,8 +6183,8 @@ function normEnc(e){
   const init = (src, dst) => { dst.r = src.r ? 1 : 0; dst.s = npcInt(src.s, 0, 99, 0); dst.a = npcInt(src.a, 0, 99, 0); dst.x = npcInt(src.x, 0, 99, 0); dst.sk = ENC_SK[src.sk] ? src.sk : 'cool'; return dst; };
   for(const k in e){
     const v = e[k];
-    if(/^ap_\d+$/.test(k) && v){ o[k] = 1; continue; }   // a hit from the roll feed that has been applied
-    if(/^df_\d+$/.test(k) && v && typeof v==='object'){   // how that hit was parried, reflected or duelled
+    if(/^ap_\d+(_\d)?$/.test(k) && v){ o[k] = 1; continue; }   // a hit from the roll feed that has been applied
+    if(/^df_\d+(_\d)?$/.test(k) && v && typeof v==='object'){   // how that hit was parried, reflected or duelled
       o[k] = { k: v.k==='reflect' ? 'reflect' : 'parry', red: npcInt(v.red, 0, 20, 0), neg: v.neg ? 1 : 0, duel: v.duel ? 1 : 0, can: npcInt(v.can, 0, 30, 0), tri: npcInt(v.tri, 0, 9, 0), imp: v.imp ? 1 : 0, thr: v.thr===2 ? 2 : 3, redir: v.redir ? 1 : 0 }; continue; }
     if(!v || typeof v!=='object') continue;
     if(/^c_/.test(k) && cfg(k.slice(2))) o[k] = init(v, { out: v.out ? 1 : 0, act: v.act ? 1 : 0, man: npcInt(v.man, 0, 2, 0) });
@@ -6420,7 +6422,7 @@ function renderEnc(){
    target loads the dice tray with the right difficulty, the target's defense as
    Setback and its Adversary ranks as upgrades; the roll's feed card then offers to
    apply the damage after soak. */
-Object.assign(ENC_UI, { pc:'', cat:'offense', tgt:'', tpc:'', rng:'' });
+Object.assign(ENC_UI, { pc:'', cat:'offense', tgt:'', tpc:'', rng:'', w2:'' });
 const ABIL_CATS = dict({ offense:'⚔ Offense', defense:'🛡 Defense', force:'✦ Force', utility:'🧰 Utility' });
 const ABIL_FIX = { 'Quick Draw':'offense', 'Grit':'defense', 'Toughened':'defense', 'Enduring':'defense', 'Durable':'defense', 'Resolve':'defense', 'Rapid Recovery':'defense', 'Second Wind':'defense' };
 function abilCat(name, tal){
@@ -6469,9 +6471,11 @@ function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, 
   const ranged = !['brawl','melee','lightsaber'].includes(a.skillKey);
   const seen = a.ak && a.tgt ? mapBandKeys(a.ak, a.tgt) : '';   // both tokens on a calibrated map: the range is read off it
   const band = ranged ? (seen || ENC_UI.rng || 'Medium') : 'Engaged', T = a.tgt ? encTargetStats(a.tgt, ranged) : null;
-  let d = encDifficulty(a.skillKey, band), c = 0;
+  const d0 = Math.min(5, Math.max(encDifficulty(a.skillKey, band), a.sk2 ? encDifficulty(a.sk2, band) : 0) + (a.dUp||0));   // two weapons: the harder of the two checks, and harder again
+  let d = d0, c = 0;
   for(let i=0; i<(a.upg||0) + (T ? T.adv : 0); i++){ if(d>0){ d--; c++; } else d++; }
   const notes = [`${band} range${ranged && seen ? ' (from the map)' : ''}: ${['Simple','Easy','Average','Hard','Daunting','Formidable'][encDifficulty(a.skillKey, band)]}`];
+  if(a.w2) notes.push(`two weapons, with ${a.w2.n}: the lower skill and characteristic, difficulty +${a.dUp} (${['Simple','Easy','Average','Hard','Daunting','Formidable'][d0]}); 2 Advantage or a Triumph lands the second`);
   if(!ranged && seen && seen!=='Engaged') notes.push(`the map shows ${seen.toLowerCase()} range — close to Engaged first`);
   if(ranged && band==='Engaged') notes.push('shooting while engaged is harder');
   if(ranged && a.wrng && encBandI(band) > encBandI(a.wrng)) notes.push(`beyond this weapon's ${a.wrng.toLowerCase()} range`);
@@ -6483,6 +6487,7 @@ function encLoadAttack(a){   // a = { who, label, p, a, b, k, upg, skillKey, n, 
   Object.assign(DICE_UI, { who:a.who, label:a.label, weapon:{ n:String(a.n).slice(0,60), dam:a.dam, crit:a.crit, q:String(a.q||'').slice(0,160), rng:band, note:notes.join(' · '), src:a.src||null } });
   if(a.by) DICE_UI.weapon.by = String(a.by).slice(0,60);   // an NPC's attack is rolled by the GM: the log names the NPC
   if(!ranged) DICE_UI.weapon.mel = 1;                      // Parry answers a melee hit, Reflect a ranged one
+  if(a.w2) DICE_UI.weapon.w2 = { n:String(a.w2.n).slice(0,60), dam:numOr(a.w2.dam), q:String(a.w2.q||'').slice(0,160) };   // the off-hand weapon of a two-weapon attack
   if(a.ak) DICE_UI.weapon.ak = String(a.ak).slice(0,40);   // who is attacking: a duel roll needs to know whether either side is a Nemesis
   if(T){ DICE_UI.weapon.tgt = a.tgt; DICE_UI.weapon.tn = T.name.slice(0,60);
     const dg = (encDefs(a.tgt) || {}).dodge || 0; if(dg){ DICE_UI.weapon.dgMax = Math.min(dg, 6); DICE_UI.weapon.dgU = []; } }   // the target may Dodge before the roll
@@ -6502,6 +6507,14 @@ function encAttackPC(id, i){   // i = inventory row, or -1 for fists
   const it = cs.inv[i]; if(!it) return;
   const w = weaponState(cs, it), s = condPool(cs, w.skill), t = tierOf(clamp(it.wear||0,0,100), WTIERS);
   if(t.broken){ logMsg(`🗡 ${cfg(id).name}'s ${esc(invLabel(it)||'weapon')} is <b>Broken</b> — it can't attack until it is repaired.`, 'lw'); render(); return; }
+  // Two weapons: one check with the lower skill rank and the lower characteristic, one step harder (two if the skills differ)
+  const j = ENC_UI.w2==='' || ENC_UI.w2==null ? -1 : +ENC_UI.w2, it2 = j>=0 && (j!==i || (+it.qty||1)>=2) ? cs.inv[j] : null; let two = null;   // the same row counts when it holds a pair
+  if(it2 && isEquipped(it2) && isWeapon(it2) && !tierOf(clamp(it2.wear||0,0,100), WTIERS).broken){
+    const w2 = weaponState(cs, it2), s2 = condPool(cs, w2.skill), cv = Math.min(s.cv, s2.cv), rk = Math.min(s.rank, s2.rank);
+    two = { p:Math.min(cv, rk), a:Math.max(cv, rk) - Math.min(cv, rk), sk2:w2.skill.k, dUp: w2.skill.k===w.skill.k ? 1 : 2, w2:{ n:invLabel(it2)||'weapon', dam:w2.total, q:w2.q } };
+  }
+  if(two) return encLoadAttack({ m:s.m, ak:'c_'+id, who:id, label:(w.skill.n+', two weapons'+(tgt ? ' vs '+encName(tgt) : '')).slice(0,80), p:two.p, a:two.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, sk2:two.sk2, dUp:two.dUp, w2:two.w2, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
+    wnote: t.setb ? `${t.name} weapon: ${t.setb} Setback${t.upg?' and an upgraded difficulty':''}` : '', src:{ id, i, name:it.name }, tgt, cs });
   encLoadAttack({ m:s.m, ak:'c_'+id, who:id, label:w.skill.n+(tgt ? ' vs '+encName(tgt) : ''), p:s.p, a:s.a, k:t.setb||0, upg:Math.min(2, t.upg||0), skillKey:w.skill.k, n:invLabel(it)||'weapon', dam:w.total, crit:w.crit, q:w.q, wrng:w.rng,
     wnote: t.setb ? `${t.name} weapon: ${t.setb} Setback${t.upg?' and an upgraded difficulty':''}` : '', src:{ id, i, name:it.name }, tgt, cs });
 }
@@ -6513,14 +6526,26 @@ function encAttackNPC(k, wi){
   encLoadAttack({ ak:k, who:'gm', by: x.hid ? 'an unseen attacker' : encName(k), label:`${x.hid ? 'Unseen attacker' : encName(k)}: ${w.sk || 'attack'}`, p:pool.p, a:pool.a, skillKey: def ? def.k : 'ranged_light', n:w.n, dam, crit:numOr(w.crit), q:w.q, wrng:w.rng, tgt });
 }
 // the feed card of an attack that named a target: damage after soak, and buttons to apply it
-function encHit(w, r, ts){   // ts: the roll's time stamp, which is where its Parry / Reflect / duel roll is filed (df_<ts>)
+// The extra hits one attack roll can land: the off-hand weapon of a two-weapon attack, then one per rating of Linked.
+// Each costs 2 Advantage (or a Triumph); `all` lists them whether or not the roll can pay.
+function encExtra(w, r, all){
+  const out = [], s = w.w2 && typeof w.w2==='object' ? w.w2 : null;
+  if(s) out.push({ n:String(s.n||'second weapon').slice(0,60), dam:numOr(s.dam), q:String(s.q||'').slice(0,160), why:'Second weapon' });
+  for(let k=0; k<Math.min(qualN(w.q,'Linked'), 4); k++) out.push({ n:String(w.n||'weapon').slice(0,60), dam:numOr(w.dam), q:String(w.q||''), why:'Linked hit' });
+  return all ? out : out.slice(0, Math.floor(Math.max(0, r.netA)/2) + r.x);
+}
+function encHit(w, r, ts, i){   // ts: the roll's time stamp, which is where its Parry / Reflect / duel roll is filed (df_<ts>); i: 0 the hit itself, 1+ its extra hits
   if(!w || !encOn() || !(r.netS>0)) return null;
-  if(w.tgt==='mantis' || /^v_[a-z0-9]+$/.test(String(w.tgt))) return shipHit(w, r);
+  if(w.tgt==='mantis' || /^v_[a-z0-9]+$/.test(String(w.tgt))) return i ? null : shipHit(w, r);
   const T = encTargetStats(w.tgt, true); if(!T || (w.tgt[0]==='c' && (S.enc[w.tgt]||{}).out)) return null;
-  const soak = Math.max(0, T.soak - qualN(w.q,'Pierce') - 10*qualN(w.q,'Breach'));
-  const df = (ts && S.enc['df_'+ts]) || null, dg = clamp(Math.round(+w.dg)||0, 0, 6), net = r.netS - (df && df.duel ? df.can : 0);   // a duel roll cancels Successes one for one
+  const X = i ? encExtra(w, r)[i-1] : null; if(i && !X) return null;
+  const q = X ? X.q : w.q, base = X ? X.dam : numOr(w.dam), sfx = i ? '_'+i : '';
+  const soak = Math.max(0, T.soak - qualN(q,'Pierce') - 10*qualN(q,'Breach'));
+  const lead = (ts && S.enc['df_'+ts]) || null, df = (ts && S.enc['df_'+ts+sfx]) || (lead && lead.duel ? lead : null);   // one duel roll answers the whole attack: every hit is built on the same Successes
+  const dg = clamp(Math.round(+w.dg)||0, 0, 6), net = r.netS - (df && df.duel ? df.can : 0);   // a duel roll cancels Successes one for one
   const neg = net<=0 || (df && df.neg) ? df.k : w.dgc && dg>0 && r.netS<=dg ? 'dodge' : '';   // met cleanly: no damage and no critical
-  return { T, soak, df, dg, net, neg, dmg: neg ? 0 : Math.max(0, Math.max(0, numOr(w.dam) + net - (df ? df.red : 0)) - soak), stun: /stun (setting|damage)/i.test(String(w.q||'')) };   // Parry and Reflect come off before soak
+  return { T, soak, df, dg, net, neg, i:i||0, sfx, base, q, n: X ? X.n : String(w.n||'attack').slice(0,60), why: X ? X.why : '', shared: !!(i && df && df===lead),
+    dmg: neg ? 0 : Math.max(0, Math.max(0, base + net - (df && !df.duel ? df.red : 0)) - soak), stun: /stun (setting|damage)/i.test(String(q||'')) };   // Parry and Reflect come off before soak
 }
 /* ---- Parry, Reflect, Dodge and the table's house rules -------------
    By the book: Parry (a melee hit) and Reflect (a ranged one) cost 3 strain and take 2 + ranks off the damage before
@@ -6575,12 +6600,13 @@ function encDodge(n){   // the dice tray: the target uses n ranks of Dodge on th
   while(w.dgU.length > n){ if(w.dgU.pop()==='c'){ p.c = Math.max(0, p.c-1); p.d = Math.min(POOL_MAX, p.d+1); } else p.d = Math.max(0, p.d-1); }
   w.dg = n; renderDice();
 }
-function encDefend(ts, how){   // the target answers a hit on its feed card: how = '' (Parry or Reflect by the book, plus `clean`) or 'duel'
-  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts] || S.enc['df_'+ts] || !encRollLive(e)) return;
-  const w = e.w, r = tally(parseRoll(e.r)), h = encHit(w, r, ts); if(!h || h.ship || h.neg) return;
+function encDefend(ts, how, i){   // the target answers a hit on its feed card: how = '' (Parry or Reflect by the book, plus `clean`) or 'duel'
+  i = clamp(Math.round(+i)||0, 0, 9); const sfx = i ? '_'+i : '';
+  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts+sfx] || S.enc['df_'+ts+sfx] || !encRollLive(e) || (how==='duel' && i)) return;
+  const w = e.w, r = tally(parseRoll(e.r)), h = encHit(w, r, ts, i); if(!h || h.ship || h.neg || h.df) return;
   const key = w.tgt, D = encDefs(key), kind = w.mel ? 'parry' : 'reflect', ranks = D ? D[kind] : 0; if(!ranks) return;
   const hr = HR(), Kind = kind==='parry' ? 'Parry' : 'Reflect', hidden = key[0]==='n' && S.enc[key].hid;
-  const by = `${esc(String(w.by||e.who||'an attacker').slice(0,60))}'s ${esc(String(w.n||'attack').slice(0,60))}`;
+  const by = `${esc(String(w.by||e.who||'an attacker').slice(0,60))}'s ${esc(h.n)}`;
   const df = { k:kind, red:0, neg:0, duel:0, can:0, tri:0, imp: (kind==='parry' ? D.impP : D.impR) ? 1 : 0, thr: hr.redir ? 2 : 3, redir: hr.redir ? 1 : 0 };
   let cost = 3, line;
   if(how==='duel'){
@@ -6593,41 +6619,48 @@ function encDefend(ts, how){   // the target answers a hit on its feed card: how
     df.red = 2 + ranks; df.neg = hr.clean && r.netS<=ranks ? 1 : 0;
     line = df.neg ? `🛡 <b>${esc(h.T.name)}</b> turns ${by} aside cleanly (${Kind} ${ranks}, 3 strain): no damage.` : `🛡 <b>${esc(h.T.name)}</b> ${kind==='parry' ? 'parries' : 'reflects'} ${by}: ${df.red} less damage (${Kind} ${ranks}, 3 strain).`;
   }
-  encStrain(key, cost); S.enc['df_'+ts] = df;
+  encStrain(key, cost); S.enc['df_'+ts+sfx] = df;
   if(!hidden) logMsg(line, 'lb');
   render(); renderFeed();
 }
 function encDefNotes(w, r, h){   // what the defence opens up, for the table to act on by hand
-  const df = h.df, out = [], dam = numOr(w.dam);
-  if(h.dg) out.push(`Dodged with ${h.dg} rank${h.dg===1?'':'s'}`);
-  if(df) out.push(df.duel ? `Duel roll: ${Math.min(df.can, r.netS)} of ${r.netS} Success${r.netS===1?'':'es'} cancelled` : df.neg ? `${df.k==='parry' ? 'Parry' : 'Reflect'}: stopped cleanly` : `${df.k==='parry' ? 'Parry' : 'Reflect'}: ${df.red} off the damage before soak`);
+  const df = h.df, out = [], dam = h.base;
+  if(h.dg && !h.i) out.push(`Dodged with ${h.dg} rank${h.dg===1?'':'s'}`);
+  if(df) out.push(h.shared ? `The duel roll covers this hit too: ${Math.min(df.can, r.netS)} of ${r.netS} cancelled` : df.duel ? `Duel roll: ${Math.min(df.can, r.netS)} of ${r.netS} Success${r.netS===1?'':'es'} cancelled` : df.neg ? `${df.k==='parry' ? 'Parry' : 'Reflect'}: stopped cleanly` : `${df.k==='parry' ? 'Parry' : 'Reflect'}: ${df.red} off the damage before soak`);
   if(df && df.imp && (r.y>0 || -r.netA>=df.thr)) out.push(df.k==='parry' ? `<b>Parry (Improved)</b>: ${esc(h.T.name)} may land one automatic hit on the attacker for their own weapon's base damage` : `<b>Reflect (Improved)</b>: ${esc(h.T.name)} may send the hit at a target within medium range for ${dam + r.netS} damage`);
-  if(df && df.tri) out.push(df.k==='parry' ? `<b>Triumph</b>: a riposte, one automatic hit on the attacker for ${esc(h.T.name)}'s own weapon's base damage` : `<b>Triumph</b>: the shot goes back at the attacker for ${dam} damage`);
+  if(df && df.tri && !h.i) out.push(df.k==='parry' ? `<b>Triumph</b>: a riposte, one automatic hit on the attacker for ${esc(h.T.name)}'s own weapon's base damage` : `<b>Triumph</b>: the shot goes back at the attacker for ${dam} damage`);
   if(h.neg && !w.mel && (h.neg==='dodge' ? w.dgr : df && df.redir)) out.push(`It may ${h.neg==='dodge' ? 'go on to strike' : 'be sent at'} a minion group within short range for ${dam} damage`);
   return out.length ? `<small style="display:block;color:var(--dim)">${out.join(' · ')}.</small>` : '';
 }
-function encHitHtml(w, r, e, critOn){
-  const ts = Math.round(+(e||{}).ts)||0, h = encHit(w, r, ts); if(!h || !e || !encRollLive(e)) return '';
-  const see = h.T.pc || encIsGM(), done = S.enc['ap_'+ts];
-  if(h.neg) return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>: <b style="color:var(--good)">${h.neg==='dodge' ? 'dodged cleanly' : h.neg==='parry' ? 'parried cleanly' : 'deflected cleanly'}</b> — no damage, no critical${encDefNotes(w, r, h)}</span>`;
+function encHitHtml(w, r, e, critOn){   // the hit, then any extra hits the roll's Advantage can pay for
+  if(!e) return '';
+  const n = encHit(w, r, 0, 0) && !encHit(w, r, 0, 0).ship ? encExtra(w, r).length : 0;
+  return encHitLine(w, r, e, critOn, 0) + Array.from({ length:n }, (_, k)=>encHitLine(w, r, e, false, k+1)).join('');
+}
+function encHitLine(w, r, e, critOn, i){
+  const ts = Math.round(+(e||{}).ts)||0, h = encHit(w, r, ts, i); if(!h || !e || !encRollLive(e)) return '';
+  const see = h.T.pc || encIsGM(), done = S.enc['ap_'+ts+(h.sfx||'')], arg = i ? `,${i}` : '';
+  const head = i ? `＋ ${h.why} <span style="color:var(--dim)">(2 Advantage or a Triumph)</span>, ${esc(h.n)} → ` : '→ ';
+  if(h.neg) return `<span class="q" style="color:var(--text)">${head}<b>${esc(h.T.name)}</b>: <b style="color:var(--good)">${h.neg==='dodge' ? 'dodged cleanly' : h.neg==='parry' ? 'parried cleanly' : 'deflected cleanly'}</b> — no damage, no critical${encDefNotes(w, r, h)}</span>`;
   const unit = h.ship ? (h.ion ? 'system strain' : 'hull trauma') : 'wounds', taken = h.ship ? `after armor ${h.soak}` : `after soak ${h.soak}`;
   const D = !h.ship && !done && !h.df && see && ts ? encDefs(w.tgt) : null, kind = w.mel ? 'parry' : 'reflect', Kind = w.mel ? 'Parry' : 'Reflect', ranks = D ? D[kind] : 0;
   const defBtn = !ranks ? '' : encDuelOn(w)
-    ? ` <button class="mini" onclick="encDefend(${ts},'duel')" title="House rule, against a named opponent: ${esc(h.T.name)} suffers 3 strain and rolls Lightsaber with ${ranks} Boost (${Kind} ${ranks}). Each Success cancels one of the attacker's ${r.netS}; cancel them all and the hit is stopped. Each Advantage gives 1 strain back, a Triumph is a riposte. A roll that cancels nothing stops nothing.">⚔ duel roll (3 strain)</button>`
+    ? (i ? ` <small style="color:var(--dim)">one duel roll, on the first hit, answers the whole attack</small>` : ` <button class="mini" onclick="encDefend(${ts},'duel')" title="House rule, against a named opponent: ${esc(h.T.name)} suffers 3 strain and rolls Lightsaber with ${ranks} Boost (${Kind} ${ranks}). Each Success cancels one of the attacker's ${r.netS}; cancel them all and the attack is stopped, every hit of it. Each Advantage gives 1 strain back, a Triumph is a riposte. A roll that cancels nothing stops nothing.">⚔ duel roll (3 strain)</button>`)
     : HR().clean && r.netS<=ranks
-    ? ` <button class="mini" onclick="encDefend(${ts},'')" title="House rule: ${r.netS} net Success${r.netS===1?'':'es'} against ${Kind} ${ranks}. ${esc(h.T.name)} suffers 3 strain and the hit is stopped outright: no damage, no critical.">🛡 ${Kind}: stop it cleanly (3 strain)</button>`
-    : ` <button class="mini" onclick="encDefend(${ts},'')" title="${esc(h.T.name)} suffers 3 strain and takes ${2+ranks} off the damage before soak (${Kind} ${ranks}).${HR().clean ? ` Too good a hit to stop cleanly: ${r.netS} net Successes against ${ranks} rank${ranks===1?'':'s'}.` : ''}">🛡 ${Kind} −${2+ranks} (3 strain)</button>`;
-  return `<span class="q" style="color:var(--text)">→ <b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> ${taken}` : h.ship ? ' — the GM applies armor' : ' — the GM applies soak'}
-    ${done ? ' <span style="color:var(--good)">✓ applied</span>' : see && ts ? ` <button class="mini atk" onclick="encApply(${ts},'w')" title="Add this to ${esc(h.T.name)}">apply ${h.dmg} ${unit}</button>${h.stun ? ` <button class="mini" onclick="encApply(${ts},'st')" title="Stun: the damage goes to strain instead">as strain</button>` : ''}` : ''}${defBtn}
+    ? ` <button class="mini" onclick="encDefend(${ts},''${arg})" title="House rule: ${r.netS} net Success${r.netS===1?'':'es'} against ${Kind} ${ranks}. ${esc(h.T.name)} suffers 3 strain and this hit is stopped outright: no damage, no critical.">🛡 ${Kind}: stop it cleanly (3 strain)</button>`
+    : ` <button class="mini" onclick="encDefend(${ts},''${arg})" title="${esc(h.T.name)} suffers 3 strain and takes ${2+ranks} off this hit's damage before soak (${Kind} ${ranks}).${HR().clean ? ` Too good a hit to stop cleanly: ${r.netS} net Successes against ${ranks} rank${ranks===1?'':'s'}.` : ''}">🛡 ${Kind} −${2+ranks} (3 strain)</button>`;
+  return `<span class="q" style="color:var(--text)">${head}<b>${esc(h.T.name)}</b>${see ? `: <b>${h.dmg}</b> ${taken}` : h.ship ? ' — the GM applies armor' : ' — the GM applies soak'}
+    ${done ? ' <span style="color:var(--good)">✓ applied</span>' : see && ts ? ` <button class="mini atk" onclick="encApply(${ts},'w'${arg})" title="Add this to ${esc(h.T.name)}">apply ${h.dmg} ${unit}</button>${h.stun ? ` <button class="mini" onclick="encApply(${ts},'st'${arg})" title="Stun: the damage goes to strain instead">as strain</button>` : ''}` : ''}${defBtn}
     ${critOn && ts && (!h.ship || (h.dmg>0 && !h.ion)) ? ` <button class="mini" onclick="${h.ship ? 'shipCrit' : 'encCrit'}(${ts})" title="${h.ship ? 'Roll d100 on the vehicle critical hit table (+10 per critical the target already has)' : 'Roll d100 for the critical injury (Vicious is added for you)'}">🎲 crit</button>` : ''}
     ${h.linked ? `<small style="display:block;color:var(--dim)">Linked ${h.linked}: spend 2 Advantage per extra hit (up to ${h.linked}), each for the same damage — apply again by hand.</small>` : ''}${h.ship ? '' : encDefNotes(w, r, h)}</span>`;
 }
 const encRollLive = e => !S.enc.t0 || (Math.round(+e.ts)||0) >= S.enc.t0 - 30000;   // rolled in this encounter (half a minute of slack for clocks that disagree)
 const encFeedRoll = ts => ROLLS.find(e=>e && e.k==='r' && Math.round(+e.ts)===ts && e.w);
-function encApply(ts, how){
-  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts] || !encRollLive(e)) return;
-  const h = encHit(e.w, tally(parseRoll(e.r)), ts); if(!h || h.neg) return;
-  const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.w.by||e.who||'an attack').slice(0,60))}'s ${esc(String(e.w.n||'attack').slice(0,60))}`;
+function encApply(ts, how, i){
+  i = clamp(Math.round(+i)||0, 0, 9); const sfx = i ? '_'+i : '';
+  const e = encFeedRoll(ts); if(!e || !encOn() || S.enc['ap_'+ts+sfx] || !encRollLive(e)) return;
+  const h = encHit(e.w, tally(parseRoll(e.r)), ts, i); if(!h || h.neg) return;
+  const key = e.w.tgt, strain = how==='st', by = `${esc(String(e.w.by||e.who||'an attack').slice(0,60))}'s ${esc(String(h.n||e.w.n||'attack').slice(0,60))}`;
   if(h.ship){   // planetary scale: hull trauma, or system strain from ion weapons
     const f = h.ion ? 'strain' : 'hull';
     if(key==='mantis'){ const sh = S.ship; sh[f] = (sh[f]||0) + h.dmg;
@@ -6640,7 +6673,7 @@ function encApply(ts, how){
   }
   if(key[0]==='n'){ const x = S.enc[key]; if(strain && x.d.type==='nemesis' && x.d.st>0) x.st += h.dmg; else x.w = Math.min(x.w + h.dmg, x.d.wt * (x.d.type==='minion' ? x.count : 2)); }   // minions and rivals take strain as wounds
   else { const cs = st(key.slice(2)); if(strain) cs.strain = (cs.strain||0) + h.dmg; else cs.wounds = Math.min((cs.wounds||0) + h.dmg, cs.wt>0 ? cs.wt*2 : 9999); }   // wounds never pass twice the threshold
-  S.enc['ap_'+ts] = 1;
+  S.enc['ap_'+ts+sfx] = 1;
   const hidden = key[0]==='n' && S.enc[key].hid;
   if(!hidden) logMsg(`⚔ <b>${esc(h.T.name)}</b> takes ${h.dmg} ${strain ? 'strain' : h.dmg===1 ? 'wound' : 'wounds'} from ${by}${encDown(key) ? ' and is <b>down</b>' : ''}.`, 'lb');
   render(); renderFeed();
@@ -6687,7 +6720,7 @@ function renderEncPanel(){
   const cat = cats[ENC_UI.cat] && items[ENC_UI.cat] ? ENC_UI.cat : 'offense', cb = combatStats(cs), mine = encOn() && e['c_'+id], myTurn = encOn() && e.cur==='c_'+id;
   const targets = encOn() ? encNpcKeys().filter(k=>(encIsGM() || !e[k].hid) && !encDown(k)) : [];
   if(ENC_UI.tgt && !targets.includes(ENC_UI.tgt)) ENC_UI.tgt = '';
-  const lead = cat==='offense' ? `<div class="abhead"><label title="Pick who you are attacking and the dice tray sets the difficulty, their defense and Adversary upgrades for you.">Target <select onchange="ENC_UI.tgt=this.value"><option value="">no target (set the difficulty yourself)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}</option>`).join('')}</select></label><label>Range ${encRangeSel()}</label></div>`
+  const lead = cat==='offense' ? `<div class="abhead"><label title="Pick who you are attacking and the dice tray sets the difficulty, their defense and Adversary upgrades for you.">Target <select onchange="ENC_UI.tgt=this.value"><option value="">no target (set the difficulty yourself)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}</option>`).join('')}</select></label><label>Range ${encRangeSel()}</label>${eqW.length>1 || eqW.some(([it])=>(+it.qty||1)>=2) ? `<label title="Fighting with a weapon in each hand: attack with one and name the other here (a row holding two of a weapon can be both). One check with the lower skill and characteristic, one step harder (two if the weapons use different skills). A hit lands the weapon you attack with; 2 Advantage or a Triumph lands this one too.">Second weapon <select onchange="ENC_UI.w2=this.value"><option value="">none</option>${eqW.map(([it,i])=>`<option value="${i}"${String(ENC_UI.w2)===String(i)?' selected':''}>${esc(invLabel(it)||'weapon')}${(+it.qty||1)>=2 ? ' (×'+it.qty+')' : ''}</option>`).join('')}</select></label>` : ''}</div>`
     : cat==='defense' ? `<p class="meta" style="font-size:12.5px;margin-bottom:8px">Soak <b>${cb.soak}</b> · Defense <b>${cb.defM}</b> melee / <b>${cb.defR}</b> ranged · Wounds <b>${cs.wounds||0}</b>/${cs.wt||0} · Strain <b>${cs.strain||0}</b>/${effStrainThresh(cs, c)}</p>`
     : cat==='station' ? stationLead(id)
     : cat==='social' ? `<div class="abhead"><label title="Pick who you are talking to and the dice tray takes its difficulty from their opposing skill. With nobody picked the check is Average.">Talking to <select onchange="ENC_UI.tgt=this.value"><option value="">nobody picked (Average)</option>${targets.map(k=>`<option value="${k}"${ENC_UI.tgt===k?' selected':''}>${esc(encName(k))}${S.enc[k].disp ? ' · '+S.enc[k].disp : ''}</option>`).join('')}</select></label></div>`
