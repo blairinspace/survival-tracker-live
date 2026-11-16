@@ -1,0 +1,745 @@
+{
+ "_about": [
+  "How tools/import-items.py sorts every workbook item into one KIND and one SUB-CATEGORY.",
+  "The tracker uses the kind everywhere: Items tab chips, inventory rows, Tracker card and sheet sections, the homebrew form.",
+  "Order of decisions: 'names' (exact item name) first, then 'rules' top to bottom; the first rule that matches wins.",
+  "A rule's conditions all have to hold: g = workbook group, c = workbook sheet, name / f = regular expression on the name / features (case-insensitive),",
+  "soakMax / soakMin / defMax / defMin = armour numbers. 'bag' marks items whose features say they add carrying capacity.",
+  "Edit freely, then run:  python3 tools/import-items.py --restamp   (or re-import the workbook)."
+ ],
+ "kinds": {
+  "Weapon": {
+   "label": "Weapons",
+   "icon": "🗡",
+   "subs": [
+    "Blasters",
+    "Slugthrowers",
+    "Exotic & Thrown",
+    "Explosives",
+    "Launchers",
+    "Melee",
+    "Brawl",
+    "Lightsabers"
+   ]
+  },
+  "Armor": {
+   "label": "Armor",
+   "icon": "🛡",
+   "subs": [
+    "Light",
+    "Combat",
+    "Heavy & Powered",
+    "Sealed & Hazard",
+    "Shields & Fields",
+    "For Animals"
+   ]
+  },
+  "Clothing": {
+   "label": "Clothing",
+   "icon": "👕",
+   "subs": [
+    "Everyday",
+    "Workwear & Uniforms",
+    "Formal & Robes",
+    "Environment Wear",
+    "Disguise & Stealth"
+   ]
+  },
+  "Food": {
+   "label": "Food & Drink",
+   "icon": "🍞",
+   "subs": [
+    "Snacks",
+    "Rations",
+    "Meals",
+    "Drinks",
+    "Alcohol"
+   ]
+  },
+  "Medical": {
+   "label": "Medical",
+   "icon": "💊",
+   "subs": [
+    "Stims",
+    "Medpacs & Kits",
+    "Bacta & Treatment",
+    "Antidotes",
+    "Diagnostics",
+    "Veterinary"
+   ]
+  },
+  "Drug": {
+   "label": "Drugs & Toxins",
+   "icon": "💉",
+   "subs": [
+    "Spice & Narcotics",
+    "Stimulants",
+    "Poisons & Venoms",
+    "Gases",
+    "Serums & Sedatives"
+   ]
+  },
+  "Tool": {
+   "label": "Tools",
+   "icon": "🔧",
+   "subs": [
+    "Repair & Maintenance",
+    "Heavy & Industrial",
+    "Demolitions",
+    "Slicing & Electronics",
+    "Infiltration"
+   ]
+  },
+  "Gear": {
+   "label": "Gear",
+   "icon": "🎒",
+   "subs": [
+    "Packs & Carrying",
+    "Survival & Camp",
+    "Mobility",
+    "Light & Power",
+    "Comms",
+    "Sensors & Optics",
+    "Data",
+    "Security & Restraints",
+    "Recreation",
+    "Documents",
+    "Relics"
+   ]
+  },
+  "Cyber": {
+   "label": "Cybernetics",
+   "icon": "🦾",
+   "subs": [
+    "Limbs",
+    "Senses",
+    "Neural",
+    "Implants"
+   ]
+  },
+  "Mod": {
+   "label": "Mods",
+   "icon": "🔩",
+   "subs": [
+    "Weapon",
+    "Blaster-only",
+    "Armor",
+    "Lightsaber Parts",
+    "Gear",
+    "Explosive"
+   ]
+  }
+ },
+ "bag": "carrying capacity|encumbrance (threshold|capacity)",
+ "names": {
+  "Corellian Whiskey (single)": [
+   "Food",
+   "Alcohol"
+  ],
+  "Corellian Whiskey (box of 25)": [
+   "Food",
+   "Alcohol"
+  ],
+  "Whyren's Reserve (single)": [
+   "Food",
+   "Alcohol"
+  ],
+  "Whyren's Reserve (box of 20)": [
+   "Food",
+   "Alcohol"
+  ],
+  "Ryshcate": [
+   "Food",
+   "Snacks"
+  ],
+  "Stimcaf Powder": [
+   "Drug",
+   "Stimulants"
+  ],
+  "Antidote Set": [
+   "Medical",
+   "Antidotes"
+  ],
+  "Emergency Repair Patch": [
+   "Tool",
+   "Repair & Maintenance"
+  ],
+  "Weapon Maintenance Kit": [
+   "Tool",
+   "Repair & Maintenance"
+  ],
+  "Lightsaber Maintenance Kit": [
+   "Tool",
+   "Repair & Maintenance"
+  ],
+  "Extra Reload": [
+   "Mod",
+   "Weapon"
+  ],
+  "Mk VIII Gravitic Mortar Launcher": [
+   "Weapon",
+   "Launchers"
+  ],
+  "Urban Compass": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "WJ-880 Blinding Helmet": [
+   "Gear",
+   "Security & Restraints"
+  ],
+  "Wizard Pouch": [
+   "Gear",
+   "Packs & Carrying"
+  ],
+  "Jedi Utility Belt": [
+   "Gear",
+   "Packs & Carrying"
+  ],
+  "Corellian Mining Corporation EVA Powersuit": [
+   "Tool",
+   "Heavy & Industrial"
+  ],
+  "XV-09 Chemical Restraint Harness": [
+   "Gear",
+   "Security & Restraints"
+  ],
+  "Military Modular Backpack (power unit)": [
+   "Gear",
+   "Light & Power"
+  ],
+  "Military Modular Backpack (comms unit)": [
+   "Gear",
+   "Comms"
+  ],
+  "Military Modular Backpack (sensor unit)": [
+   "Gear",
+   "Sensors & Optics"
+  ],
+  "Military Modular Backpack (oxygen unit)": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "Military Modular Backpack (temperature control unit)": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "Banal Apparel": [
+   "Clothing",
+   "Everyday"
+  ],
+  "Cargo Clothing": [
+   "Clothing",
+   "Everyday"
+  ],
+  "Heavy Clothing": [
+   "Clothing",
+   "Everyday"
+  ],
+  "Flare Jacket": [
+   "Clothing",
+   "Everyday"
+  ],
+  "Tracker Utility Vest": [
+   "Clothing",
+   "Workwear & Uniforms"
+  ],
+  "Pit Crew Overalls": [
+   "Clothing",
+   "Workwear & Uniforms"
+  ],
+  "Protective Gear": [
+   "Clothing",
+   "Workwear & Uniforms"
+  ],
+  "Alliance Engineer's Helmet & Vest": [
+   "Clothing",
+   "Workwear & Uniforms"
+  ],
+  "Polis Massan Bodysuit": [
+   "Clothing",
+   "Workwear & Uniforms"
+  ],
+  "Diplomat's Robes": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Noble Regalia": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Resplendent Robes": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Lector's Outfit": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Heavy Robes": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Performer's Attire": [
+   "Clothing",
+   "Formal & Robes"
+  ],
+  "Nomad Greatcoat": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Adverse Environmental Gear": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Reinforced Environment Gear": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Climbsuit": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Karflo Thinsuit": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "G-Suit": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Kamperdine Clothing Specialists Body Glove": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Aquasuit": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Holographic Costume": [
+   "Clothing",
+   "Disguise & Stealth"
+  ],
+  "Concealing Robes": [
+   "Clothing",
+   "Disguise & Stealth"
+  ],
+  "Sakiyan Shadowsuit": [
+   "Clothing",
+   "Disguise & Stealth"
+  ],
+  "Cloaking Coat": [
+   "Clothing",
+   "Disguise & Stealth"
+  ],
+  "Fabritech CX-2000 Holographic Ghillie Suit": [
+   "Clothing",
+   "Disguise & Stealth"
+  ],
+  "Cargo Scanner": [
+   "Gear",
+   "Sensors & Optics"
+  ],
+  "Biotech \"Bag & Tag\" Forensics Investigation Kit": [
+   "Gear",
+   "Security & Restraints"
+  ],
+  "Mon Calamari Organic Gill": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "Pioneer Squad Tool Kit": [
+   "Tool",
+   "Repair & Maintenance"
+  ],
+  "Poisoner's Ring": [
+   "Tool",
+   "Infiltration"
+  ],
+  "Sleight Box": [
+   "Tool",
+   "Infiltration"
+  ],
+  "Saline Pump": [
+   "Medical",
+   "Bacta & Treatment"
+  ],
+  "A99 Custom Biome Generator": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "Instamist Generator": [
+   "Gear",
+   "Survival & Camp"
+  ],
+  "Thermal Cutter": [
+   "Tool",
+   "Heavy & Industrial"
+  ],
+  "Training Weights": [
+   "Gear",
+   "Recreation"
+  ],
+  "Thermal Cloak": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "Spacesuit": [
+   "Clothing",
+   "Environment Wear"
+  ],
+  "TaggeCo Food Preparation System": [
+   "Gear",
+   "Survival & Camp"
+  ]
+ },
+ "rules": [
+  {
+   "g": "Ranged Weapons",
+   "c": "Energy",
+   "k": "Weapon",
+   "s": "Blasters"
+  },
+  {
+   "g": "Ranged Weapons",
+   "c": "Slugthrowers",
+   "k": "Weapon",
+   "s": "Slugthrowers"
+  },
+  {
+   "g": "Ranged Weapons",
+   "c": "Explosives",
+   "k": "Weapon",
+   "s": "Explosives"
+  },
+  {
+   "g": "Ranged Weapons",
+   "c": [
+    "Missiles",
+    "Mini-Torpedoes"
+   ],
+   "k": "Weapon",
+   "s": "Launchers"
+  },
+  {
+   "g": "Ranged Weapons",
+   "k": "Weapon",
+   "s": "Exotic & Thrown"
+  },
+  {
+   "g": "Melee Weapons",
+   "c": "Brawl",
+   "k": "Weapon",
+   "s": "Brawl"
+  },
+  {
+   "g": "Melee Weapons",
+   "k": "Weapon",
+   "s": "Melee"
+  },
+  {
+   "g": "Lightsabers",
+   "c": "Hilts",
+   "k": "Mod",
+   "s": "Lightsaber Parts"
+  },
+  {
+   "g": "Lightsabers",
+   "k": "Weapon",
+   "s": "Lightsabers"
+  },
+  {
+   "g": "Armour",
+   "name": "for animals|riding tack",
+   "k": "Armor",
+   "s": "For Animals"
+  },
+  {
+   "g": "Armour",
+   "name": "deflector|field disruptor",
+   "k": "Armor",
+   "s": "Shields & Fields"
+  },
+  {
+   "g": "Armour",
+   "name": "\\beva\\b|hazard|cold assault|div(e|ing)|enviro|insulated|biogel|drop suit|disposal|charge suit|anti-concussive",
+   "k": "Armor",
+   "s": "Sealed & Hazard"
+  },
+  {
+   "g": "Armour",
+   "name": "power(ed)? armou?r|battle armou?r|shell armou?r|mandalorian",
+   "k": "Armor",
+   "s": "Heavy & Powered"
+  },
+  {
+   "g": "Armour",
+   "soakMin": 3,
+   "k": "Armor",
+   "s": "Heavy & Powered"
+  },
+  {
+   "g": "Armour",
+   "soakMin": 2,
+   "k": "Armor",
+   "s": "Combat"
+  },
+  {
+   "g": "Armour",
+   "k": "Armor",
+   "s": "Light"
+  },
+  {
+   "g": "Modifications",
+   "c": [
+    "Kyber Crystals",
+    "Lightsabers"
+   ],
+   "k": "Mod",
+   "s": "Lightsaber Parts"
+  },
+  {
+   "g": "Modifications",
+   "c": "Blasters (Only)",
+   "k": "Mod",
+   "s": "Blaster-only"
+  },
+  {
+   "g": "Modifications",
+   "c": "Armour",
+   "k": "Mod",
+   "s": "Armor"
+  },
+  {
+   "g": "Modifications",
+   "c": "Gear",
+   "k": "Mod",
+   "s": "Gear"
+  },
+  {
+   "g": "Modifications",
+   "c": "Explosives",
+   "k": "Mod",
+   "s": "Explosive"
+  },
+  {
+   "g": "Modifications",
+   "k": "Mod",
+   "s": "Weapon"
+  },
+  {
+   "c": "Cybernetics",
+   "name": "arms?\\b|legs?\\b|limb|hand\\b|fist",
+   "k": "Cyber",
+   "s": "Limbs"
+  },
+  {
+   "c": "Cybernetics",
+   "name": "eye|retinal|vocal|voicebox|respirator|scanner|appraiser",
+   "k": "Cyber",
+   "s": "Senses"
+  },
+  {
+   "c": "Cybernetics",
+   "name": "brain|neur|cortex|reflex|interface|cyberjack|slicing|recorder|biofeedback|pain",
+   "k": "Cyber",
+   "s": "Neural"
+  },
+  {
+   "c": "Cybernetics",
+   "k": "Cyber",
+   "s": "Implants"
+  },
+  {
+   "c": "Medical",
+   "name": "stim",
+   "k": "Medical",
+   "s": "Stims"
+  },
+  {
+   "c": "Medical",
+   "name": "veterinary",
+   "k": "Medical",
+   "s": "Veterinary"
+  },
+  {
+   "c": "Medical",
+   "name": "scan",
+   "k": "Medical",
+   "s": "Diagnostics"
+  },
+  {
+   "c": "Medical",
+   "name": "bacta|synthskin|plasto|salve|blanket|nullicaine|med-aid|plasma protein|stablisizer",
+   "k": "Medical",
+   "s": "Bacta & Treatment"
+  },
+  {
+   "c": "Medical",
+   "k": "Medical",
+   "s": "Medpacs & Kits"
+  },
+  {
+   "c": "Drugs",
+   "f": "alert|attention|stimul|exhaust|strength|reflex|awake|energ|speed|fatigue",
+   "k": "Drug",
+   "s": "Stimulants"
+  },
+  {
+   "c": "Drugs",
+   "k": "Drug",
+   "s": "Spice & Narcotics"
+  },
+  {
+   "c": "Toxins",
+   "name": "gas",
+   "k": "Drug",
+   "s": "Gases"
+  },
+  {
+   "c": "Toxins",
+   "name": "serum|skirtopanol|sleeppack|anesthetic",
+   "k": "Drug",
+   "s": "Serums & Sedatives"
+  },
+  {
+   "c": "Toxins",
+   "k": "Drug",
+   "s": "Poisons & Venoms"
+  },
+  {
+   "g": "Gear",
+   "name": "\\brations?\\b",
+   "fNot": "week|month|days",
+   "k": "Food",
+   "s": "Rations"
+  },
+  {
+   "name": "lockpick|disguise|camouflage (kit|set)|forgery|fingerprint|masque|escape kit|credit cleaner|garrote|slicewire",
+   "k": "Tool",
+   "s": "Infiltration"
+  },
+  {
+   "name": "slicer|dataspike|data breaker|lock ?breaker|scramble key|media manipulator",
+   "k": "Tool",
+   "s": "Slicing & Electronics"
+  },
+  {
+   "name": "demolition|explosive|\\beod\\b|burning gel",
+   "g": "Gear",
+   "k": "Tool",
+   "s": "Demolitions"
+  },
+  {
+   "c": "Industrial",
+   "name": "tool ?kit|hydrospanner|toolbox|tool belt|welding|surveyor|grinder|hammer|rivet|precision",
+   "k": "Tool",
+   "s": "Repair & Maintenance"
+  },
+  {
+   "c": "Industrial",
+   "k": "Tool",
+   "s": "Heavy & Industrial"
+  },
+  {
+   "name": "precision tool kit",
+   "k": "Tool",
+   "s": "Repair & Maintenance"
+  },
+  {
+   "g": "Gear",
+   "bag": true,
+   "k": "Gear",
+   "s": "Packs & Carrying"
+  },
+  {
+   "g": "Gear",
+   "name": "back ?pack|pouch|duffel|\\bbag\\b|belt|holster|load-bearing|harness|attache",
+   "k": "Gear",
+   "s": "Packs & Carrying"
+  },
+  {
+   "g": "Gear",
+   "name": "jump boots|jet ?pack|rocket boots|climbing|foot speeder|repulsor assist|ascension|anti-grav chute|synthrope",
+   "k": "Gear",
+   "s": "Mobility"
+  },
+  {
+   "g": "Gear",
+   "name": "glow rod|lantern|generator|power pack|battery|flare",
+   "k": "Gear",
+   "s": "Light & Power"
+  },
+  {
+   "c": "Communication",
+   "k": "Gear",
+   "s": "Comms"
+  },
+  {
+   "c": "Surveillance",
+   "k": "Gear",
+   "s": "Sensors & Optics"
+  },
+  {
+   "g": "Gear",
+   "name": "goggles|scanner|binoculars",
+   "k": "Gear",
+   "s": "Sensors & Optics"
+  },
+  {
+   "c": "Security",
+   "k": "Gear",
+   "s": "Security & Restraints"
+  },
+  {
+   "g": "Gear",
+   "name": "datapad|mem-stik|navicomputer|starmapper|transliterator|beacon|entertainment|holo(?!cron)",
+   "k": "Gear",
+   "s": "Data"
+  },
+  {
+   "c": "Games",
+   "k": "Gear",
+   "s": "Recreation"
+  },
+  {
+   "c": "Other",
+   "name": "musical|ring",
+   "k": "Gear",
+   "s": "Recreation"
+  },
+  {
+   "c": "Other",
+   "k": "Gear",
+   "s": "Documents"
+  },
+  {
+   "c": "Relics",
+   "k": "Gear",
+   "s": "Relics"
+  },
+  {
+   "c": [
+    "Survival",
+    "Equipment"
+   ],
+   "k": "Gear",
+   "s": "Survival & Camp"
+  },
+  {
+   "g": "Gear",
+   "name": "specimen container",
+   "k": "Gear",
+   "s": "Survival & Camp"
+  },
+  {
+   "c": "Specialist",
+   "k": "Gear",
+   "s": "Data"
+  },
+  {
+   "k": "Gear",
+   "s": "Survival & Camp"
+  }
+ ]
+}

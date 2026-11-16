@@ -128,11 +128,11 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const m0 = threeWayMerge(base0, local0, remote0); if(m0.counters || m0.hour!==2) throw new Error('a removed last countdown came back in the merge');
   if(!threeWayMerge({hour:1,chars:[],ship:{}}, {hour:1,chars:[],ship:{}}, remote0).counters) throw new Error('merge dropped a countdown someone else added');
   // bags: the renamed pack type raises the threshold while carried
-  const sv0 = S; fresh(); const pb0 = st('pike'), bag = pb0.inv.find(x=>x.type==='Bag'); if(!bag || packBonus(pb0)!==2 || effThresh(pb0)!==pb0.encThresh+2) throw new Error('bag capacity wrong');
+  const sv0 = S; fresh(); const pb0 = st('pike'), bag = pb0.inv.find(x=>isPack(x)); if(!bag || packBonus(pb0)!==2 || effThresh(pb0)!==pb0.encThresh+2) throw new Error('bag capacity wrong');
   invSet('pike', pb0.inv.indexOf(bag), 'carry', false); if(packBonus(pb0)!==0) throw new Error('stowed bag still adds capacity'); invSet('pike', pb0.inv.indexOf(bag), 'carry', true);
-  invAdd('pike','Gear','Backpack'); if(pb0.inv[pb0.inv.length-1].type!=='Bag') throw new Error('catalog backpack should land as a Bag');
-  const pbB = packBonus(pb0); invAdd('pike','Gear','canvas backpack'); if(pb0.inv[pb0.inv.length-1].type!=='Bag' || packBonus(pb0)!==pbB+4) throw new Error('Canvas Backpack should add 4 to the threshold');
-  if(migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Satchel',type:'Gear (pack)',qty:1,wt:3}]}], ship:S.ship, log:[]}).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Satchel').type!=='Bag') throw new Error('Gear (pack) not renamed to Bag');
+  invAdd('pike','Gear','Backpack'); if(!isPack(pb0.inv[pb0.inv.length-1]) || pb0.inv[pb0.inv.length-1].sub!=='Packs & Carrying') throw new Error('catalog backpack should land as a Bag');
+  const pbB = packBonus(pb0); invAdd('pike','Gear','canvas backpack'); if(!isPack(pb0.inv[pb0.inv.length-1]) || packBonus(pb0)!==pbB+4) throw new Error('Canvas Backpack should add 4 to the threshold');
+  const sat = (migrate({chars:[{...JSON.parse(JSON.stringify(st('kata'))), inv:[{name:'Satchel',type:'Gear (pack)',qty:1,wt:3}]}], ship:S.ship, log:[]})).chars.find(x=>x.id==='kata').inv.find(x=>x.name==='Satchel'); if(!isPack(sat) || sat.type!=='Gear') throw new Error('Gear (pack) not converted to a Gear pack');
   S = sv0;
   // dice: face counts, a known tally, the pool builder, a feed round-trip and the destiny pool
   const sizes = {b:6,k:6,a:8,d:8,p:12,c:12,F:12};
@@ -196,7 +196,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
   cancelStatus('pike'); if(stockOf(pk,'Ration')!==6) throw new Error('untouched ration not returned');
   startStatus('pike','ration'); advance(0.25); if(stockOf(pk,'Ration')!==5) throw new Error('eaten ration came back');
   startStatus('pike','meal'); if(pk.status) throw new Error('ate a meal with no Meal items');
-  invAdd('pike','Gear','meal'); if(pk.inv[pk.inv.length-1].type!=='Meal') throw new Error('Meal entry did not land as type Meal'); startStatus('pike','meal'); if(!pk.status || stockOf(pk,'Meal')!==0) throw new Error('meal not eaten'); advance(0.5);
+  invAdd('pike','Gear','meal'); if(pk.inv[pk.inv.length-1].type!=='Food' || pk.inv[pk.inv.length-1].sub!=='Meals') throw new Error('Meal entry did not land as type Meal'); startStatus('pike','meal'); if(!pk.status || stockOf(pk,'Meal')!==0) throw new Error('meal not eaten'); advance(0.5);
   eatSnack('pike'); useStim('pike'); if(stockOf(pk,'Snack')!==3 || stockOf(pk,'Stim')!==4) throw new Error('snack/stim not taken from inventory');
   invAdd('pike','Gear','Mystery widget'); const mw = pk.inv.length-1; if(dbOf(pk.inv[mw])) throw new Error('unknown item linked'); invSet('pike',mw,'alias','Gizmo'); invCreateEntry('pike',mw);
   if(!dbOf(pk.inv[mw]) || S.homebrew.length!==1 || invLabel(pk.inv[mw])!=='Gizmo') throw new Error('create-entry did not link');
@@ -220,9 +220,24 @@ print('\n=== SMOKE TEST — UI code paths ===');
   const pad = st('cal').inv.find(x=>x.name==='Datapad'); pad.eq = 1; pad.wear = 0; tick(st('cal'),240); if(isEquipped(pad) || pad.wear!==0) throw new Error('plain gear gathered wear');
   invAdd('cal','Gear','wig'); invAdd('cal','Armor','combat-rated eva suit'); const eva = st('cal').inv[st('cal').inv.length-1], wig = st('cal').inv[st('cal').inv.length-2];
   if(wig.ref!=='Wig' || eva.ref!=='Combat-Rated EVA Suit' || eva.type!=='Armor' || armorState(eva).soak!==2) throw new Error('new custom items not linked');
-  if(!/Field rations/.test(invSection(st('cal')).split('Consumables')[1].split('Gear')[0])) throw new Error('rations should sit under Consumables on the card');
-  const cardInv = invSection(st('cal')); if((cardInv.match(/<details/g)||[]).length!==6 || !/class="inv invall"/.test(cardInv) || !/🎒 Inventory/.test(cardInv) || !/repairs by/.test(cardInv) || !/Consumables/.test(cardInv) || !/Tools/.test(cardInv) || !/Weapons/.test(cardInv) || !/Armor/.test(cardInv) || /undefined|NaN/.test(cardInv)) throw new Error('card should have an Inventory dropdown holding five more');
-  const crate = gearHtml(st('cal')); if(!/Personal Item Storage Crate/.test(crate) || (crate.match(/<details/g)||[]).length!==6 || !/Consumables/.test(crate) || /undefined|NaN/.test(crate)) throw new Error('sheet inventory should be a crate with three dropdowns');
+  if(!/Field rations/.test(invSection(st('cal')).split('Food & Drink')[1].split('Medical')[0])) throw new Error('rations should sit under Food & Drink on the card');
+  const cardInv = invSection(st('cal')); if((cardInv.match(/<details/g)||[]).length!==8 || !/class="inv invall"/.test(cardInv) || !/🎒 Inventory/.test(cardInv) || !/repairs by/.test(cardInv) || !/Food & Drink/.test(cardInv) || !/Clothing/.test(cardInv) || !/Medical/.test(cardInv) || !/Tools/.test(cardInv) || !/Weapons/.test(cardInv) || !/Armor/.test(cardInv) || /undefined|NaN/.test(cardInv)) throw new Error('card should have an Inventory dropdown holding five more');
+  { // item kinds: the database link decides the kind; clothing is weightless while worn and protects only without armor
+    fresh(); const k = st('kata'); k.inv = k.inv.filter(x=>!isArmor(x) && !isClothing(x)); k.attr.br = 2;
+    invAdd('kata','Gear','Heavy Clothing'); const hc = k.inv[k.inv.length-1];
+    if(hc.type!=='Clothing' || hc.sub!=='Everyday' || armorState(hc).soak!==1) throw new Error('Heavy Clothing should land as Clothing › Everyday with soak 1');
+    const w0 = invWeight(k); invSet('kata', k.inv.indexOf(hc), 'eq', true); if(!(invWeight(k) < w0)) throw new Error('worn clothing should weigh nothing');
+    if(combatStats(k).aSoak!==1) throw new Error('worn clothing should give its soak when no armor is worn');
+    invAdd('kata','Armor','Padded Armour'); const pa = k.inv[k.inv.length-1]; invSet('kata', k.inv.indexOf(pa), 'eq', true);
+    if(pa.type!=='Armor' || combatStats(k).aSoak!==2) throw new Error('armor should replace clothing protection, not stack with it');
+    hc.type = 'Gear'; hc.sub = 'Data'; kindRow(hc); if(hc.type!=='Clothing') throw new Error('a linked row must take its kind back from the database');
+    invAdd('kata','Gear','Mystery widget'); const mw = k.inv[k.inv.length-1]; invSet('kata', k.inv.indexOf(mw), 'type', 'Food|Drinks');
+    if(mw.type!=='Food' || mw.sub!=='Drinks') throw new Error('an unlinked row is sorted by hand');
+    for(const it of CATALOG) if(!KINDS[recKind(it)[0]] || !KINDS[recKind(it)[0]].subs.includes(recKind(it)[1])) throw new Error('catalog item without a valid kind: '+it.n);
+    if(recKind(CATALOG.find(x=>x.n==='Caf'))[1]!=='Drinks' || recKind(CATALOG.find(x=>x.n==='Backpack'))[2]!==1) throw new Error('custom kinds / bag flag wrong');
+    print(`  item kinds: ${KIND_KEYS.length} kinds; every catalog item sorted; links set the kind; worn clothing weighs nothing and gives way to armor`);
+  }
+  const crate = gearHtml(st('cal')); if(!/Personal Item Storage Crate/.test(crate) || (crate.match(/<details/g)||[]).length!==8 || !/Food &amp; Drink|Food & Drink/.test(crate) || !/Clothing/.test(crate) || /undefined|NaN/.test(crate)) throw new Error('sheet inventory should be a crate with three dropdowns');
   sheetOpen('armor',false); if(/<details class="sfold" open[^>]*'armor'/.test(gearHtml(st('cal'))) || !/<details class="sfold" open[^>]*'weapons'/.test(gearHtml(st('cal')))) throw new Error('dropdown open state not remembered'); sheetOpen('armor',true);
   const ordC = [...invSection(st('cal')).split('🎒 Gear')[1].matchAll(/<td><span class="[a-z]*" title="[^"]*">([^<]+)</g)].map(m=>m[1]); if(ordC.length<3 || ordC.join('|')!==[...ordC].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true})).join('|')) throw new Error('card gear not alphabetical: '+ordC.join(', '));
   const invBefore = JSON.stringify(st('cal').inv.map(x=>x.name)); render(); if(JSON.stringify(st('cal').inv.map(x=>x.name))!==invBefore) throw new Error('sorting changed the stored order');
@@ -439,7 +454,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
       startStatus('tann','ration'); if(Math.abs(-t.status.deltas.hunger - foodPts(cfg('tann'),'ration')*REFEED.frac) > 1e-9) throw new Error('refeeding should absorb only part of a ration');
       t.status = null; t.hunger = 60; eatSnack('tann'); if(Math.abs(60 - t.hunger - foodPts(cfg('tann'),'snack')*REFEED.frac) > 1e-9) throw new Error('refeeding should slow a snack too');
       t.status = null; t.hunger = 0; t.inv = keepInv; }
-    if(dailyNeeds(cfg('kata')).water!==44 || invTypeFor(CATALOG.find(x=>x.n==='Field Ration Pack'))!=='Ration' || invTypeFor(CATALOG.find(x=>x.n==='Imperial Army Field Rations'))==='Ration') throw new Error('daily water or ration item typing wrong');
+    if(dailyNeeds(cfg('kata')).water!==44 || invTypeFor(CATALOG.find(x=>x.n==='Field Ration Pack'))!=='Food' || invTypeFor(CATALOG.find(x=>x.n==='Imperial Army Field Rations'))==='Food') throw new Error('daily water or ration item typing wrong');
     { const f = freshState().chars, n = id => stockOf(f.find(x=>x.id===id),'Ration'); if(n('pike')!==6 || n('tann')!==9 || n('cal')!==11 || n('bode')!==12) throw new Error('starting rations should be three days by build: '+[n('pike'),n('tann'),n('cal'),n('bode')]); migrate(JSON.parse(JSON.stringify(syncSubset(S)))); }
     sheetSil('cal',0); if(sh.sil!==0 || st('pike').sheet.sil!==0 || st('bode').sheet.sil!==1) throw new Error('silhouette wrong'); sheetSil('cal',1);
     sheetName('cal',"  Cal <b>O'Kestis  "); if(cfg('cal').name!=='Cal bO’Kestis' || sh.name!=='Cal bO’Kestis') throw new Error('name not cleaned: '+cfg('cal').name);

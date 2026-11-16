@@ -661,8 +661,7 @@
   <div class="itembar">
     <input type="text" id="itemQ" placeholder="search name, qualities, features…" oninput="itemsSet('q',this.value)">
     <span class="group" id="itemGroups"></span>
-    <span class="group" id="itemCats" style="flex-basis:100%" title="Every item sorted by what it is for — handy for finding what carries a condition or effect"></span>
-    <select id="itemSub" onchange="itemsSet('c',this.value)" title="Sub-category (one per workbook sheet)"></select>
+    <select id="itemSub" onchange="itemsSet('s',this.value)" title="Sub-category within the kind"></select>
     <select id="itemSkill" onchange="itemsSet('sk',this.value)" title="Weapon skill"></select>
     <label title="Sort the results">sort <select id="itemSort" onchange="itemsSet('sort',this.value)"><option value="cat">category</option><option value="name">name</option><option value="price">price</option><option value="rare">rarity</option></select></label>
     <label title="Hide (R) restricted items"><input type="checkbox" id="itemHideR" onchange="itemsSet('hideR',this.checked)"> hide restricted</label>
@@ -906,22 +905,70 @@ const AUTO_ITEMS = {
   packs:  {name:'Power packs (spares)',           type:'Gear',    wt:0.1}
 };
 
-/* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal','Drink','Medical','Other'];
+/* ITEM KINDS — one list used everywhere: the Items tab, inventory rows, the Tracker card, the sheet and the homebrew form.
+   It is generated into items.js (ITEM_KINDS) from tools/item-kinds.json, and every catalog record carries k (kind) and
+   s (sub-category). An inventory row keeps the same pair as type / sub, plus bag:1 for packs that add carrying capacity.
+   A row linked to the database always takes its kind from the link (kindRow); only an unlinked row's kind is picked by hand. */
+const KINDS = typeof ITEM_KINDS!=='undefined' ? ITEM_KINDS : { Gear:{ label:'Gear', icon:'🎒', subs:['Survival & Camp'] } };
+const KIND_KEYS = Object.keys(KINDS);
+const sub0 = k => (KINDS[k] && KINDS[k].subs[0]) || '';
+const catLabel = it => (it.type==='Mod' ? 'Mod · ' : '') + (it.sub||'');   // a row's category as shown in lists ("Mod · Weapon" so a mod doesn't read as a weapon)
+const kindLabel = k => KINDS[k] ? `${KINDS[k].icon} ${KINDS[k].label}` : (k||'—');
+// older saves and homebrew items: their free-form type → [kind, sub, bag]
+const LEGACY_TYPE = { weapon:['Weapon'], armor:['Armor'], armour:['Armor'], tool:['Tool'], gear:['Gear'], other:['Gear'], medical:['Medical'], 'gear (worn)':['Gear'],
+  bag:['Gear','Packs & Carrying',1], 'gear (pack)':['Gear','Packs & Carrying',1], food:['Food','Rations'], snack:['Food','Snacks'], ration:['Food','Rations'], meal:['Food','Meals'], drink:['Food','Drinks'] };
+function kindOfRec(rec){   // a catalog / custom / homebrew record → [kind, sub, bag]
+  if(!rec) return ['Gear', sub0('Gear'), 0];
+  if(KINDS[rec.k]) return [rec.k, KINDS[rec.k].subs.includes(rec.s) ? rec.s : sub0(rec.k), rec.bag ? 1 : 0];
+  const l = rec.t && LEGACY_TYPE[String(rec.t).toLowerCase()];
+  if(l) return [l[0], l[1] || sub0(l[0]), l[2] || 0];
+  const g = rec.g||'', c = rec.c||'';
+  if(g==='Armour') return ['Armor','Light',0];
+  if(g==='Melee Weapons') return ['Weapon','Melee',0];
+  if(g==='Lightsabers') return ['Weapon','Lightsabers',0];
+  if(g==='Ranged Weapons') return ['Weapon','Blasters',0];
+  if(g==='Modifications') return ['Mod','Weapon',0];
+  if(c==='Medical') return ['Medical','Medpacs & Kits',0];
+  if(c==='Drugs' || c==='Toxins') return ['Drug', c==='Drugs' ? 'Spice & Narcotics' : 'Poisons & Venoms', 0];
+  return ['Gear', sub0('Gear'), 0];
+}
+const legacyGroup = (k, sb) => k==='Weapon' ? (['Melee','Brawl'].includes(sb) ? 'Melee Weapons' : sb==='Lightsabers' ? 'Lightsabers' : 'Ranged Weapons')
+  : (k==='Armor' || k==='Clothing') ? 'Armour' : k==='Mod' ? 'Modifications' : 'Gear';   // homebrew items keep a workbook group for older code (NPC weapons)
+function kindRow(row){   // settle a row's type / sub / bag: from its database link, else from what it already says
+  if(!row || row.auto) return;
+  const rec = row.ref ? dbOf(row) : null;
+  let k, sb, bag;
+  if(rec) [k, sb, bag] = kindOfRec(rec);
+  else if(KINDS[row.type]){ k = row.type; sb = KINDS[k].subs.includes(row.sub) ? row.sub : sub0(k); bag = row.bag ? 1 : 0; }
+  else { const l = LEGACY_TYPE[String(row.type||'').toLowerCase()] || ['Gear']; k = l[0]; sb = l[1] || sub0(k); bag = l[2] || 0; }
+  if(row.type!==k) row.type = k;
+  if(row.sub!==sb) row.sub = sb;
+  if(bag){ if(row.bag!==1) row.bag = 1; } else if('bag' in row) delete row.bag;
+}
+const INV_TYPES = KIND_KEYS;   // the ship's cargo rows pick from the kinds too
 
 // carry: on the character's person (ticked on the sheet; unticked = stowed on the ship or at camp). Only carried
 // items show on the Tracker card, count toward encumbrance, and can be eaten, used or equipped.
 // eq: equipped (ticked in the card's Weapons / Armor / Tools lists) — in hand or worn. Weapons, armor and tools only. Equipped
 // items get a wear track and feed soak and defense; worn-down armor protects less (ATIERS). (This replaced the 'Gear (worn)' type.)
 const isCarried  = it => !!it && (it.auto || it.carry!==0);
-const isTool = it => (it.type||'').toLowerCase()==='tool';
-const isCons = it => ['snack','ration','meal','drink'].includes((it.type||'').toLowerCase());   // consumables: what the hunger buttons eat, and drinks (Caf) that carry a use effect
-const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0 && (isWeapon(it) || isArmor(it) || isTool(it));   // weapons, armor and tools can be equipped
+const typeIs = (it, ...ks) => ks.includes((it.type||'').toLowerCase());
+const isTool = it => typeIs(it, 'tool');
+const isCons = it => typeIs(it, 'food','snack','ration','meal','drink');   // Food & Drink: what the hunger buttons eat, and drinks that carry a use effect
+const isClothing = it => typeIs(it, 'clothing');
+const isMedical = it => typeIs(it, 'medical');
+const isDrug = it => typeIs(it, 'drug');
+const isCyber = it => typeIs(it, 'cyber');
+const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0 && (isWeapon(it) || isArmor(it) || isClothing(it) || isTool(it));   // weapons, armor, clothing and tools can be equipped (clothing: worn)
 /* Build a <select> of inventory types; preserves any custom saved value as its own option. */
-function typeSelect(val, onchangeExpr, width){
+function typeSelect(val, onchangeExpr, width, sub){   // sub given: every kind's sub-categories as "Kind|Sub" options (inventory rows)
   const v = val||'';
+  if(sub!==undefined){
+    const cur = `${v}|${sub}`;
+    return `<select style="width:${width||82}px" onchange="${onchangeExpr}" title="Kind and sub-category — only an item that is not in the database is sorted by hand">` + KIND_KEYS.map(k=>`<optgroup label="${esc(kindLabel(k))}">${KINDS[k].subs.map(sb=>`<option value="${esc(k+'|'+sb)}"${cur===k+'|'+sb?' selected':''}>${esc(sb)}</option>`).join('')}</optgroup>`).join('') + `</select>`;
+  }
   const known = INV_TYPES.some(t=>t.toLowerCase()===v.toLowerCase());
-  const opts = INV_TYPES.map(t=>`<option value="${t}"${t.toLowerCase()===v.toLowerCase()?' selected':''}>${t}</option>`).join('');
+  const opts = INV_TYPES.map(t=>`<option value="${t}"${t.toLowerCase()===v.toLowerCase()?' selected':''}>${esc(KINDS[t].label)}</option>`).join('');
   const custom = (v && !known) ? `<option value="${esc(v)}" selected>${esc(v)}</option>` : '';
   const blank = `<option value=""${v?'':' selected'}>—</option>`;
   return `<select style="width:${width||82}px" onchange="${onchangeExpr}">${blank}${opts}${custom}</select>`;
@@ -1393,7 +1440,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   // homebrew items (Items tab) — same RTDB caveat as the log; make every record well-formed
   s.homebrew = arrayify(s.homebrew); if(!Array.isArray(s.homebrew)) s.homebrew=[];
   s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
-  for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
+  for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; if(!KINDS[h.k]){ const [k, sb, bag] = kindOfRec(h); h.k = k; h.s = sb; if(bag) h.bag = 1; } }
   s.hbTrees = normHbTrees(s.hbTrees);   // the GM's own Force powers and specializations (GM tab > Forge)
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
@@ -1463,16 +1510,18 @@ const plainLabel = s => s.replace(/^\S+ /,'');          // '🍲 Eating (meal)' 
 const ozToPts = (c, oz) => oz * 24*NEEDS.water.tiers[0].rate / c.waterOz;
 const sleepRecovery = c => 100/(c.mods.sleepNeed||SLEEP.hoursDefault);   // sleep-debt pts restored per hour asleep
 // Bag: counts 0 toward carried weight; while carried, its Enc value is added to the encumbrance threshold instead.
-const isPack    = it => ['bag','gear (pack)'].includes((it.type||'').toLowerCase());
-// Only carried items weigh anything. Armor never counts toward encumbrance (worn or not).
+const isPack    = it => !!it.bag || ['bag','gear (pack)'].includes((it.type||'').toLowerCase());
+// Only carried items weigh anything. Armor never counts toward encumbrance (worn or not); worn clothing doesn't
+// either (a spare outfit in the pack does); cybernetics are installed, not carried.
 const isArmor   = it => (it.type||'').toLowerCase()==='armor';
-const invWeight = cs => cs.inv.reduce((a,it)=>a + ((!isCarried(it)||isPack(it)||isArmor(it))?0:(it.qty||0)*(it.wt||0)), 0);
+const weightless = it => !isCarried(it) || isPack(it) || isArmor(it) || isCyber(it) || (isClothing(it) && !!it.eq);
+const invWeight = cs => cs.inv.reduce((a,it)=>a + (weightless(it)?0:(it.qty||0)*(it.wt||0)), 0);
 const packBonus = cs => cs.inv.reduce((a,it)=>a + (isCarried(it)&&isPack(it)?(it.qty||0)*(it.wt||0):0), 0);
 // Personal Item Storage Crate: what a character has stowed (Carry unticked) is limited by bulk, the same for
 // everyone. A warning, not a block — the GM decides where the overflow goes. Stowed armor counts at its full
 // encumbrance (it is only free while worn); a stowed bag is an empty container, not its capacity.
 const CRATE_CAP = 30, BAG_STOWED_ENC = 1;
-const stowedEnc = it => isPack(it) ? BAG_STOWED_ENC : (isArmor(it) && !(+it.wt>0) ? numOr((dbOf(it)||{}).e) : (+it.wt||0));
+const stowedEnc = it => isCyber(it) ? 0 : isPack(it) ? BAG_STOWED_ENC : (isArmor(it) && !(+it.wt>0) ? numOr((dbOf(it)||{}).e) : (+it.wt||0));
 const crateWeight = cs => cs.inv.reduce((a,it)=>a + (it && !it.auto && !isCarried(it) ? (+it.qty||0)*stowedEnc(it) : 0), 0);
 const effThresh = cs => (cs.encThresh||0) + packBonus(cs);   // body threshold + pack capacity
 const overload  = cs => { const t=effThresh(cs); return t>0 ? Math.max(0, Math.ceil(invWeight(cs)) - t) : 0; };
@@ -1787,14 +1836,16 @@ function advance(hrs, quiet){   // quiet: the caller writes its own log line (a 
    a stimpack is any row linked to the database's Stimpack (or simply named so). The hunger and
    stim buttons take one whole item from the first matching row that has one. ---- */
 const STOCK = {
-  Snack: { label:'snack',    row:{name:'Snack', ref:'Snack', type:'Snack', wt:0.05} },
-  Ration:{ label:'ration',   row:{name:'Field Ration Pack', ref:'Field Ration Pack', alias:'Field rations', type:'Ration', wt:0.2} },
-  Meal:  { label:'meal',     row:{name:'Meal', ref:'Meal', type:'Meal', wt:0.3} },
-  Stim:  { label:'stimpack', row:{name:'Stimpack', ref:'Stimpack', type:'Medical', wt:0.05} },
+  Snack: { label:'snack',    row:{name:'Snack', ref:'Snack', type:'Food', sub:'Snacks', wt:0.05} },
+  Ration:{ label:'ration',   row:{name:'Field Ration Pack', ref:'Field Ration Pack', alias:'Field rations', type:'Food', sub:'Rations', wt:0.2} },
+  Meal:  { label:'meal',     row:{name:'Meal', ref:'Meal', type:'Food', sub:'Meals', wt:0.3} },
+  Stim:  { label:'stimpack', row:{name:'Stimpack', ref:'Stimpack', type:'Medical', sub:'Stims', wt:0.05} },
 };
 const LEGACY_AUTO = ['rations','snacks','stims'];   // pre-overhaul counter rows (an un-refreshed browser may still send them)
 const isStim = it => it.ref==='Stimpack' || /^stim ?packs?$/i.test(it.name||'');
-const stockRows = (cs, kind) => cs.inv.filter(it=>it && !it.auto && isCarried(it) && (kind==='Stim' ? isStim(it) : it.type===kind));   // you can only eat what you carry
+const FOOD_SUB = { Snack:'Snacks', Ration:'Rations', Meal:'Meals' };
+const foodSub = it => (it.type||'')==='Food' ? it.sub : (LEGACY_TYPE[(it.type||'').toLowerCase()]||[])[1];   // the serving: Snacks / Rations / Meals / Drinks / Alcohol
+const stockRows = (cs, kind) => cs.inv.filter(it=>it && !it.auto && isCarried(it) && (kind==='Stim' ? isStim(it) : isCons(it) && foodSub(it)===FOOD_SUB[kind]));   // you can only eat what you carry
 const stockOf   = (cs, kind) => Math.floor(stockRows(cs, kind).reduce((a,it)=>a+(+it.qty||0), 0));
 const stockRow  = (kind, qty) => ({...STOCK[kind].row, qty});
 function takeStock(cs, kind){
@@ -1819,7 +1870,7 @@ function upgradeInv(cs, c, invV0){
     if((it.type||'').toLowerCase()==='gear (worn)') it.type = 'Gear';   // the old worn-gear type is gone
     if((it.type||'').toLowerCase()==='gear (pack)') it.type = 'Bag';    // renamed
     if((it.type||'').toLowerCase()==='food') it.type = /snack/i.test(it.name) ? 'Snack' : /meal/i.test(it.name) ? 'Meal' : 'Ration';
-    linkRow(it);
+    linkRow(it); kindRow(it);
   }
 }
 
@@ -1916,7 +1967,9 @@ function wipeDown(id){
 function cleanClothes(id){
   const cs = st(id);
   cs.hygiene = clamp(cs.hygiene - HYG.clothes, 0, 100);
-  logMsg(`👕 ${cfg(id).name} changes into clean clothing (−${HYG.clothes} hygiene). Requires a clean change — GM approves.`);
+  const spare = cs.inv.find(it=>it && isClothing(it) && isCarried(it) && !it.eq && (+it.qty||0)>=1);   // a spare outfit in the pack
+  logMsg(spare ? `👕 ${cfg(id).name} changes into ${esc(invLabel(spare))} (−${HYG.clothes} hygiene).`
+               : `👕 ${cfg(id).name} changes into clean clothing (−${HYG.clothes} hygiene). No spare outfit carried — GM approves.`);
   render();
 }
 function useStim(id){
@@ -2182,6 +2235,7 @@ function resetEnergy(){
    ================================================================ */
 function syncInv(cs){
   const c = cfg(cs.id);
+  for(const it of cs.inv) kindRow(it);   // kinds follow the database link (cheap; changes nothing once settled)
   const wanted = c.droid
     ? [['packs', cs.packsCharged+cs.packsDepleted]]
     : [['canteen',1]];
@@ -2350,8 +2404,9 @@ function invSection(cs){
       <summary>${icon} ${label} <b>${list.length}</b>${nEq?` <span style="color:var(--gold)">· ${nEq} equipped</span>`:''}</summary>
       ${list.length ? body : `<div class="gearempty">${empty}</div>`}</details>`;
   };
-  const weps = carried.filter(x=>isWeapon(x.it)), arms = carried.filter(x=>isArmor(x.it)), tools = carried.filter(x=>isTool(x.it)), cons = carried.filter(x=>isCons(x.it));
-  const gear = carried.filter(x=>!isWeapon(x.it) && !isArmor(x.it) && !isTool(x.it) && !isCons(x.it));
+  const weps = carried.filter(x=>isWeapon(x.it)), arms = carried.filter(x=>isArmor(x.it)), cloth = carried.filter(x=>isClothing(x.it)), tools = carried.filter(x=>isTool(x.it)), cons = carried.filter(x=>isCons(x.it));
+  const meds = carried.filter(x=>isMedical(x.it)), drugs = carried.filter(x=>isDrug(x.it)), cyber = carried.filter(x=>isCyber(x.it));
+  const gear = carried.filter(x=>!isWeapon(x.it) && !isArmor(x.it) && !isClothing(x.it) && !isTool(x.it) && !isCons(x.it) && !isMedical(x.it) && !isDrug(x.it) && !isCyber(x.it));   // Gear and Mods
   const wearRow = (it,i,t,wr,useLabel,useTip,useCall) => `<div class="needrow">
         <span class="needlabel" title="Click to set wear" onclick="editWear('${id}',${i})">🔧 Wear</span>
         <div class="barwrap"><div class="bar" style="width:${wr}%;background:${t.color}"></div><span class="barval">${Math.round(wr)}</span></div>
@@ -2389,12 +2444,23 @@ function invSection(cs){
       ${eq ? wearRow(it, i, t, wr, 'use', `Use this tool hard (a repair job, a long climb) — adds ${WEAR_PER_USE} wear`, 'useItem') : ''}
     </div>`;
   }).join('');
-  const listBody = list => `<table class="invtable"><tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc</th></tr>` + list.map(({it})=>{
+  // the use button: a stimpack goes through the stim rules; anything else with a use effect applies its condition
+  const useBtn = (it,i) => it.auto ? '' : isStim(it) ? ` <button class="mini" onclick="useStim('${id}')" title="Use a stimpack (healing, fatigue and the daily limit as on the card's 💉 line)">use</button>`
+    : useCondOf(it) ? ` <button class="mini" onclick="useEffectItem('${id}',${i})" title="Use one: ${esc(CONDS[useCondOf(it)].label.replace(/^\S+\s/,''))}">use</button>` : '';
+  const listBody = list => `<table class="invtable"><tr><th>Item</th><th>Category</th><th>Qty</th><th>Enc</th></tr>` + list.map(({it,i})=>{
     const tot = (it.qty||0)*(it.wt||0);
     const totCell = isPack(it) ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${tot.toFixed(2)}</td>` : `<td class="tot">${tot.toFixed(2)}</td>`;
     return `<tr><td><span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it)||'(unnamed)')}</span></td>
-      <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}${useCondOf(it) && !it.auto ? ` <button class="mini" onclick="useEffectItem('${id}',${list.find(x=>x.it===it).i})" title="Use one: ${esc(CONDS[useCondOf(it)].label.replace(/^\S+\s/,''))}">use</button>` : ''}</td>${totCell}</tr>`;
+      <td><span class="auto">${esc(it.auto ? (it.auto==='packs' ? 'Light & Power' : 'Survival & Camp') : catLabel(it) || it.type || '—')}${isPack(it) && !it.auto ? ' 🎒' : ''}</span></td><td>${+it.qty||0}${useBtn(it,i)}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
+  const armorOn = arms.some(x=>isEquipped(x.it));
+  const clothBody = cloth.map(({it,i})=>{
+    const a = armorState(it), eq = isEquipped(it);
+    return `<div class="gearitem" style="${eq?'':'opacity:.7'}">
+      <div class="gearline"><span class="gearname">${eqBox(it,i,'worn. Worn clothing weighs nothing; its defense and soak count only while no armor is worn.')} ${nameCell(it)}</span><span class="auto">${esc(it.sub||'')}</span></div>
+      <div class="gearfx">${eq ? 'worn' : 'spare'}${a.baseDef||a.baseSoak ? ` · defense ${a.baseDef} · soak ${a.baseSoak}${eq && armorOn ? ' <span style="color:var(--dim)">(under armor: the armor protects instead)</span>' : ''}` : ''}</div>
+    </div>`;
+  }).join('');
   const gearBody = listBody(gear), consBody = listBody(cons);
   const nCarried = carried.filter(x=>!x.it.auto).length;
   return `<details class="inv invall" ${cs.allInvOpen?'open':''} ontoggle="st('${id}').allInvOpen=this.open">
@@ -2402,9 +2468,13 @@ function invSection(cs){
     <div class="encline" style="margin-top:4px;border-top:none;padding-top:0"><span title="Who does the tune-ups and overhauls started from this card. They are busy for the job, then roll Mechanics for the result.">🔧 repairs by <select onchange="setMech('${id}',this.value)">${S.chars.map(x=>`<option value="${x.id===id?'':x.id}" ${(cs.mech||'')===(x.id===id?'':x.id)?'selected':''}>${esc(cfg(x.id).name)}${x.id===id?' (self)':''}</option>`).join('')}</select></span></div>
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
+    ${sect('clothOpen', '👕', 'Clothing', cloth, clothBody, 'No clothing carried.')}
     ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
-    ${sect('consOpen', '🍞', 'Consumables', cons, consBody, 'No snacks, rations, meals or drinks carried.')}
+    ${sect('consOpen', '🍞', 'Food & Drink', cons, consBody, 'No food or drink carried.')}
+    ${sect('medOpen', '💊', 'Medical', meds, listBody(meds), 'No medical supplies carried.')}
+    ${drugs.length ? sect('drugOpen', '💉', 'Drugs & Toxins', drugs, listBody(drugs), '') : ''}
     ${sect('invOpen', '🎒', 'Gear', gear, gearBody, 'No gear carried.')}
+    ${cyber.length ? sect('cyberOpen', '🦾', 'Cybernetics', cyber, listBody(cyber), '') : ''}
   </details>`;
 }
 
@@ -3183,13 +3253,13 @@ function dbDesc(rec){   // plain text — callers escape
 // overwrites; otherwise only blanks are filled (an auto-link must never clobber what was typed).
 function fillFromDb(row, rec, force){
   const set = (k, v) => { if(v!==undefined && v!==null && v!=='' && (force || row[k]===undefined)) row[k] = v; };
-  if(force || !row.type) row.type = invTypeFor(rec);
+  { const [k, sb, bag] = kindOfRec(rec); row.type = k; row.sub = sb; if(bag) row.bag = 1; else delete row.bag; }   // the kind always comes from the link
   if(force || row.wt===undefined) row.wt = numOr(rec.e);
   if(rec.sk){
     set('sk', CAT_SKILL[rec.sk] || 'ranged_light'); set('brn', (rec.sk==='Melee'||rec.sk==='Brawl') ? 1 : 0);
     set('dam', numOr(rec.dam)); set('crit', numOr(rec.crit)); if(WEAPON_RANGES.includes(rec.rng)) set('rng', rec.rng); set('q', rec.q ? String(rec.q) : (force ? '' : undefined));
   }
-  if(rec.g==='Armour'){ set('def', numOr(rec.def)); set('soak', numOr(rec.soak)); }
+  if(rec.g==='Armour' || rec.def!=null || rec.soak!=null){ set('def', numOr(rec.def)); set('soak', numOr(rec.soak)); }
 }
 function linkRow(row){
   if(!row || row.auto || row.ref || !row.name) return;
@@ -3220,7 +3290,8 @@ const qualN = (q, name) => { const m = String(q||'').match(new RegExp('\\b'+name
 // + Deflection (ranged) / Defensive (melee) from equipped weapons, + bonus.
 function combatStats(cs){
   const sh = cs.sheet, eq = cs.inv.filter(isEquipped);
-  const armors = eq.filter(isArmor).map(armorState), weps = eq.filter(isWeapon).map(it=>weaponState(cs, it));
+  let armors = eq.filter(isArmor).map(armorState); const weps = eq.filter(isWeapon).map(it=>weaponState(cs, it));
+  if(!armors.length) armors = eq.filter(isClothing).map(armorState).sort((a,b)=>(b.soak+b.def)-(a.soak+a.def)).slice(0,1);   // no armor on: the best worn outfit protects (armor doesn't stack with clothing)
   const aSoak = armors.reduce((a,x)=>a+x.soak, 0), aDef = armors.reduce((a,x)=>Math.max(a,x.def), 0);
   const defl = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Deflection')), 0), dfns = weps.reduce((a,w)=>Math.max(a, qualN(w.q,'Defensive')), 0);
   const br = cs.attr.br||0;
@@ -3241,7 +3312,9 @@ function invSet(id, i, k, v){
   }
   else if(k==='alias'){ const a = String(v).trim().slice(0,60); if(a) it.alias = a; else delete it.alias; }
   else if(k==='q') it.q = String(v).slice(0,160);
-  else if(k==='type') it.type = String(v).slice(0,30);
+  else if(k==='type'){ if(dbOf(it)) return;   // a linked item's kind comes from the database
+    const [kk, sb] = String(v).split('|'); if(!KINDS[kk]) return;
+    it.type = kk; it.sub = KINDS[kk].subs.includes(sb) ? sb : sub0(kk); if(it.sub==='Packs & Carrying') it.bag = 1; else delete it.bag; }
   else if(k==='sk'){ if(COMBAT_SKILLS.some(x=>x.k===v)) it.sk = v; }
   else if(k==='rng'){ if(WEAPON_RANGES.includes(v)) it.rng = v; }
   else if(k==='qty' || k==='wt') it[k] = Math.max(0, +(parseFloat(v)||0).toFixed(2));
@@ -3253,17 +3326,19 @@ function rowFromDb(rec){ const row = { name:rec.n, ref:rec.n, qty:1 }; fillFromD
 function invAdd(id, type, text){
   const cs = st(id), name = String(text||'').trim().slice(0,80), rec = name && dbFind(name);
   const row = rec ? rowFromDb(rec) : { name, type, qty:1, wt:type==='Armor'?0:(type==='Weapon'?1:0) };
-  cs.inv.push(row); render();
+  kindRow(row); cs.inv.push(row); render();
 }
 // An item with no database match becomes a homebrew entry (Items tab), linked to the row.
 function invCreateEntry(id, i){
   const it = st(id).inv[i]; if(!it || it.auto || !it.name) return;
   if(!Array.isArray(S.homebrew)) S.homebrew = [];
   const g = isWeapon(it) ? (weaponState(st(id), it).sk.startsWith('ranged') ? 'Ranged Weapons' : weaponState(st(id), it).sk==='lightsaber' ? 'Lightsabers' : 'Melee Weapons') : isArmor(it) ? 'Armour' : 'Gear';
-  const h = { id:randomId(), n:it.name, g, c:'', d:'', e:+it.wt||0 };
+  kindRow(it);
+  const h = { id:randomId(), n:it.name, g:legacyGroup(it.type, it.sub), k:it.type, s:it.sub, c:'', d:'', e:+it.wt||0 };
+  if(it.bag) h.bag = 1;
   S.homebrew.push(h); it.ref = h.n;
   logMsg(`✨ <b>${esc(h.n)}</b> added to the Items database as a homebrew entry — give it a description on the Items tab.`, 'lg');
-  ITEMS_UI.edit = h.id; ITEMS_UI.q = ''; ITEMS_UI.g = ''; ITEMS_UI.c = '';
+  ITEMS_UI.edit = h.id; ITEMS_UI.q = ''; ITEMS_UI.k = ''; ITEMS_UI.s = '';
   showTab('items'); render();
 }
 // Load an attack into the Dice tab: the weapon's skill pool, Average difficulty, and the weapon
@@ -3301,7 +3376,7 @@ function gearHtml(cs){
   const del = i => `<button class="mini" onclick="delInv('${id}',${i})" title="Remove from inventory">✕</button>`;
   const descRow = (it,i,span,extra) => {
     const rec = dbOf(it), d = dbDesc(rec);
-    const body = rec ? (esc(d) || '<i>No description in the database yet.</i>') + (rec.hb||rec.id ? ' <span class="badge b-hb">HB</span>' : rec.cu ? ' <span class="badge b-cu" title="From items-custom.js">custom</span>' : '')
+    const body = rec ? (esc(d) || '<i>No description in the database yet.</i>') + (rec.hb||rec.id||rec.cu ? ` <span class="badge b-hb" title="House item — ${rec.cu ? 'from items-custom.js' : 'added at the table'}, not from the workbook">HB</span>` : '')
       : it.name ? `<span class="nomatch">⚠ “${esc(it.name)}” is not in the Items database.</span> Pick a database item in the name box, or <button class="mini" onclick="invCreateEntry('${id}',${i})" title="Create a homebrew entry for this item on the Items tab and link it">✨ create an entry</button>`
       : `<span class="nomatch">Type a name — matching database items are suggested as you type.</span>`;
     return `<tr class="idesc ${isCarried(it)?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${eqTag(it)}${body}</td></tr>`;
@@ -3322,7 +3397,7 @@ function gearHtml(cs){
       <td class="keep">${del(i)}</td></tr>` +
       descRow(it, i, 11, `<input type="text" class="wq" value="${esc(w.q)}" placeholder="qualities" title="Item qualities, e.g. Pierce 2, Stun Setting. Active ones cost 2 Advantage to trigger unless noted." onchange="invSet('${id}',${i},'q',this.value)"> `);
   }).join('');
-  const arms = rows.filter(x=>isArmor(x.it)).map(({it,i})=>{
+  const armRows = f => rows.filter(x=>f(x.it)).map(({it,i})=>{
     const a = armorState(it);
     return `<tr class="irow ${isCarried(it)?'':'uneq'}">
       <td class="c keep">${eqBox(it,i)}</td>
@@ -3331,17 +3406,20 @@ function gearHtml(cs){
       <td class="c">${n2(i,'soak',a.baseSoak,'Soak this armor adds to your Brawn.')}</td>
       <td class="keep">${del(i)}</td></tr>` + descRow(it, i, 8, (a.def!==a.baseDef || a.soak!==a.baseSoak) ? `<span class="nomatch" title="Armor wear is tracked on the Tracker card — tune-up or overhaul it there">${a.tier.name}: protecting at defense ${a.def}, soak ${a.soak}.</span> ` : '');
   }).join('');
+  const arms = armRows(isArmor), cloth = armRows(isClothing);
   const plainRows = f => rows.filter(x=>f(x.it)).map(({it,i})=>{
     if(it.auto) return `<tr class="irow"><td></td><td class="skn" colspan="2"><i>${esc(it.name)}</i></td><td class="c">${+it.qty||0}</td><td class="c">${n2(i,'wt',+it.wt||0,'Encumbrance each','0.05')}</td><td>${esc(it.type)}</td><td></td></tr>
       <tr class="idesc"><td></td><td colspan="6">${it.auto==='canteen' ? 'Fill level and refills are on the Tracker card.' : 'Charged and depleted counts are on the Tracker card.'}</td></tr>`;
     return `<tr class="irow ${isCarried(it)?'':'uneq'}">
       <td class="c keep">${eqBox(it,i)}</td>
       <td>${itemIn(it,i)}</td><td>${aliasIn(it,i)}</td>${qtyEnc(it,i)}
-      <td>${typeSelect(it.type, `invSet('${id}',${i},'type',this.value)`, 96)}</td>
+      <td>${dbOf(it) ? `<span class="auto" title="Sorted by the database entry (Items tab)">${esc(catLabel(it))}${isPack(it)?' 🎒':''}</span>` : typeSelect(it.type, `invSet('${id}',${i},'type',this.value)`, 130, it.sub||'')}</td>
       <td>${del(i)}</td></tr>` + descRow(it, i, 7);
   }).join('');
-  const isOther = it => !isWeapon(it) && !isArmor(it) && !isTool(it) && !isCons(it);
-  const plainHead = label => `<tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>${label}</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Type</th><th></th></tr>`;
+  const isOther = it => !isWeapon(it) && !isArmor(it) && !isClothing(it) && !isTool(it) && !isCons(it) && !isMedical(it) && !isDrug(it) && !isCyber(it);   // Gear and Mods
+  const plainHead = label => `<tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>${label}</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Category</th><th></th></tr>`;
+  const armHead = label => `<tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>${label}</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>`;
+  const plainFold = (key, kind, f, ph, always) => { const n = rows.filter(x=>f(x.it)).length; return (n || always) ? fold(key, KINDS[kind].icon, KINDS[kind].label, cnt(f), `<table class="sktable">${plainHead(KINDS[kind].label)}${plainRows(f)}${addRow(kind, 7, ph)}</table>`) : ''; };
   const w = invWeight(cs), thr = effThresh(cs), pb = packBonus(cs);
   const unlinked = rows.filter(x=>!x.it.auto && x.it.name && !dbOf(x.it)).length;
   const cnt = f => { const l = rows.filter(x=>f(x.it)), c = l.filter(x=>isCarried(x.it)).length; return `<b>${l.length}</b>${l.length ? ` <span class="sub">· ${c} carried${l.length-c ? `, ${l.length-c} stowed` : ''}</span>` : ''}`; };
@@ -3360,11 +3438,14 @@ function gearHtml(cs){
     </div>
     ${fold('weapons', '🗡', 'Weapons', cnt(isWeapon), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Weapons</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th>Skill</th><th>Damage</th><th class="c">Crit</th><th>Range</th><th>Attack</th><th></th></tr>
       ${weps}${addRow('Weapon', 11, 'a weapon')}</table>`)}
-    ${fold('armor', '🛡', 'Armor', cnt(isArmor), `<table class="sktable"><tr><th class="c" title="Carried on your person — only carried items show on the Tracker card">Carry</th><th>Armor</th><th>Alias</th><th class="c">Qty</th><th class="c">Enc</th><th class="c">Defense</th><th class="c">Soak</th><th></th></tr>
-      ${arms}${addRow('Armor', 8, 'armor')}</table>`)}
-    ${fold('tools', '🔧', 'Tools', cnt(isTool), `<table class="sktable">${plainHead('Tools')}${plainRows(isTool)}${addRow('Tool', 7, 'a tool')}</table>`)}
-    ${fold('cons', '🍞', 'Consumables', cnt(isCons), `<table class="sktable">${plainHead('Consumables')}${plainRows(isCons)}${addRow('Ration', 7, 'a snack, ration or meal')}</table>`)}
-    ${fold('gear', '🎒', 'Gear', cnt(it=>!it.auto && isOther(it)), `<table class="sktable">${plainHead('Gear')}${plainRows(isOther)}${addRow('Gear', 7, 'gear or medical supplies')}</table>`)}
+    ${fold('armor', '🛡', 'Armor', cnt(isArmor), `<table class="sktable">${armHead('Armor')}${arms}${addRow('Armor', 8, 'armor')}</table>`)}
+    ${fold('cloth', '👕', 'Clothing', cnt(isClothing), `<table class="sktable">${armHead('Clothing')}${cloth}${addRow('Clothing', 8, 'clothing')}</table><p class="tinfo" style="margin:4px 8px">Worn clothing (ticked on the Tracker card) weighs nothing. Its defense and soak count only while no armor is worn; a spare outfit is what the card's clean-clothes button changes into.</p>`)}
+    ${plainFold('tools', 'Tool', isTool, 'a tool', true)}
+    ${plainFold('cons', 'Food', isCons, 'food or drink', true)}
+    ${plainFold('med', 'Medical', isMedical, 'medical supplies', true)}
+    ${plainFold('drug', 'Drug', isDrug, 'a drug or toxin', false)}
+    ${fold('gear', '🎒', 'Gear', cnt(it=>!it.auto && isOther(it)), `<table class="sktable">${plainHead('Gear')}${plainRows(isOther)}${addRow('Gear', 7, 'gear')}</table>`)}
+    ${plainFold('cyber', 'Cyber', isCyber, 'a cybernetic', false)}
   </div></details>`;
 }
 
@@ -5101,39 +5182,18 @@ const CUSTOM_ITEMS   = typeof ITEMS_CUSTOM!=='undefined' ? ITEMS_CUSTOM : [];   
 CUSTOM_ITEMS.forEach(it=>{ it.cu = 1; });
 const CATALOG        = (typeof ITEMS!=='undefined' ? ITEMS : []).concat(CUSTOM_ITEMS);
 const CATALOG_GROUPS = typeof ITEM_GROUPS!=='undefined' ? ITEM_GROUPS : [];
-/* catalog group → inventory type when an item is sent to a character's pack (→ 🎒) */
-const ITEM_INV_TYPE = { 'Armour':'Armor', 'Ranged Weapons':'Weapon', 'Melee Weapons':'Weapon', 'Lightsabers':'Weapon', 'Gear':'Gear', 'Modifications':'Other' };
-const ITEM_MEDICAL_SUBS = ['Medical','Drugs','Toxins'];   // Gear sub-categories that land as Medical
-const HB_GROUPS = Object.keys(ITEM_INV_TYPE);            // groups a homebrew item can belong to
-const WEAPON_GROUPS = HB_GROUPS.filter(g=>ITEM_INV_TYPE[g]==='Weapon');
-const ITEMS_MAX_ROWS = 250;                               // rows rendered before "refine your search"
-function invTypeFor(it){
-  if(it.t) return it.t;                                        // custom entries may say outright
-  if(it.g==='Gear' && /\bration/i.test(it.n||'') && !/week|month|days/i.test(it.f||'')) return 'Ration';   // a single-meal pack; bulk supplies stay Gear (split them into Ration items by hand)
-  if(it.g==='Gear' && /carrying capacity|encumbrance (threshold|capacity)/i.test(it.f||'')) return 'Bag';   // backpacks, satchels, pouches
-  return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other');
-}
-/* Effect categories: every catalog and homebrew item is sorted automatically by what it is FOR (separate from
-   the workbook's sheets), so the things that carry a condition or effect sit together. */
-const ITEM_CATS = [['food','🍞 Food & Drink'],['med','💊 Medical'],['drug','💉 Stims & Drugs'],['tox','☠ Toxins'],['weap','🗡 Weapons'],['armor','🛡 Armor'],
-  ['tool','🔧 Tools & Equipment'],['surv','🧭 Survival'],['elec','📡 Comms & Sensors'],['cyb','🦾 Cybernetics'],['relic','✨ Relics & Force'],['mod','🔩 Modifications'],['misc','📦 Other']];
-const ITEM_CAT_LABEL = Object.fromEntries(ITEM_CATS);
-const ITEM_SUB_CAT = { Medical:'med', Drugs:'drug', Toxins:'tox', Industrial:'tool', Specialist:'tool', Equipment:'tool', Survival:'surv',
-  Communication:'elec', Surveillance:'elec', Security:'elec', Cybernetics:'cyb', Relics:'relic' };
-function itemCatOf(it){
-  if(it.g==='Armour') return 'armor';
-  if(it.g==='Modifications') return it.c==='Kyber Crystals' ? 'relic' : 'mod';
-  if(it.g==='Lightsabers' && it.c==='Hilts') return 'relic';
-  if(WEAPON_GROUPS.includes(it.g)) return 'weap';
-  const t = invTypeFor(it);
-  if(['Snack','Ration','Meal','Drink'].includes(t) || it.u==='caffeinated' || /\b(ration|meal|snack|canteen|caf|water)\b/i.test(it.n||'')) return 'food';
-  if(t==='Tool' || t==='Bag') return 'tool';
-  return ITEM_SUB_CAT[it.c] || 'misc';
-}
-const itemCat = it => it.hb ? itemCatOf(it) : (it._cat ??= itemCatOf(it));   // catalog records cache it
+/* Workbook groups are still on each record (g, c) for search and for older code; the tab itself sorts by KIND. */
+const WEAPON_GROUPS = ['Ranged Weapons','Melee Weapons','Lightsabers'];
+const HB_GROUPS = ['Armour', ...WEAPON_GROUPS, 'Gear', 'Modifications'];   // legacy: a homebrew item's workbook group (derived from its kind)
+const ITEMS_MAX_ROWS = 300;                               // rows rendered at once with no kind picked and nothing searched
+const invTypeFor = rec => kindOfRec(rec)[0];              // the kind a record lands as in an inventory
+const recKind = it => it.hb ? kindOfRec(it) : (it._k ??= kindOfRec(it));   // [kind, sub, bag] — catalog records cache it
 const useBadge = it => { const k = it.u || ITEM_USE[(it.n||'').toLowerCase()]; return CONDS[k] ? ` <span class="badge b-cond" title="Using one gives this condition (the use button on the character's card)">${CONDS[k].label}</span>` : ''; };
+// one badge for anything that is not from the workbook: items-custom.js entries and the room's own items
+const srcBadge = it => it.hb ? ' <span class="badge b-hb" title="House item — added at the table, shared with the room">HB</span>'
+  : it.cu ? ' <span class="badge b-hb" title="House item — from items-custom.js (kept by hand, not in the workbook)">HB</span>' : '';
 /* per-device view state for the tab — never synced */
-const ITEMS_UI = { q:'', g:'', c:'', cat:'', sk:'', sort:'cat', hideR:false, edit:null, buy:true };   // buy: → 🎒 charges the price (per device)
+const ITEMS_UI = { q:'', k:'', s:'', sk:'', sort:'cat', hideR:false, edit:null, buy:true };   // buy: → 🎒 charges the price (per device)
 try{ ITEMS_UI.buy = localStorage.getItem('st_buy')!=='0'; }catch(e){}
 const CATALOG_SKILLS = [...new Set(CATALOG.map(it=>it.sk).filter(Boolean))].sort();
 
@@ -5144,39 +5204,41 @@ const numCell = (it,k) => it[k]!=null ? it[k] : it[k+'t'] ? esc(it[k+'t']) : '�
 const rareCell = it => it.rat ? esc(it.rat) : numCell(it,'ra');
 /* one-line summary used by the All view and the → 🎒 log line */
 function itemDetails(it){   // plain text — callers escape
-  if(it.hb) return it.d||'';
+  if(it.hb) return [it.def!=null||it.soak!=null ? `Def ${it.def??0} · Soak ${it.soak??0}` : '', it.d||''].filter(Boolean).join(' · ');
   if(it.sk) return [it.sk, it.dam!=null?`Dam ${it.dam}`:'', it.crit!=null?`Crit ${it.crit}`:'', it.rng||'', it.hp?`HP ${it.hp}`:'', it.q||''].filter(Boolean).join(' · ');
-  if(it.g==='Armour') return [`Def ${it.def??0}`, `Soak ${it.soak??0}`, it.hp?`HP ${it.hp}`:''].filter(Boolean).join(' · ');
-  return [it.hp?`HP ${it.hp}`:'', it.req?`Req: ${it.req}`:'', it.f||''].filter(Boolean).join(' · ');
+  if(it.g==='Armour') return [`Def ${it.def??0}`, `Soak ${it.soak??0}`, it.hp?`HP ${it.hp}`:'', it.d||''].filter(Boolean).join(' · ');
+  return [it.hp?`HP ${it.hp}`:'', it.req?`Req: ${it.req}`:'', it.f||it.d||''].filter(Boolean).join(' · ');
 }
-const itemText = it => it.hb ? (it.q||it.f||it.d||'') : (it.q||it.f||'');   // last text column of a typed view
+const itemText = it => it.q||it.f||it.d||'';   // last text column of a typed view
+const subCell = it => esc(recKind(it)[1]) + (recKind(it)[2] ? ' 🎒' : '');
 
 /* column sets: [header, cell fn, css class] */
 const ITEM_COLS = {
-  all:     [['Category', it=>it.c && it.c!==it.g ? `${esc(it.g)} › ${esc(it.c)}` : esc(it.g)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Details', it=>esc(itemDetails(it)),'txt']],
-  armour:  [['Def', it=>numCell(it,'def'),'num'], ['Soak', it=>numCell(it,'soak'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Rare', rareCell,'num'], ['Notes', it=>esc(it.d||''),'txt']],
-  weapon:  [['Skill', it=>cell(it.sk)], ['Dam', it=>numCell(it,'dam'),'num'], ['Crit', it=>numCell(it,'crit'),'num'], ['Range', it=>cell(it.rng)], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Qualities', it=>esc(itemText(it)),'txt']],
-  gear:    [['Type', it=>esc(it.c)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Rare', rareCell,'num'], ['Features', it=>esc(itemText(it)),'txt']],
-  mod:     [['Applies to', it=>esc(it.c)], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Requires', it=>cell(it.req),'txt'], ['Features', it=>esc(itemText(it)),'txt']],
+  all:     [['Category', it=>`${esc(KINDS[recKind(it)[0]].icon)} ${subCell(it)}`], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Details', it=>esc(itemDetails(it)),'txt']],
+  armour:  [['Type', subCell], ['Def', it=>numCell(it,'def'),'num'], ['Soak', it=>numCell(it,'soak'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Rare', rareCell,'num'], ['Notes', it=>esc(it.d||''),'txt']],
+  weapon:  [['Type', subCell], ['Skill', it=>cell(it.sk)], ['Dam', it=>numCell(it,'dam'),'num'], ['Crit', it=>numCell(it,'crit'),'num'], ['Range', it=>cell(it.rng)], ['Enc', it=>numCell(it,'e'),'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['Qualities', it=>esc(itemText(it)),'txt']],
+  gear:    [['Type', subCell], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Enc', it=>numCell(it,'e'),'num'], ['Rare', rareCell,'num'], ['Features', it=>esc(itemText(it)),'txt']],
+  mod:     [['Applies to', subCell], ['Price', it=>fmtPrice(it)+restBadge(it),'num'], ['Rare', rareCell,'num'], ['HP', it=>numCell(it,'hp'),'num'], ['Requires', it=>cell(it.req),'txt'], ['Features', it=>esc(itemText(it)),'txt']],
 };
-const colsFor = g => !g ? ITEM_COLS.all : g==='Armour' ? ITEM_COLS.armour : WEAPON_GROUPS.includes(g) ? ITEM_COLS.weapon : g==='Modifications' ? ITEM_COLS.mod : ITEM_COLS.gear;
+const colsFor = k => !k ? ITEM_COLS.all : (k==='Armor' || k==='Clothing') ? ITEM_COLS.armour : k==='Weapon' ? ITEM_COLS.weapon : k==='Mod' ? ITEM_COLS.mod : ITEM_COLS.gear;
 
 function itemsSet(k, v){
   ITEMS_UI[k] = v;
   if(k==='buy'){ ITEMS_UI.buy = !!v; lsSet('st_buy', v ? '1' : '0'); return; }
-  if(k==='g'){ ITEMS_UI.c=''; if(!WEAPON_GROUPS.includes(v) && v) ITEMS_UI.sk=''; }
+  if(k==='k'){ ITEMS_UI.s=''; if(v && v!=='Weapon') ITEMS_UI.sk=''; }
   renderItems();   // view-only change: no state touched, so no full render / sync
 }
 const hbList = () => (S.homebrew||[]).map(h=>Object.assign({hb:true}, h));
 const itemByKey = key => key[0]==='c' ? CATALOG[+key.slice(1)] : hbList().find(h=>h.id===key.slice(1));
-const hayOf = it => (it.n+' '+it.c+' '+(it.sk||'')+' '+(it.q||'')+' '+(it.f||'')+' '+(it.req||'')+' '+(it.d||'')).toLowerCase();
+const hayOf = it => (it.n+' '+it.c+' '+KINDS[recKind(it)[0]].label+' '+recKind(it)[1]+' '+(it.sk||'')+' '+(it.q||'')+' '+(it.f||'')+' '+(it.req||'')+' '+(it.d||'')).toLowerCase();
+const kindIdx = it => { const [k, sb] = recKind(it); return KIND_KEYS.indexOf(k)*100 + KINDS[k].subs.indexOf(sb); };
 function itemsFiltered(){
   const u = ITEMS_UI, words = u.q.toLowerCase().split(/\s+/).filter(Boolean);
   const all = CATALOG.map((it,i)=>[it,'c'+i]).concat(hbList().map(h=>[h,'h'+h.id]));
   const list = all.filter(([it])=>{
-    if(u.g && it.g!==u.g) return false;
-    if(u.cat && itemCat(it)!==u.cat) return false;
-    if(u.c && it.c!==u.c) return false;
+    const [k, sb] = recKind(it);
+    if(u.k && k!==u.k) return false;
+    if(u.s && sb!==u.s) return false;
     if(u.sk && it.sk!==u.sk) return false;
     if(u.hideR && it.r) return false;
     if(!words.length) return true;
@@ -5184,27 +5246,24 @@ function itemsFiltered(){
     return words.every(w=>h.includes(w));
   });
   const last = v => v==null ? Infinity : v;
-  if(u.sort==='cat') list.sort((a,b)=>ITEM_CATS.findIndex(x=>x[0]===itemCat(a[0]))-ITEM_CATS.findIndex(x=>x[0]===itemCat(b[0])) || a[0].n.localeCompare(b[0].n));
+  if(u.sort==='cat') list.sort((a,b)=>kindIdx(a[0])-kindIdx(b[0]) || a[0].n.localeCompare(b[0].n));
   else if(u.sort==='price') list.sort((a,b)=>last(a[0].p)-last(b[0].p) || a[0].n.localeCompare(b[0].n));
   else if(u.sort==='rare') list.sort((a,b)=>last(a[0].ra)-last(b[0].ra) || a[0].n.localeCompare(b[0].n));
   else list.sort((a,b)=>a[0].n.localeCompare(b[0].n));
   return list;
 }
 function renderItemsBar(){
-  const u = ITEMS_UI, grp = CATALOG_GROUPS.find(g=>g.g===u.g);
+  const u = ITEMS_UI, counts = {};
+  for(const it of CATALOG.concat(hbList())){ const k = recKind(it)[0]; counts[k] = (counts[k]||0) + 1; }
   document.getElementById('itemGroups').innerHTML =
-    `<button class="chip ${u.g?'':'on'}" onclick="itemsSet('g','')">All</button>` +
-    CATALOG_GROUPS.map(g=>`<button class="chip ${u.g===g.g?'on':''}" onclick="itemsSet('g','${g.g}')">${g.g}</button>`).join('');
-  const counts = {}; for(const it of CATALOG.concat(hbList())) counts[itemCat(it)] = (counts[itemCat(it)]||0) + 1;
-  document.getElementById('itemCats').innerHTML = `<button class="chip ${u.cat?'':'on'}" onclick="itemsSet('cat','')">Any use</button>` +
-    ITEM_CATS.map(([k,l])=>`<button class="chip ${u.cat===k?'on':''}" onclick="itemsSet('cat','${k}')">${l}${counts[k]?` <small>${counts[k]}</small>`:''}</button>`).join('');
+    `<button class="chip ${u.k?'':'on'}" onclick="itemsSet('k','')">All</button>` +
+    KIND_KEYS.map(k=>`<button class="chip ${u.k===k?'on':''}" onclick="itemsSet('k','${k}')">${esc(kindLabel(k))}${counts[k]?` <small>${counts[k]}</small>`:''}</button>`).join('');
   const sub = document.getElementById('itemSub');
-  sub.innerHTML = `<option value="">${grp ? 'all '+grp.g.toLowerCase() : 'any category'}</option>` +
-    (grp ? grp.subs : CATALOG_GROUPS.flatMap(g=>g.subs)).filter((s,i,a)=>a.indexOf(s)===i).map(s=>`<option value="${esc(s)}"${u.c===s?' selected':''}>${esc(s)}</option>`).join('');
-  sub.style.display = (grp && grp.subs.length<2) ? 'none' : '';
+  sub.innerHTML = u.k ? `<option value="">all ${esc(KINDS[u.k].label.toLowerCase())}</option>` + KINDS[u.k].subs.map(sb=>`<option value="${esc(sb)}"${u.s===sb?' selected':''}>${esc(sb)}</option>`).join('') : '';
+  sub.style.display = u.k ? '' : 'none';
   const sk = document.getElementById('itemSkill');
   sk.innerHTML = `<option value="">any skill</option>` + CATALOG_SKILLS.map(s=>`<option value="${esc(s)}"${u.sk===s?' selected':''}>${esc(s)}</option>`).join('');
-  sk.style.display = (!u.g || WEAPON_GROUPS.includes(u.g)) ? '' : 'none';
+  sk.style.display = u.k==='Weapon' ? '' : 'none';
   document.getElementById('itemSort').value = u.sort;
   document.getElementById('itemHideR').checked = u.hideR;
   const q = document.getElementById('itemQ'); if(document.activeElement!==q && q.value!==u.q) q.value = u.q;
@@ -5213,28 +5272,31 @@ const givePicker = key => `<select class="give" title="Send this item to a chara
 function renderItems(){
   const body = document.getElementById('itemsBody'); if(!body) return;
   renderItemsBar();
-  const u = ITEMS_UI, cols = colsFor(u.g), hbN = (S.homebrew||[]).length;
+  const u = ITEMS_UI, cols = colsFor(u.k), hbN = (S.homebrew||[]).length;
   const editing = u.edit && hbList().find(h=>h.id===u.edit);
   if(u.edit && !editing) u.edit = null;
   const list = itemsFiltered().filter(([it])=>!(editing && it.hb && it.id===editing.id));
-  const shown = list.slice(0, ITEMS_MAX_ROWS);
-  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${useBadge(it)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':it.cu?' <span class="badge b-cu" title="Custom entry from items-custom.js">custom</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
+  const shown = (u.k || u.q.trim()) ? list : list.slice(0, ITEMS_MAX_ROWS);   // a kind or a search shows everything that matches
+  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${useBadge(it)}${srcBadge(it)}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
   const editRow = editing ? `<tr class="hbrow"><td colspan="${cols.length+2}">${hbForm(editing)}</td></tr>` : '';
+  // header rows: kinds when browsing everything, sub-categories inside one kind
+  const head = it => { if(u.sort!=='cat') return ''; const [k, sb] = recKind(it); return u.k ? (u.s ? '' : sb) : kindLabel(k); };
   body.innerHTML = `
-    <div class="itemcount">${CATALOG.length ? `showing <b>${shown.length}</b> of ${list.length} matching · ${CATALOG.length} catalog items${hbN?` + ${hbN} homebrew`:''}${list.length>shown.length?` — <span style="color:var(--warn)">refine the search to see the rest</span>`:''}` : `<span style="color:var(--bad)">⚠ Catalog not loaded (items.js missing)</span>${hbN?` · ${hbN} homebrew`:''}`}</div>
+    <div class="itemcount">${CATALOG.length ? `showing <b>${shown.length}</b> of ${list.length} matching · ${CATALOG.length} catalog items${hbN?` + ${hbN} homebrew`:''}${list.length>shown.length?` — <span style="color:var(--warn)">pick a kind above, or search, to see the rest</span>`:''}` : `<span style="color:var(--bad)">⚠ Catalog not loaded (items.js missing)</span>${hbN?` · ${hbN} homebrew`:''}`}</div>
     <div class="itemscroll"><table class="itemtable">
       <tr><th>Name</th>${cols.map(([h])=>`<th>${h}</th>`).join('')}<th></th></tr>
-      ${editRow}${(()=>{ let last = ''; return shown.map(x=>{ const k = u.sort==='cat' && !u.cat ? itemCat(x[0]) : '', head = k && k!==last ? `<tr class="catrow"><td colspan="${cols.length+2}">${ITEM_CAT_LABEL[k]}</td></tr>` : ''; if(k) last = k; return head + row(x); }).join(''); })() || `<tr><td colspan="${cols.length+2}" style="color:var(--dim)">nothing matches — try fewer words, another category, or ✨ add it as homebrew</td></tr>`}
+      ${editRow}${(()=>{ let last = ''; return shown.map(x=>{ const h = head(x[0]), hr = h && h!==last ? `<tr class="catrow"><td colspan="${cols.length+2}">${esc(h)}</td></tr>` : ''; if(h) last = h; return hr + row(x); }).join(''); })() || `<tr><td colspan="${cols.length+2}" style="color:var(--dim)">nothing matches — try fewer words, another kind, or ✨ add it as homebrew</td></tr>`}
     </table></div>`;
 }
-/* ---- homebrew items: S.homebrew = [{id, n, g, c, p, pt, r, ra, e, hp, d}] ---- */
+/* ---- homebrew items: S.homebrew = [{id, n, k kind, s sub-category, bag, g (legacy workbook group, derived), p, pt, r, ra, e, hp, def, soak, u, d}] ---- */
 function hbForm(h){
   const inp = (k, type, extra='') => `<input type="${type}" value="${esc(h[k]??'')}" ${extra} onchange="hbSet('${h.id}','${k}',this.value)">`;
-  const grp = CATALOG_GROUPS.find(g=>g.g===h.g);
+  const [k, sb] = kindOfRec(h), worn = k==='Armor' || k==='Clothing';
   return `<div class="hbform">
     <label>name ${inp('n','text','placeholder="item name" class="wide"')}</label>
-    <label>group <select onchange="hbSet('${h.id}','g',this.value)">${HB_GROUPS.map(g=>`<option value="${g}"${h.g===g?' selected':''}>${g}</option>`).join('')}</select></label>
-    <label>category ${inp('c','text',`list="hbSubs_${h.id}" placeholder="e.g. ${grp?grp.subs[0]:'Survival'}"`)}<datalist id="hbSubs_${h.id}">${(grp?grp.subs:[]).map(s=>`<option value="${esc(s)}">`).join('')}</datalist></label>
+    <label title="What kind of item it is — this decides where it sits on the Items tab, the sheet and the Tracker card">kind ${typeSelect(k, `hbSet('${h.id}','ks',this.value)`, 190, sb)}</label>
+    ${worn ? `<label>defense ${inp('def','number','min="0" max="5" step="1" style="width:56px"')}</label><label>soak ${inp('soak','number','min="0" max="9" step="1" style="width:56px"')}</label>` : ''}
+    ${k==='Gear' && sb==='Packs & Carrying' ? `<label title="Carried, it raises the encumbrance threshold by its enc instead of weighing anything">adds capacity <input type="checkbox" ${h.bag?'checked':''} onchange="hbSet('${h.id}','bag',this.checked)"></label>` : ''}
     <label>price ${inp('p','number','min="0" step="1"')}</label>
     <label>restricted <input type="checkbox" ${h.r?'checked':''} onchange="hbSet('${h.id}','r',this.checked)"></label>
     <label>rarity ${inp('ra','number','min="0" max="10" step="1"')}</label>
@@ -5247,7 +5309,8 @@ function hbForm(h){
 }
 function hbAdd(){
   if(!Array.isArray(S.homebrew)) S.homebrew=[];
-  const h = { id:randomId(), n:'', g:HB_GROUPS.includes(ITEMS_UI.g)?ITEMS_UI.g:'Gear', c:ITEMS_UI.c||'', d:'' };
+  const k = KINDS[ITEMS_UI.k] ? ITEMS_UI.k : 'Gear', sb = ITEMS_UI.s || sub0(k);
+  const h = { id:randomId(), n:'', k, s:sb, g:legacyGroup(k, sb), c:'', d:'' };
   S.homebrew.push(h); ITEMS_UI.edit = h.id;
   showTab('items'); render();
   const el = document.getElementById('itemsBody').querySelector('input'); if(el && el.focus) el.focus();
@@ -5255,7 +5318,14 @@ function hbAdd(){
 function hbSet(id, k, v){
   const h = (S.homebrew||[]).find(x=>x.id===id); if(!h) return;
   if(k==='r') h.r = v ? 1 : 0;
-  else if(['p','ra','e','hp'].includes(k)){ const n = parseFloat(v); if(isNaN(n)) delete h[k]; else h[k] = Math.max(0, n); }
+  else if(k==='bag'){ if(v) h.bag = 1; else delete h.bag; }
+  else if(k==='ks'){   // kind and sub-category together ("Kind|Sub"); the form redraws for the kind's own fields
+    const [kk, sb] = String(v).split('|'); if(!KINDS[kk]) return;
+    h.k = kk; h.s = KINDS[kk].subs.includes(sb) ? sb : sub0(kk); h.g = legacyGroup(h.k, h.s);
+    if(h.s==='Packs & Carrying') h.bag = 1; else delete h.bag;
+    renderItems(); scheduleSync(); return;
+  }
+  else if(['p','ra','e','hp','def','soak'].includes(k)){ const n = parseFloat(v); if(isNaN(n)) delete h[k]; else h[k] = Math.max(0, n); }
   else if(k==='u'){ if(v) h.u = String(v); else delete h.u; }
   else h[k] = String(v).trim();
   if(ITEMS_UI.edit===id) scheduleSync();   // mid-edit: save/sync without rebuilding the form under the cursor
@@ -5384,7 +5454,7 @@ function buildRules(){
   <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
-  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Items with <b>Carry</b> unticked are stowed in the character's <b>Personal Item Storage Crate</b>, which holds <b>${CRATE_CAP} encumbrance</b> for everyone (stowed armor counts at its full encumbrance, a stowed bag counts ${BAG_STOWED_ENC}); going over only raises a warning. Food comes in three inventory types — <b>Snack</b>, <b>Ration</b> and <b>Meal</b> — and each hunger button eats <b>one item</b> of its type; the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
+  <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Items with <b>Carry</b> unticked are stowed in the character's <b>Personal Item Storage Crate</b>, which holds <b>${CRATE_CAP} encumbrance</b> for everyone (stowed armor counts at its full encumbrance, a stowed bag counts ${BAG_STOWED_ENC}); going over only raises a warning. Every row has a <b>kind</b> and <b>sub-category</b> taken from its database entry (only an unlinked item is sorted by hand): Weapons, Armor, Clothing, Tools, Food &amp; Drink, Medical, Drugs &amp; Toxins, Gear, Cybernetics and Mods. Each hunger button eats <b>one</b> Food &amp; Drink item of its serving — <b>Snacks</b>, <b>Rations</b> or <b>Meals</b> — and the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
   <table><tr><th>Standard item</th><th>Type</th><th>Enc each</th></tr>${wtRows}
   <tr><td>Lightsaber hilt</td><td>Weapon</td><td>0.5</td></tr>
   <tr><td>Blaster / disruptor pistol</td><td>Weapon</td><td>0.5</td></tr>
@@ -5537,10 +5607,10 @@ function buildRules(){
   <table><tr><th>Group</th><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${SHIP_WEAPONS.map(g=>g.items.map((w,i)=>`<tr><td>${i===0?g.group:''}</td><td>${w.qty?w.qty+'× ':''}${w.name}</td><td>${w.skill}</td><td>${w.dmg}</td><td>${w.range}</td><td>${w.crit}</td></tr>`).join('')).join('')}</table>
   <p>Weapon groups reference their system's condition (a degraded Heavy Guns system penalizes the Laser Cannon and Turbolaser together). The <b>Proton Torpedo Launcher</b> tracks limited ammo (starts at ${SHIP.torpedoes}) — <b>fire</b> to decrement, <b>reload</b> at port.</p>
   <h2>🛒 Items — the shop catalog</h2>
-  <p>The <b>Items</b> tab is the party's shopping list: ${CATALOG.length ? `<b>${CATALOG.length.toLocaleString('en-US')} pieces of FFG gear</b> in ${CATALOG_GROUPS.length} groups — ${CATALOG_GROUPS.map(g=>`<b>${g.g}</b> (${CATALOG.filter(it=>it.g===g.g).length})`).join(', ')}` : '<span style="color:var(--bad)">the catalog file (items.js) did not load</span>'}. Search matches names, qualities, features and requirements (every word must match); the chips and dropdowns narrow by group, category and weapon skill. Prices are credits; an <span class="badge b-rest">R</span> marks a <b>restricted</b> item — black market or a licence, and the GM's call on availability. Rarity sets the difficulty of finding it (${[0,1,2,3,4,5,6,7,8,9,10].filter(r=>r%2===0).map(r=>`${r}–${r+1}: ${['Easy','Average','Hard','Daunting','Formidable','Formidable + Setback'][r/2]}`).join(' · ')}), modified by where you are shopping. With <b>🛒 charge credits</b> ticked, sending an item to a character takes its price from their credits (it asks first if they cannot afford it); untick it for loot and gifts.</p>
+  <p>The <b>Items</b> tab is the party's shopping list: ${CATALOG.length ? `<b>${CATALOG.length.toLocaleString('en-US')} pieces of FFG gear</b>, every one sorted into a <b>kind</b> and a <b>sub-category</b> — ${KIND_KEYS.map(k=>`<b>${KINDS[k].icon} ${KINDS[k].label}</b> (${CATALOG.filter(it=>recKind(it)[0]===k).length})`).join(', ')}` : '<span style="color:var(--bad)">the catalog file (items.js) did not load</span>'}. The same kinds sort the sheet's inventory and the Tracker card. Search matches names, qualities, features and requirements (every word must match); the kind chips and the sub-category dropdown narrow it (and weapon skill, for weapons); a search or a picked kind lists every match. Prices are credits; an <span class="badge b-rest">R</span> marks a <b>restricted</b> item — black market or a licence, and the GM's call on availability. Rarity sets the difficulty of finding it (${[0,1,2,3,4,5,6,7,8,9,10].filter(r=>r%2===0).map(r=>`${r}–${r+1}: ${['Easy','Average','Hard','Daunting','Formidable','Formidable + Setback'][r/2]}`).join(' · ')}), modified by where you are shopping. With <b>🛒 charge credits</b> ticked, sending an item to a character takes its price from their credits (it asks first if they cannot afford it); untick it for loot and gifts.</p>
   <p><b>Gear the tracker reads:</b> a carried thermal cloak, body glove, temperature-control pack or climate armor keeps its wearer from being Chilled or Overheated by exposure (a 🧥 badge shows on the card), and each extra canteen carried adds to the water a character can hold. <b>Dice:</b> a check loaded from a sheet, the Encounter tab or a ship station already carries what the character's needs, conditions and encumbrance do to it (the 🩺 line in the dice tray says what was added); change the dice by hand if the GM rules otherwise. <b>After a fight</b> the GM is offered a strain-recovery roll for everyone who took part and asked how many minutes it took.</p>
-  <p><b>✨ Homebrew items</b> are added at the table and <b>shared with the room</b> — they save, load and sync like everything else and <i>survive 🆕 New</i>, since they are catalog entries rather than session state. Give one a group so the ${'→ 🎒'} button knows what kind of thing it is.</p>
-  <p><b>→ 🎒 sends an item to a character's pack</b>: it adds an inventory row (quantity 1, the catalog encumbrance) and logs the pickup. The group decides the row's type — ${Object.entries(ITEM_INV_TYPE).map(([g,t])=>`${g} → <b>${t}</b>`).join(', ')}; Gear from the ${ITEM_MEDICAL_SUBS.join(', ')} categories lands as <b>Medical</b>. Weapons get a wear track, Armor is worn and stays out of encumbrance. Credits are not tracked — pay the GM.</p>
+  <p><b>✨ Homebrew items</b> are added at the table and <b>shared with the room</b> — they save, load and sync like everything else and <i>survive 🆕 New</i>, since they are catalog entries rather than session state. Give one a <b>kind</b> so it lands in the right place; worn kinds (armor, clothing) take defense and soak, and an <b>on use</b> condition gives it a use button on the card. Items from the workbook, from <code>items-custom.js</code> and from the table all sort the same way — the last two carry an <span class="badge b-hb">HB</span> badge.</p>
+  <p><b>→ 🎒 sends an item to a character's pack</b>: it adds an inventory row (quantity 1, the catalog encumbrance) and logs the pickup. The item's kind decides where the row goes, and stays tied to the database entry. <b>Weapons</b> get a wear track; <b>Armor</b> is worn and stays out of encumbrance; <b>Clothing</b> is worn too and weighs nothing while worn, but its defense and soak only count when no armor is on; <b>Food &amp; Drink</b> feeds the hunger buttons (Snacks, Rations and Meals) or has a use button (Caf, alcohol); <b>Medical</b> holds stimpacks and medpacs; <b>Cybernetics</b> are installed and weigh nothing. Sorting rules live in <code>tools/item-kinds.json</code>. Credits are not tracked — pay the GM.</p>
 
   <p style="color:var(--dim)">💡 Print this tab (Ctrl/Cmd+P) for a paper reference — only the rules print, not the tracker.</p>`;
 }
@@ -5609,7 +5679,7 @@ function syncSubset(state){
   if(c.ship) delete c.ship.img;
   if(Array.isArray(c.chars)) c.chars.forEach(ch=>{
     delete ch.img;
-    delete ch.invOpen; delete ch.allInvOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen; delete ch.toolsOpen; delete ch.consOpen;   // per-player UI state stays local
+    delete ch.invOpen; delete ch.allInvOpen; delete ch.customOpen; delete ch.gearOpen; delete ch.armorOpen; delete ch.toolsOpen; delete ch.consOpen; delete ch.clothOpen; delete ch.medOpen; delete ch.drugOpen; delete ch.cyberOpen;   // per-player UI state stays local
     if(ch.invV===2){   // pre-overhaul counters from a browser that hasn't refreshed: ignore, don't echo, don't fight over them
       delete ch.rationsStock; delete ch.snacks; delete ch.stims;
       if(Array.isArray(ch.inv)) ch.inv = ch.inv.filter(it=>!(it && LEGACY_AUTO.includes(it.auto)));
