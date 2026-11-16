@@ -2979,7 +2979,7 @@ const ATTR_TIPS = {
 };
 const SHEET_TEXT = ['species','career','specs','morS','morW'];
 const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
-const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true, train:true } };   // which inventory dropdowns are open — per device, remembered
+const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true, train:true, gen:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
 
@@ -3491,7 +3491,12 @@ function renderSheet(){
   const eff = effStrainThresh(cs, c), cb = combatStats(cs);
   const box = (lab, tip, inner, note) => `<div class="sbox" title="${esc(tip)}">${lab}<div class="vals">${inner}</div>${note?`<small>${note}</small>`:''}</div>`;
   const stat = (k, kt) => `<input type="number" min="0" value="${cs[k]}" onchange="sheetStat('${id}','${k}',this.value)"> / <input type="number" min="0" value="${cs[kt]}" onchange="setThresh('${id}','${kt}',this.value)">`;
-  const groups = SKILL_GROUPS.map(g=>{
+  const skHead = g => `<tr><th>${g} skills</th><th class="c" title="Career skill">Career</th><th class="c">Rank</th><th>Dice pool</th></tr>`;
+  const gen = skillList(cs).filter(sk=>sk.g==='General'), genHalf = Math.ceil(gen.length/2), genTrained = gen.filter(sk=>skillState(cs, sk).rank>0).length;
+  const genHtml = `<details class="sfold crate" ${SHEET_UI.open.gen?'open':''} ontoggle="sheetOpen('gen',this.open)">
+    <summary>🎯 General Skills <b>${gen.length}</b> <span class="sub">· ${genTrained} trained</span></summary>
+    <div class="skillcols">${[gen.slice(0,genHalf), gen.slice(genHalf)].map(l=>`<div><table class="sktable">${skHead('General')}${l.map(sk=>skillRowHtml(cs, sk)).join('')}</table></div>`).join('')}</div></details>`;
+  const groups = SKILL_GROUPS.filter(g=>g!=='General').map(g=>{
     const rows = skillList(cs).filter(sk=>sk.g===g);
     if(!rows.length && g!=='Custom') return '';
     return `<table class="sktable"><tr><th>${g} skills</th><th class="c" title="Career skill">Career</th><th class="c">Rank</th><th>Dice pool</th></tr>
@@ -3525,12 +3530,13 @@ function renderSheet(){
     </div>
     <div class="sboxes">` + ATTRS.map(([k,n])=>
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
+    ${genHtml}
     ${gearHtml(cs)}
     ${talentsHtml(cs)}
     ${trainSheetHtml(cs)}
     ${cmdHtml(cs)}
     ${moralityHtml(cs)}
-    <div class="skillcols"><div>${groups[0]}</div><div>${groups.slice(1).join('<br>')}</div></div>`;
+    <div class="skillcols">${groups.filter(Boolean).map(g=>`<div>${g}</div>`).join('')}</div>`;
 }
 
 /* ================================================================
