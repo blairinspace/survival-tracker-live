@@ -530,6 +530,8 @@
   .fgform{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:6px 0;padding:8px;background:var(--panel2);border:1px solid var(--border);border-radius:8px}
   .fgform label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--dim)} .fgform textarea{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font:inherit;font-size:12.5px;width:100%;min-height:54px}
   .fgform label.wide{flex:1 1 100%}
+  .sbox.chr .chv{font-size:22px;font-weight:700;display:block} .chbuy{display:flex;gap:3px;justify-content:center;margin-top:3px} .chbuy .mini{padding:0 7px}
+  b.rk{display:inline-block;min-width:14px}
   .catrow td{background:var(--panel2,#1a1f2b);color:var(--gold);font-weight:600;padding:6px 8px}
   .b-minion{background:#22303c;color:#9fc3e6} .b-rival{background:#3d3212;color:#ffd97a} .b-nemesis{background:#3a1010;color:#ff9c9c}
   @media(max-width:820px){ .npccols{grid-template-columns:1fr} }
@@ -1450,7 +1452,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   // destiny pool — zeros survive RTDB, but older saves and rooms don't have the key at all
   if(!s.destiny || typeof s.destiny!=='object') s.destiny = {};
   for(const k of ['light','dark']) s.destiny[k] = clamp(Math.round(+s.destiny[k])||0, 0, 20);
-  { const h = s.hr && typeof s.hr==='object' ? s.hr : {}; s.hr = { clean: h.clean ? 1 : 0, redir: h.redir ? 1 : 0, duel: h.duel ? 1 : 0 }; }   // the table's house rules (Encounter tab)
+  { const h = s.hr && typeof s.hr==='object' ? s.hr : {}; s.hr = { clean: h.clean ? 1 : 0, redir: h.redir ? 1 : 0, duel: h.duel ? 1 : 0, gmRefund: h.gmRefund ? 1 : 0 }; }   // the table's house rules (Encounter tab)
   if(!s.ship) s.ship = freshShip();
   else {  // patch older ship saves
     for(const k of ['cargo','smuggle','fuelLog','crits']) s.ship[k] = arrayify(s.ship[k]);
@@ -2016,11 +2018,10 @@ function setForce(id, v){
   logMsg(`✨ ${cfg(id).name} holds Morichro with ${cs.force} Force point(s) — bodily needs slowed ${Math.round((1-forceMult(cs))*100)}%. (Committed points are unavailable for other powers.)`,'lf');
   render();
 }
-function setAttr(id, key, v){
-  const cs = st(id);
-  cs.attr[key] = clamp(parseInt(v)||1, 1, 7);
-  if(key==='br'){ cs.encThresh = cs.attr.br + 5; logMsg(`⚖ ${cfg(id).name}'s encumbrance threshold set to ${cs.encThresh} (Brawn ${cs.attr.br} + 5).`); }
-  render();
+function setAttr(id, key, v){   // a characteristic by hand is a GM adjustment now (the sheet works the number out)
+  const cs = st(id), b = cs && cs.sheet.b; if(!ATTR_TIPS[key]) return;
+  if(!b){ cs.attr[key] = clamp(parseInt(v)||1, 1, 7); render(); return; }
+  adjSet(id, key, ((b.adj[key]||{}).v||0) + clamp(parseInt(v)||1, 1, 7) - cs.attr[key]);
 }
 
 /* ---- conditions ---- */
@@ -2509,9 +2510,9 @@ function talliesRow(cs){
   const effTag = mods.length && cs.st>0
     ? ` <span class="steff" title="${esc(mods.map(([n,m])=>`${n} ${m>0?'+':''}${m}`).join(' · '))}">${sum>0?'+':''}${sum} → <b>${eff}</b></span>` : '';
   return `<div class="tallies">
-      <span class="strain">Strain <b>${cs.strain}</b> / <span title="Strain threshold (base) — edit it on the Sheets tab">${cs.st}</span>${effTag}</span>
+      <span class="strain">Strain <b>${cs.strain}</b> / <span title="Strain threshold (base) — worked out from the build on the Sheets tab">${cs.st}</span>${effTag}</span>
       <button class="mini" onclick="adj('${cs.id}','strain',-1)">−</button><button class="mini" onclick="adj('${cs.id}','strain',1)">+</button>
-      <span class="wounds">Wounds <b>${cs.wounds}</b> / <span title="Wound threshold — edit it on the Sheets tab">${cs.wt}</span></span>
+      <span class="wounds">Wounds <b>${cs.wounds}</b> / <span title="Wound threshold — worked out from the build on the Sheets tab">${cs.wt}</span></span>
       <button class="mini" onclick="adj('${cs.id}','wounds',-1)">−</button><button class="mini" onclick="adj('${cs.id}','wounds',1)">+</button>
     </div>`;
 }
@@ -2639,6 +2640,7 @@ function droidCard(cs, c, div){
 function render(){
   hbTreesApply();   // the GM's own trees join the rules before anything draws
   trainFrSync();   // Force rating that training has given, onto the sheets
+  for(const cs of S.chars) buildDerive(cs);   // every number on the sheets, from what was bought
   document.getElementById('clock').textContent = clockStr();
   const envSel = document.getElementById('envSel');
   if(envSel.value !== S.env) envSel.value = S.env;   // keep the dropdown honest after reset/load
@@ -2972,7 +2974,11 @@ function partyRmCond(v){
   if(names.length) logMsg(`${def.label} — removed from ${names.join(', ')}.`, 'lw');
   render();
 }
-function setThresh(id,k,v){ st(id)[k]=parseInt(v)||0; render(); }
+function setThresh(id,k,v){
+  const cs = st(id), b = cs.sheet && cs.sheet.b;
+  if((k==='wt' || k==='st') && b){ adjSet(id, k, ((b.adj[k]||{}).v||0) + (parseInt(v)||0) - (+cs[k]||0)); return; }   // thresholds are worked out; a change by hand is a GM adjustment
+  cs[k]=parseInt(v)||0; render();
+}
 const WHOLE_STOCK = new Set(['packsCharged','packsDepleted']);
 function setStock(id,k,v){ const n=Math.max(0,parseFloat(v)||0); st(id)[k]=WHOLE_STOCK.has(k)?Math.round(n):n; render(); }
 function adj(id,k,d){ const cs=st(id); cs[k]=Math.max(0,cs[k]+d); render(); }
@@ -3102,7 +3108,7 @@ const ATTR_TIPS = {
   pr:'Presence — charisma and confidence. Rolled for Charm, Cool, Leadership and Negotiation.',
 };
 const SHEET_TEXT = ['species','career','specs','morS','morW'];
-const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[0,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
+const SHEET_NUM  = { soakMod:[-10,30], defRMod:[-5,10], defMMod:[-5,10], fr:[0,10], xp:[-9999,99999], xpTotal:[0,99999], credits:[0,99999999], mor:[0,100], conf:[0,99] };
 const SHEET_UI = { id:'', open:{ crate:true, weapons:true, armor:true, tools:true, cons:true, gear:true, tal:true, mor:true, cmd:true, train:true, gen:true } };   // which inventory dropdowns are open — per device, remembered
 try{ Object.assign(SHEET_UI.open, JSON.parse(localStorage.getItem('st_sheet_open')||'{}')); }catch(e){}
 function sheetOpen(k, v){ if(SHEET_UI.open[k]===v) return; SHEET_UI.open[k] = v; try{ localStorage.setItem('st_sheet_open', JSON.stringify(SHEET_UI.open)); }catch(e){} }
@@ -3166,6 +3172,7 @@ function normSheet(cs, c){   // every field well-formed, whatever an old save or
   // committed Force dice are cs.force (the Tracker card's field) — one value for both tabs. A save from
   // before the Force rating existed may have more committed than the default rating: keep the commit.
   delete sh.frCommit;
+  if(sh.b) normBuild(cs);   // the build record (see BUILD) — RTDB drops its empty lists and maps
   if(cs.force > sh.fr) sh.fr = Math.min(SHEET_NUM.fr[1], cs.force);
 }
 function skillList(cs){
@@ -3181,7 +3188,8 @@ function sheetSkill(id, key, field, v){
   const cs = st(id), sk = skillList(cs).find(x=>x.k===key); if(!sk) return;
   const o = cs.sheet.sk[key] || (cs.sheet.sk[key] = {});
   if(field==='r'){ const r = clamp(parseInt(v)||0, 0, SKILL_RANK_MAX); if(r) o.r = r; else delete o.r; }
-  if(field==='c'){ if(v) o.c = 1; else delete o.c; }
+  if(field==='c' && cs.sheet.b){ const xc = cs.sheet.b.xc; if(v){ if(!xc.includes(key)) xc.push(key); } else cs.sheet.b.xc = xc.filter(x=>x!==key); }   // only an extra (custom or unlisted-career) skill can be ticked by hand
+  else if(field==='c'){ if(v) o.c = 1; else delete o.c; }
   if(field==='ch'){ if(ATTR_TIPS[v] && v!==sk.ch) o.ch = v; else delete o.ch; }
   if(!Object.keys(o).length) delete cs.sheet.sk[key];
   render();
@@ -3195,6 +3203,9 @@ function creditAdj(id, sign){   // add or spend the typed amount, so nobody has 
 }
 function sheetSet(id, k, v){
   const sh = st(id).sheet;
+  if(sh.b && ['xp','fr','soakMod','defRMod','defMMod'].includes(k)){   // worked out from the build; a GM changes them with an adjustment
+    const key = { xp:'xp', fr:'fr', soakMod:'soak', defRMod:'defR', defMMod:'defM' }[k];
+    adjSet(id, key, ((sh.b.adj[key]||{}).v||0) + (Math.round(parseFloat(v))||0) - (+sh[k]||0)); return; }
   if(SHEET_TEXT.includes(k)) sh[k] = String(v).slice(0,120);
   else if(SHEET_NUM[k]) sh[k] = clamp(Math.round(parseFloat(v))||0, ...SHEET_NUM[k]);
   if(k==='mor') moralSync(sh);
@@ -3609,8 +3620,12 @@ function skillRowHtml(cs, sk){
   const tdTip = td.notes.concat(td.opts.map(o=>`${o.n} (when it applies): ${o.c}`)).join('\n');
   return `<tr class="${s.career?'career':''}">
     <td class="skn" title="${esc(sk.tip)}">${name} ${chSel}</td>
-    <td class="c"><input type="checkbox" ${s.career?'checked':''} onchange="sheetSkill('${id}','${sk.k}','c',this.checked)" title="Career skill — granted by your career and specializations. Career skills are 5 XP cheaper per rank."></td>
-    <td class="c"><input type="number" min="0" max="${SKILL_RANK_MAX}" value="${s.rank}" onchange="sheetSkill('${id}','${sk.k}','r',this.value)" title="${rankCostTip(s)}">${s.rank<SKILL_RANK_MAX ? `<button class="mini" onclick="skillBuy('${id}','${sk.k}')" ${cs.sheet.xp>=skillCost(s)?'':'disabled'} title="Buy rank ${s.rank+1} for ${skillCost(s)} XP (${s.career?'career skill':'non-career: +5'}). You have ${cs.sheet.xp} XP. Typing in the box changes the rank without spending XP.">▲${skillCost(s)}</button>` : ''}</td>
+    <td class="c">${(()=>{ const b = cs.sheet.b, extra = b && b.xc.includes(sk.k), free = !!sk.cust || extra;   // ticks come from career, specializations and talents; only an extra can be ticked by hand
+      return `<input type="checkbox" ${s.career?'checked':''} ${free ? '' : 'disabled'} onchange="sheetSkill('${id}','${sk.k}','c',this.checked)" title="${s.career ? (extra ? 'Career skill — an extra (Well Rounded, an unlisted career, or a custom skill).' : 'Career skill — from your career, a specialization or a talent.') : 'Not a career skill. Career skills come from your career, specializations and some talents.'} Career skills are 5 XP cheaper per rank.">`; })()}</td>
+    <td class="c">${(()=>{ const o = cs.sheet.sk[sk.k] || {}, f = Math.min(s.rank, Math.round(+o.f)||0);
+      return `<b class="rk" title="${f ? `${f} of these rank${f===1?'':'s'} cost nothing (creation picks or training). ` : ''}${rankCostTip(s)}">${s.rank}</b>` +
+        (s.rank > f ? ` <button class="mini" onclick="skillRefund('${id}','${sk.k}')" ${canRefund()?'':'disabled'} title="${canRefund() ? `Refund rank ${s.rank} (${5*s.rank + (s.career?0:5)} XP back)` : 'Refunds are GM-only right now'}">▼</button>` : '') +
+        (s.rank<SKILL_RANK_MAX ? ` <button class="mini" onclick="skillBuy('${id}','${sk.k}')" ${cs.sheet.xp>=skillCost(s)?'':'disabled'} title="Buy rank ${s.rank+1} for ${skillCost(s)} XP (${s.career?'career skill':'non-career: +5'}). You have ${cs.sheet.xp} XP.">▲${skillCost(s)}</button>` : ''); })()}</td>
     <td><button class="skroll" onclick="rollSkill('${id}','${sk.k}')" title="${ATTRS.find(a=>a[0]===s.ch)[1]} ${s.cv} + rank ${s.rank} → ${s.p} Proficiency, ${s.a} Ability${td.auto?`, ${td.auto} Boost from talents`:''}. Click to load this pool into the Dice tab.${tdTip ? '\n\nTalents:\n'+esc(tdTip) : ''}">${pool || '—'}</button>${tdTag}</td>
   </tr>`;
 }
@@ -3625,7 +3640,8 @@ function renderSheet(){
   const num = (k, cls) => `<input type="number" class="${cls||''}" min="${SHEET_NUM[k][0]}" max="${SHEET_NUM[k][1]}" value="${sh[k]}" onchange="sheetSet('${id}','${k}',this.value)">`;
   const eff = effStrainThresh(cs, c), cb = combatStats(cs);
   const box = (lab, tip, inner, note) => `<div class="sbox" title="${esc(tip)}">${lab}<div class="vals">${inner}</div>${note?`<small>${note}</small>`:''}</div>`;
-  const stat = (k, kt) => `<input type="number" min="0" value="${cs[k]}" onchange="sheetStat('${id}','${k}',this.value)"> / <input type="number" min="0" value="${cs[kt]}" onchange="setThresh('${id}','${kt}',this.value)">`;
+  const bd = sh.b ? buildBreakdown(cs) : null, gmOn = GM_UI.gm;
+  const stat = (k, kt) => `<input type="number" min="0" value="${cs[k]}" onchange="sheetStat('${id}','${k}',this.value)"> / <b class="derived" title="${esc(bd ? bd[kt] : '')}">${cs[kt]}</b>`;
   const skHead = g => `<tr><th>${g} skills</th><th class="c" title="Career skill">Career</th><th class="c">Rank</th><th>Dice pool</th></tr>`;
   const gen = skillList(cs).filter(sk=>sk.g==='General'), genHalf = Math.ceil(gen.length/2), genTrained = gen.filter(sk=>skillState(cs, sk).rank>0).length;
   const genHtml = `<details class="sfold crate" ${SHEET_UI.open.gen?'open':''} ontoggle="sheetOpen('gen',this.open)">
@@ -3650,21 +3666,23 @@ function renderSheet(){
     </div>
     ${creationHtml(cs)}
     <div class="sboxes">
-      ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it).', stat('wounds','wt'), 'current / threshold')}
-      ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation. The tracker lowers the effective threshold for hunger, thirst and exhaustion.', stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
-      ${box('Soak','Soak is subtracted from the damage of every hit. Soak = Brawn + the soak of equipped armor + a bonus for talents such as Enduring (type the bonus here).',
-        `<b class="derived">${cb.soak}</b> <span title="Bonus from talents and anything else">+ ${num('soakMod')}</span>`, `Brawn ${cb.br} + armor ${cb.aSoak} + bonus`)}
-      ${box('Defense','Defense adds that many Setback dice to attacks against you: ranged / melee. Taken from the best equipped armor, plus Deflection (ranged) and Defensive (melee) on equipped weapons, plus a bonus you type for talents.',
-        `<b class="derived">${cb.defR}</b> / <b class="derived">${cb.defM}</b> <span title="Bonus to ranged / melee defense from talents and anything else">+ ${num('defRMod')} / ${num('defMMod')}</span>`,
+      ${box('Wounds','Wounds: current / threshold. Above the threshold you are incapacitated and suffer a critical injury. Threshold = species base + Brawn at creation (later Brawn increases do not raise it) + 2 per Toughened.' + (bd ? '\n\n' + bd.wt : ''), stat('wounds','wt'), 'current / threshold')}
+      ${box('Strain','Strain: current / threshold. Above the threshold you pass out. Threshold = species base + Willpower at creation + 1 per Grit. The tracker lowers the effective threshold for hunger, thirst and exhaustion.' + (bd ? '\n\n' + bd.st : ''), stat('strain','st'), eff!==cs.st && cs.st>0 ? `effective now <b>${eff}</b>` : 'current / threshold')}
+      ${box('Soak','Soak is subtracted from the damage of every hit. Soak = Brawn + the soak of equipped armor (or worn clothing) + Enduring.' + (bd ? '\n\nBonus: ' + bd.soak : ''),
+        `<b class="derived">${cb.soak}</b>`, `Brawn ${cb.br} + armor ${cb.aSoak}${sh.soakMod ? ` + talents ${sh.soakMod}` : ''}`)}
+      ${box('Defense','Defense adds that many Setback dice to attacks against you: ranged / melee. Taken from the best equipped armor, plus Deflection (ranged) and Defensive (melee) on equipped weapons, plus Sixth Sense (ranged) and Superior Reflexes (melee).',
+        `<b class="derived">${cb.defR}</b> / <b class="derived">${cb.defM}</b>`,
         `ranged / melee · armor ${cb.aDef}${cb.defl?` · deflection ${cb.defl}`:''}${cb.dfns?` · defensive ${cb.dfns}`:''}`)}
       ${box('Force','Force rating: the Force dice you roll for a power. Committed dice are locked into an ongoing effect — here, sustaining your body, which slows every need — and are not rolled until you release them. Same value as ✨ Morichro on the Tracker card.',
-        (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
+        (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + `<b class="derived" title="${esc(bd ? bd.fr : '')}">${sh.fr}</b>` +
         ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
-      ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp','xpn')+' / '+num('xpTotal','xpn'), 'available / total')}
+      ${box('XP','Experience: available to spend / total earned (starting XP included). Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; a characteristic can only be bought with starting XP, or raised by Dedication. The GM sets the total (GM tab › Award XP).' + (bd ? '\n\n' + bd.xp : ''),
+        `<b class="derived" style="${sh.xp<0?'color:var(--bad)':''}">${sh.xp}</b> / ${gmOn ? `<input type="number" class="xpn" min="0" value="${sh.xpTotal}" onchange="xpSetTotal('${id}',this.value)" title="GM: total XP earned">` : `<b>${sh.xpTotal}</b>`}`, sh.xp<0 ? 'overspent — refund something' : 'available / total')}
       ${box('Credits','Credits on hand. Type an amount underneath and add or spend it: the sum is done for you.', num('credits','big') + `</div><div class="vals"><input type="number" class="cradj" id="cr_amt_${id}" min="0" placeholder="amount" title="How many credits to add or spend" onkeydown="if(event.key==='Enter')creditAdj('${id}',1)"><button class="mini" onclick="creditAdj('${id}',1)" title="Add this many credits">＋ add</button><button class="mini" onclick="creditAdj('${id}',-1)" title="Spend this many credits">− spend</button>`)}
     </div>
     <div class="sboxes">` + ATTRS.map(([k,n])=>
-      `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
+      `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}${bd ? '\n\n'+esc(bd.attr(k)) : ''}"><b class="chv">${cs.attr[k]}</b>${n}${sh.b ? `<span class="chbuy"><button class="mini" onclick="charBuy('${id}','${k}',-1)" ${(sh.b.ca[k]||0)>0 && canRefund() ? '' : 'disabled'} title="Refund a point bought at creation">−</button><button class="mini" onclick="charBuy('${id}','${k}',1)" ${sh.b.base.attr[k]+(sh.b.ca[k]||0) < CC_ATTR_MAX ? '' : 'disabled'} title="Buy a point: ${10*(sh.b.base.attr[k]+(sh.b.ca[k]||0)+1)} XP, from starting XP only (${buildCalc(cs).spent.chars} of ${buildCalc(cs).startXp} used)">+</button></span>` : ''}</div>`).join('') + `</div>
+    ${sh.b ? adjustHtml(cs) : ''}
     ${genHtml}
     ${gearHtml(cs)}
     ${talentsHtml(cs)}
@@ -3736,7 +3754,7 @@ function talentApply(cs, name, opt){   // returns the marker to store on the box
   if(name==='Insight'){ skCareer(cs.sheet, 'perception', true); skCareer(cs.sheet, 'discipline', true); return 1; }
   if(name==='Well Rounded'){   // two skills of the player's choice; skipping the question still buys the talent
     const v = opt!==undefined ? opt : prompt('Well Rounded: which two skills become career skills? (two names, separated by a comma — or leave blank and tick them on the sheet)', '');
-    for(const n of String(v||'').split(',').slice(0,2)){ const q = normName(n), hit = q && SKILLS.find(x=>normName(x.n)===q || skillNorm(x.n)===skillNorm(n) || normName(x.n).startsWith(q)); if(hit) skCareer(cs.sheet, hit.k, true); }
+    for(const n of String(v||'').split(',').slice(0,2)){ const q = normName(n), hit = q && SKILLS.find(x=>normName(x.n)===q || skillNorm(x.n)===skillNorm(n) || normName(x.n).startsWith(q)); if(hit && cs.sheet.b && !cs.sheet.b.xc.includes(hit.k)) cs.sheet.b.xc.push(hit.k); }
     return 1;
   }
   if(name==='Force Rating'){ if(cs.sheet.fr >= SHEET_NUM.fr[1]) return 1; cs.sheet.fr++; return 2; }
@@ -3775,7 +3793,7 @@ function treeCanRefund(cs, t, nid){   // everything else owned must still be rea
   return seen.size===own.length;
 }
 function treeRefund(id, tid, nid){
-  const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n) return false;
+  const cs = st(id), t = TREE_BY[tid], n = t && t.by[nid]; if(!cs || !n || refundBlocked()) return false;
   if(!treeCanRefund(cs, t, nid)){ alert(`Something further down the tree depends on ${n.n} — refund that first.`); return false; }
   const o = cs.sheet.tr[tid];
   if(t.k==='spec') talentUnapply(cs, n.n, o[nid]);
@@ -3800,7 +3818,7 @@ function specAdd(id, tid, free){
   render(); return true;
 }
 function specRemove(id, tid){
-  const cs = st(id), t = TREE_BY[tid], o = cs && treeOwned(cs, tid); if(!o || !t) return false;
+  const cs = st(id), t = TREE_BY[tid], o = cs && treeOwned(cs, tid); if(!o || !t || refundBlocked()) return false;
   const back = treeNodes(cs, tid).reduce((a,n)=>a+n.c, 0) + (+o._x||0);
   if(t.k==='spec') for(const n of treeNodes(cs, tid)) talentUnapply(cs, n.n, o[n.id]);
   delete cs.sheet.tr[tid]; cs.sheet.xp = Math.min(SHEET_NUM.xp[1], cs.sheet.xp + back);
@@ -3809,6 +3827,163 @@ function specRemove(id, tid){
 }
 function xpSpentOnTrees(cs){
   return Object.keys(cs.sheet.tr).reduce((a,k)=>a + (+cs.sheet.tr[k]._x||0) + treeNodes(cs,k).reduce((b,n)=>b+n.c,0), 0);
+}
+/* ================================================================
+   BUILD — the sheet's numbers come from what was bought, never typed.
+   cs.sheet.b = {
+     sp   species name · car career name (both may be outside the vault)
+     base { attr:{br…pr}, wt, st, soak, xp }  the species' numbers, copied so an unlisted species still works
+     bx   bonus starting XP (the Morality option at creation)
+     ca   { br:n … }  characteristic points bought at creation (10 × each new rating, from starting XP only)
+     xc   [skill keys] extra career skills: Well Rounded picks, an unlisted career, custom skills
+     adj  { key:{ v, why } }  GM adjustments, the only way to set a number by hand (keys: ADJ_KEYS) }
+   cs.sheet.sk[key] = { r total rank, f ranks that cost nothing (creation picks, training), ch }.
+   cs.sheet.xpTotal is the XP budget, starting XP included. Everything else — cs.attr, cs.wt, cs.st, the
+   Force rating, soak / defense bonuses, every career tick and the XP still available — is worked out from
+   the above on each render (buildDerive). A sheet from before this is converted once (buildFromSheet): what
+   its purchases do not explain becomes a labelled adjustment, so nothing anyone sees changes.
+   ================================================================ */
+const ADJ_KEYS = { br:'Brawn', ag:'Agility', int:'Intellect', cun:'Cunning', wil:'Willpower', pr:'Presence',
+  wt:'Wound threshold', st:'Strain threshold', soak:'Soak', defR:'Ranged defense', defM:'Melee defense', fr:'Force rating', xp:'XP available' };
+const ADJ_OLD = 'Carried over from the old sheet — not explained by anything bought';
+const canRefund = () => !(S.hr||{}).gmRefund || (typeof GM_UI!=='undefined' && GM_UI.gm);   // the GM can close the respec window
+function refundBlocked(){ if(canRefund()) return false; alert('Refunds are GM-only right now (GM tab › Award XP).'); return true; }
+const findSpecies = n => RULES_DB.species.find(x=>normName(x.n)===normName(n)) || null;
+const findCareer  = n => RULES_DB.careers.find(x=>normName(x.n)===normName(n)) || null;
+function talentCount(cs, name){ let n = 0; for(const tid of ownedSpecs(cs)) for(const x of treeNodes(cs, tid)) if(x.n===name) n++; return n; }
+function dedications(cs){   // Dedication boxes remember which characteristic they raised
+  const out = {}; for(const tid of ownedSpecs(cs)){ const o = treeOwned(cs, tid); for(const x of treeNodes(cs, tid)) if(x.n==='Dedication' && ATTR_TIPS[o[x.id]]) out[o[x.id]] = (out[o[x.id]]||0) + 1; }
+  return out;
+}
+function normBuild(cs){   // null when there is no usable build yet
+  const sh = cs.sheet, b = sh.b; if(!b || typeof b!=='object' || Array.isArray(b) || !b.base || typeof b.base!=='object') return null;
+  const base = b.base, at = base.attr && typeof base.attr==='object' ? base.attr : {};
+  base.attr = Object.fromEntries(ATTRS.map(([k])=>[k, clamp(Math.round(+at[k])||1, 1, 7)]));
+  for(const k of ['wt','st','soak','xp']) base[k] = clamp(Math.round(+base[k])||0, 0, 999);
+  for(const k of ['sp','car']) if(typeof b[k]!=='string') b[k] = '';
+  b.bx = clamp(Math.round(+b.bx)||0, 0, 99);
+  const ca = b.ca && typeof b.ca==='object' && !Array.isArray(b.ca) ? b.ca : {};
+  b.ca = {}; for(const [k] of ATTRS){ const n = clamp(Math.round(+ca[k])||0, 0, 6); if(n) b.ca[k] = n; }
+  const xc = arrayify(b.xc); b.xc = [...new Set((Array.isArray(xc) ? xc : []).map(String).filter(k=>/^[a-z_0-9]+$/i.test(k)))];
+  const adj = b.adj && typeof b.adj==='object' && !Array.isArray(b.adj) ? b.adj : {};
+  b.adj = {}; for(const k in ADJ_KEYS){ const a = adj[k]; const v = a && Math.round(+a.v); if(v) b.adj[k] = { v:clamp(v, -99999, 99999), why:String((a && a.why)||'').slice(0,160) }; }
+  return b;
+}
+function careerSet(cs){   // every career skill: career, specializations, talents that grant one, and the extras
+  const sh = cs.sheet, b = sh.b, out = new Set(b ? b.xc : []), add = n => { const k = skillKeyByName(n); if(k) out.add(k); };
+  const car = findCareer((b && b.car) || sh.career); if(car) car.skills.forEach(add);
+  for(const tid of ownedSpecs(cs)) (TREE_BY[tid].skills||[]).forEach(add);
+  if(talentCount(cs, 'Secrets of the Jedi')) out.add('lightsaber');
+  if(talentCount(cs, 'Insight')){ out.add('perception'); out.add('discipline'); }
+  return out;
+}
+const skillXp = (r, f, career) => { let x = 0; for(let i = f+1; i <= r; i++) x += 5*i + (career ? 0 : 5); return x; };
+function buildCalc(cs, noAdj){
+  const sh = cs.sheet, b = sh.b, A = {}, adj = k => noAdj ? 0 : +((b.adj[k]||{}).v)||0, T = n => talentCount(cs, n), ded = dedications(cs);
+  for(const [k] of ATTRS) A[k] = clamp(b.base.attr[k] + (b.ca[k]||0) + (ded[k]||0) + adj(k), 1, 7);
+  const crBr = b.base.attr.br + (b.ca.br||0), crWil = b.base.attr.wil + (b.ca.wil||0);   // thresholds use the ratings at creation
+  const car = findCareer(b.car || sh.career);
+  const frBase = Math.max(car && car.fr || 0, ...ownedSpecs(cs).map(t=>TREE_BY[t].grantFr||0), 0);
+  const career = careerSet(cs);
+  let chars = 0; for(const [k] of ATTRS) for(let i = b.base.attr[k]+1; i <= b.base.attr[k] + (b.ca[k]||0); i++) chars += 10*i;
+  let skills = 0; for(const k in sh.sk){ const o = sh.sk[k]; const r = clamp(Math.round(+o.r)||0, 0, SKILL_RANK_MAX); skills += skillXp(r, Math.min(r, Math.round(+o.f)||0), career.has(k)); }
+  const trees = xpSpentOnTrees(cs);
+  return { attr:A, crBr, crWil, career, frBase,
+    wt: Math.max(0, b.base.wt + crBr + 2*T('Toughened') + adj('wt')),
+    st: Math.max(0, b.base.st + crWil + T('Grit') + adj('st')),
+    soakMod: clamp(b.base.soak + T('Enduring') + adj('soak'), ...SHEET_NUM.soakMod),
+    defRMod: clamp(T('Sixth Sense') + adj('defR'), ...SHEET_NUM.defRMod), defMMod: clamp(T('Superior Reflexes') + adj('defM'), ...SHEET_NUM.defMMod),
+    fr: clamp(frBase + T('Force Rating') + (Math.round(+sh.trainFr)||0) + adj('fr'), ...SHEET_NUM.fr),
+    spent:{ chars, skills, trees }, startXp: b.base.xp + b.bx,
+    xp: (sh.xpTotal||0) - chars - skills - trees + adj('xp') };
+}
+function buildFromSheet(cs){   // convert a typed-in sheet: purchases where they can be read off, adjustments for the rest
+  const sh = cs.sheet, sp = findSpecies(sh.species), ded = dedications(cs), cur = { ...cs.attr }, T = n => talentCount(cs, n);
+  const baseAttr = sp ? { ...sp.attr } : Object.fromEntries(ATTRS.map(([k])=>[k, clamp((+cur[k]||1) - (ded[k]||0), 1, 7)]));
+  const b = sh.b = { sp: sp ? sp.n : sh.species, car: sh.career, bx:0, ca:{}, xc:[], adj:{},
+    base:{ attr:baseAttr, wt:0, st:0, soak: sp ? sp.soak||0 : 0, xp: sp ? sp.xp||0 : 0 } };
+  for(const [k] of ATTRS){ const n = (+cur[k]||1) - baseAttr[k] - (ded[k]||0); if(n>0) b.ca[k] = n; }
+  if(!sp){ b.base.wt = Math.max(0, (+cs.wt||0) - (baseAttr.br + (b.ca.br||0)) - 2*T('Toughened')); b.base.st = Math.max(0, (+cs.st||0) - (baseAttr.wil + (b.ca.wil||0)) - T('Grit')); }
+  else { b.base.wt = sp.wt; b.base.st = sp.st; }
+  const derived = careerSet(cs);   // ticks the old sheet had that nothing explains stay career skills
+  for(const k in sh.sk) if(sh.sk[k] && sh.sk[k].c && !derived.has(k)) b.xc.push(k);
+  normBuild(cs);
+  const c = buildCalc(cs, true), want = { wt:+cs.wt||0, st:+cs.st||0, soak:sh.soakMod||0, defR:sh.defRMod||0, defM:sh.defMMod||0, fr:sh.fr||0, xp:sh.xp||0 };
+  for(const [k] of ATTRS) want[k] = +cur[k]||1;
+  const got = { ...c.attr, wt:c.wt, st:c.st, soak:c.soakMod, defR:c.defRMod, defM:c.defMMod, fr:c.fr, xp:c.xp };
+  for(const k in want){ const d = Math.round(want[k] - got[k]); if(d) b.adj[k] = { v:d, why:ADJ_OLD }; }
+  return b;
+}
+function buildDerive(cs){   // write the calculated numbers into the fields the rest of the tracker reads
+  const sh = cs.sheet; if(!sh) return;
+  if(!normBuild(cs)) buildFromSheet(cs);
+  const c = buildCalc(cs), set = (o, k, v) => { if(o[k]!==v) o[k] = v; }, br0 = cs.attr.br;
+  for(const [k] of ATTRS) set(cs.attr, k, c.attr[k]);
+  if(br0!==undefined && c.attr.br!==br0) cs.encThresh = c.attr.br + 5;   // the encumbrance threshold follows Brawn, editable in between
+  set(cs, 'wt', c.wt); set(cs, 'st', c.st);
+  set(sh, 'soakMod', c.soakMod); set(sh, 'defRMod', c.defRMod); set(sh, 'defMMod', c.defMMod); set(sh, 'fr', c.fr);
+  set(sh, 'xp', clamp(c.xp, -9999, SHEET_NUM.xp[1]));
+  if(sh.species !== sh.b.sp && sh.b.sp) sh.species = sh.b.sp;
+  if(sh.career !== sh.b.car && sh.b.car) sh.career = sh.b.car;
+  for(const sk of skillList(cs)){ const want = c.career.has(sk.k), o = sh.sk[sk.k];
+    if(want && !(o && o.c)) (sh.sk[sk.k] || (sh.sk[sk.k] = {})).c = 1;
+    else if(!want && o && o.c){ delete o.c; if(!Object.keys(o).length) delete sh.sk[sk.k]; } }
+  if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs);
+}
+function charBuy(id, k, d){   // a characteristic point: only at creation in the rules — paid from starting XP, 10 × the new rating, 5 at most
+  const cs = st(id), b = cs && cs.sheet.b; if(!b || !ATTR_TIPS[k]) return false;
+  const c = buildCalc(cs), now = b.base.attr[k] + (b.ca[k]||0);
+  if(d>0){ const cost = 10*(now+1);
+    if(now >= CC_ATTR_MAX){ return false; }
+    if(c.spent.chars + cost > c.startXp){ alert(`Characteristics can only be bought with starting XP (${c.startXp}); ${c.spent.chars} of it is already spent and the next ${ATTR_TIPS[k].split(' —')[0]} point costs ${cost}.`); return false; }
+    if(cs.sheet.xp < cost){ alert(`${cfg(id).name} has ${cs.sheet.xp} XP available — that point costs ${cost}.`); return false; }
+    b.ca[k] = (b.ca[k]||0) + 1;
+  } else { if(!(b.ca[k] > 0) || refundBlocked()) return false; b.ca[k]--; if(!b.ca[k]) delete b.ca[k]; }
+  render(); return true;
+}
+function skillRefund(id, key){
+  const cs = st(id), o = cs && cs.sheet.sk[key]; if(!o) return false;
+  const r = Math.round(+o.r)||0, f = Math.round(+o.f)||0; if(r <= f || refundBlocked()) return false;
+  o.r = r - 1; if(!o.r) delete o.r; if(!Object.keys(o).length) delete cs.sheet.sk[key];
+  render(); return true;
+}
+function adjSet(id, k, v, why){   // GM: set (or clear, with 0) an adjustment
+  const cs = st(id), b = cs && cs.sheet.b; if(!b || !ADJ_KEYS[k]) return;
+  const n = Math.round(parseFloat(v))||0, old = b.adj[k];
+  if(n) b.adj[k] = { v:n, why:String(why!==undefined ? why : (old && old.why) || 'GM adjustment').trim().slice(0,160) || 'GM adjustment' }; else delete b.adj[k];
+  if(!old || old.v!==n) logMsg(`🛠 GM ${n ? `sets ${cfg(id).name}'s ${ADJ_KEYS[k]} adjustment to ${n>0?'+':''}${n}` : `clears ${cfg(id).name}'s ${ADJ_KEYS[k]} adjustment`}${n && b.adj[k].why ? ' — '+esc(b.adj[k].why) : ''}.`);
+  render();
+}
+function adjWhy(id, k, why){ const b = st(id).sheet.b; if(b && b.adj[k]){ b.adj[k].why = String(why).trim().slice(0,160); render(); } }
+function xpSetTotal(id, v){
+  const sh = st(id).sheet, n = clamp(Math.round(parseFloat(v))||0, ...SHEET_NUM.xpTotal); if(n===sh.xpTotal) return;
+  logMsg(`⭐ GM sets ${cfg(id).name}'s total XP to ${n} (was ${sh.xpTotal}).`); sh.xpTotal = n; render(); if(TAB==='gm') renderGM();
+}
+function buildBreakdown(cs){   // tooltips: where each number comes from
+  const c = buildCalc(cs), b = cs.sheet.b, T = n => talentCount(cs, n), a = k => (b.adj[k] ? ` ${b.adj[k].v>0?'+':''}${b.adj[k].v} adjustment` : '');
+  return {
+    wt:`Species ${b.base.wt} + Brawn at creation ${c.crBr}${T('Toughened') ? ` + Toughened ×${T('Toughened')} (${2*T('Toughened')})` : ''}${a('wt')}`,
+    st:`Species ${b.base.st} + Willpower at creation ${c.crWil}${T('Grit') ? ` + Grit ×${T('Grit')}` : ''}${a('st')}`,
+    fr:`${c.frBase ? `Career / specialization ${c.frBase}` : 'No Force-sensitive career or specialization'}${T('Force Rating') ? ` + Force Rating talent ×${T('Force Rating')}` : ''}${cs.sheet.trainFr ? ` + training ${cs.sheet.trainFr}` : ''}${a('fr')}`,
+    xp:`${cs.sheet.xpTotal} total − characteristics ${c.spent.chars} − skills ${c.spent.skills} − talents & specializations ${c.spent.trees}${a('xp')} = ${c.xp} available`,
+    soak:`${b.base.soak ? `species ${b.base.soak} + ` : ''}Enduring ×${T('Enduring')}${a('soak')}`,
+    attr:k=>`${ADJ_KEYS[k]}: species ${b.base.attr[k]}${b.ca[k] ? ` + ${b.ca[k]} bought at creation` : ''}${dedications(cs)[k] ? ` + Dedication ×${dedications(cs)[k]}` : ''}${a(k)}`,
+  };
+}
+function adjustHtml(cs){   // the adjustments list: everyone sees it, only the GM changes it
+  const b = cs.sheet.b, id = cs.id, gm = GM_UI.gm, keys = Object.keys(b.adj);
+  if(!keys.length && !gm) return '';
+  const rows = keys.map(k=>{ const a = b.adj[k];
+    return `<tr><td class="skn">${ADJ_KEYS[k]}</td><td class="c">${gm ? `<input type="number" class="n2" value="${a.v}" onchange="adjSet('${id}','${k}',this.value)">` : `<b>${a.v>0?'+':''}${a.v}</b>`}</td>
+      <td style="white-space:normal">${gm ? `<input type="text" style="width:100%" value="${esc(a.why)}" onchange="adjWhy('${id}','${k}',this.value)">` : esc(a.why)}</td>
+      <td>${gm ? `<button class="mini" onclick="adjSet('${id}','${k}',0)" title="Remove this adjustment">✕</button>` : ''}</td></tr>`; }).join('');
+  const add = gm ? `<tr><td><select id="adjK_${id}">${Object.entries(ADJ_KEYS).filter(([k])=>!b.adj[k]).map(([k,n])=>`<option value="${k}">${n}</option>`).join('')}</select></td>
+      <td class="c"><input type="number" class="n2" id="adjV_${id}" placeholder="±"></td><td><input type="text" id="adjW_${id}" style="width:100%" placeholder="why (shown to the player)"></td>
+      <td><button class="mini" onclick="adjSet('${id}',document.getElementById('adjK_${id}').value,document.getElementById('adjV_${id}').value,document.getElementById('adjW_${id}').value)">add</button></td></tr>` : '';
+  const old = keys.filter(k=>b.adj[k].why===ADJ_OLD).length;
+  return `<details class="sfold" ${SHEET_UI.open.adj||old?'open':''} ontoggle="sheetOpen('adj',this.open)"><summary>🛠 GM adjustments <b>${keys.length}</b>${old ? ` <span class="sub" style="color:var(--warn)">· ${old} carried over from the old sheet — review</span>` : ''}</summary>
+    <table class="sktable"><tr><th>Number</th><th class="c">Change</th><th>Why</th><th></th></tr>${rows || `<tr><td colspan="4" style="color:var(--dim)">None — every number comes from what was bought.</td></tr>`}${add}</table>
+    <p class="tinfo" style="margin:4px 8px">Everything on this sheet is worked out from the species, career, specializations, talents and the ranks and characteristics bought with XP. An adjustment is the GM's way to change a number the rules don't cover (cybernetics, a story reward, a house rule).${gm ? '' : ' Only the GM can change these.'}</p></details>`;
 }
 function talentRanks(cs){   // every talent the character owns, ranks added up across specializations
   const out = {};
@@ -4226,6 +4401,7 @@ const ccSpecies = cs => RULES_DB.species.find(x=>x.n===(cs.sheet.cc||{}).sp) || 
 const ccCareer  = cs => RULES_DB.careers.find(x=>x.n===(cs.sheet.cc||{}).car) || null;
 const skName = k => (SKILLS.find(x=>x.k===k)||{n:k}).n;
 function skBump(sh, key, d){ const o = sh.sk[key] || (sh.sk[key] = {}); const r = clamp((+o.r||0)+d, 0, SKILL_RANK_MAX); if(r) o.r = r; else delete o.r; if(!Object.keys(o).length) delete sh.sk[key]; }
+function skFree(sh, key, d){ skBump(sh, key, d); const o = sh.sk[key]; if(o){ const f = clamp((Math.round(+o.f)||0) + d, 0, +o.r||0); if(f) o.f = f; else delete o.f; if(!Object.keys(o).length) delete sh.sk[key]; } }   // a creation pick: a rank that costs nothing
 function skCareer(sh, key, on){ const o = sh.sk[key] || (sh.sk[key] = {}); if(on) o.c = 1; else delete o.c; if(!Object.keys(o).length) delete sh.sk[key]; }
 function ccStart(id){ const sh = st(id).sheet; sh.cc = { step:1, bonus:'', fp:{}, fc:{}, fs:{} }; render(); }
 function ccEnd(id){ delete st(id).sheet.cc; render(); }
@@ -4233,16 +4409,17 @@ function ccStep(id, n){ const cc = st(id).sheet.cc; if(cc){ cc.step = clamp(n, 1
 function ccBlank(id){   // wipe what creation fills in, keeping the walkthrough open
   const cs = st(id), sh = cs.sheet, step = (sh.cc||{}).step || 1;
   Object.assign(sh, { species:'', career:'', specs:'', morS:'', morW:'', mor:50, conf:0, dark:0, xp:0, xpTotal:0, fr:0, sk:{}, tr:{} });
+  if(sh.b) Object.assign(sh.b, { sp:'', car:'', bx:0, ca:{}, xc:[], adj:{} });
   if(cs.force!==undefined) cs.force = 0;
   sh.cc = { step, bonus:'', fp:{}, fc:{}, fs:{} }; render();
 }
 function ccBonus(id, v){
   const sh = st(id).sheet, cc = sh.cc; if(!cc || !CC_BONUS[v]) return;
   const was = CC_BONUS[cc.bonus||''], now = CC_BONUS[v];
-  sh.xp = Math.max(0, sh.xp + now.xp - was.xp); sh.xpTotal = Math.max(0, sh.xpTotal + now.xp - was.xp);
+  sh.xpTotal = Math.max(0, sh.xpTotal + now.xp - was.xp); if(sh.b) sh.b.bx = now.xp;
   sh.mor = now.mor; sh.dark = 0; moralSync(sh); cc.bonus = v; render();
 }
-function ccUnpick(sh, group){ const cc = sh.cc; for(const k in cc[group]) skBump(sh, k, -1); cc[group] = {}; }
+function ccUnpick(sh, group){ const cc = sh.cc; for(const k in cc[group]) skFree(sh, k, -1); cc[group] = {}; }
 function ccPickLimit(cs, group){
   const sp = ccSpecies(cs), car = ccCareer(cs);
   if(group==='fp') return sp && sp.free ? sp.free.n : 0;
@@ -4251,31 +4428,30 @@ function ccPickLimit(cs, group){
 }
 function ccPick(id, group, key){   // toggle one free skill rank
   const cs = st(id), sh = cs.sheet, cc = sh.cc; if(!cc || !SKILLS.some(x=>x.k===key)) return false;
-  if(cc[group][key]){ delete cc[group][key]; skBump(sh, key, -1); render(); return true; }
+  if(cc[group][key]){ delete cc[group][key]; skFree(sh, key, -1); render(); return true; }
   if(Object.keys(cc[group]).length >= ccPickLimit(cs, group) || (+(sh.sk[key]||{}).r||0) >= CC_SKILL_MAX) return false;
-  cc[group][key] = 1; skBump(sh, key, 1); render(); return true;
+  cc[group][key] = 1; skFree(sh, key, 1); render(); return true;
 }
 function ccSetSpecies(id, name){
   const cs = st(id), sh = cs.sheet, cc = sh.cc, sp = RULES_DB.species.find(x=>x.n===name); if(!cc || !sp) return;
   ccUnpick(sh, 'fp');
-  cs.attr = Object.assign({}, sp.attr); cs.encThresh = cs.attr.br + 5;
-  cs.wt = sp.wt + sp.attr.br; cs.st = sp.st + sp.attr.wil;
-  sh.species = sp.n; sh.xp = sh.xpTotal = sp.xp + CC_BONUS[cc.bonus||''].xp;
-  sh.soakMod -= (+cc.spSoak||0); cc.spSoak = sp.soak||0; sh.soakMod += cc.spSoak;   // a species' built-in Enduring (droids)
+  if(!normBuild(cs)) buildFromSheet(cs);
+  const b = sh.b, was = b.base.xp + b.bx;   // a new species: its numbers, and the characteristics bought on the old one come back
+  b.sp = sp.n; b.base = { attr:{ ...sp.attr }, wt:sp.wt, st:sp.st, soak:sp.soak||0, xp:sp.xp||0 }; b.ca = {};
+  for(const k of Object.keys(b.adj)) if(b.adj[k].why===ADJ_OLD) delete b.adj[k];   // creation starts the numbers over
+  sh.species = sp.n; sh.xpTotal = Math.max(sp.xp + b.bx, sh.xpTotal - was + sp.xp + b.bx);   // XP earned beyond the starting amount is kept
+  cs.encThresh = sp.attr.br + 5;
   Object.assign(cc, { sp:sp.n, wtB:sp.wt, stB:sp.st });
   sh.sil = sp.sil===undefined ? 1 : sp.sil;
   const f = sp.free;
-  if(f && Array.isArray(f.of) && f.of.length===f.n) for(const n of f.of){ const k = skillKeyByName(n); if(k){ cc.fp[k] = 1; skBump(sh, k, 1); } }
+  if(f && Array.isArray(f.of) && f.of.length===f.n) for(const n of f.of){ const k = skillKeyByName(n); if(k){ cc.fp[k] = 1; skFree(sh, k, 1); } }
   render();
 }
 function ccSetCareer(id, name){
   const cs = st(id), sh = cs.sheet, cc = sh.cc, car = RULES_DB.careers.find(x=>x.n===name); if(!cc || !car) return;
-  const old = ccCareer(cs), keep = new Set(ownedSpecs(cs).flatMap(t=>TREE_BY[t].skills.map(skillKeyByName)));
   ccUnpick(sh, 'fc');
-  if(old) for(const n of old.skills){ const k = skillKeyByName(n); if(k && !keep.has(k)) skCareer(sh, k, false); }
-  for(const n of car.skills){ const k = skillKeyByName(n); if(k) skCareer(sh, k, true); }
-  if(old && old.fr && !car.fr && sh.fr <= old.fr){ sh.fr = 0; if(cs.force) cs.force = 0; }   // leaving a Force career for one without the Force
-  sh.career = car.n; cc.car = car.n; if(car.fr && sh.fr < car.fr) sh.fr = car.fr;
+  if(!normBuild(cs)) buildFromSheet(cs);
+  sh.b.car = car.n; sh.career = car.n; cc.car = car.n;   // career skills and any Force rating follow from it (buildDerive)
   render();
 }
 function ccSetSpec(id, tid){
@@ -4284,15 +4460,15 @@ function ccSetSpec(id, tid){
   if(cc.spec && treeOwned(cs, cc.spec)){
     const car = ccCareer(cs), keep = new Set(car ? car.skills.map(skillKeyByName) : []), was = TREE_BY[cc.spec];
     specRemove(id, cc.spec);
-    for(const n of was.skills){ const k = skillKeyByName(n); if(k && !keep.has(k)) skCareer(sh, k, false); }
   }
   if(!treeOwned(cs, tid)) specAdd(id, tid, true);
   cc.spec = tid; render();
 }
 function ccOther(id, k, v){   // a species or career that is not in the vault: just the name; the numbers are set by hand
   const sh = st(id).sheet, cc = sh.cc; v = String(v).trim().slice(0,120); if(!cc || !v) return;
-  if(k==='species'){ ccUnpick(sh, 'fp'); sh.soakMod -= (+cc.spSoak||0); delete cc.spSoak; delete cc.sp; delete cc.wtB; delete cc.stB; sh.species = v; }
-  if(k==='career'){ ccUnpick(sh, 'fc'); delete cc.car; sh.career = v; }
+  { const cs = st(id); if(!normBuild(cs)) buildFromSheet(cs); }
+  if(k==='species'){ ccUnpick(sh, 'fp'); delete cc.sp; delete cc.wtB; delete cc.stB; sh.species = v; sh.b.sp = v; sh.b.base.soak = 0; }   // an unlisted species keeps the last numbers and no built-in soak; the GM sets the rest as adjustments
+  if(k==='career'){ ccUnpick(sh, 'fc'); delete cc.car; sh.career = v; sh.b.car = v; }
   render();
 }
 /* ---- builds: one character's sheet as a file. A build is everything the Character Creator and the
@@ -4344,15 +4520,7 @@ function buildUpload(id, inp){
     if(err) alert(err); };
   r.readAsText(f); inp.value = '';
 }
-function ccAttr(id, k, d){   // creation is the only time XP buys a characteristic: 10 × the new rating, 5 at most
-  const cs = st(id), sh = cs.sheet, sp = ccSpecies(cs), cur = cs.attr[k], floor = sp ? sp.attr[k] : 1;
-  if(d>0){ const cost = 10*(cur+1); if(cur >= CC_ATTR_MAX || sh.xp < cost) return false; cs.attr[k]++; sh.xp -= cost; }
-  else { if(cur <= floor) return false; sh.xp += 10*cur; cs.attr[k]--; }
-  const dd = d>0 ? 1 : -1;
-  if(k==='br'){ cs.wt = Math.max(0, cs.wt + dd); cs.encThresh = cs.attr.br + 5; }
-  if(k==='wil') cs.st = Math.max(0, cs.st + dd);
-  render(); return true;
-}
+function ccAttr(id, k, d){ return charBuy(id, k, d>0 ? 1 : -1); }   // creation is the only time XP buys a characteristic (see charBuy)
 function ccCredits(id){ const sh = st(id).sheet; sh.credits = CC_START_CREDITS + CC_BONUS[(sh.cc||{}).bonus||''].cr; render(); }
 function creationHtml(cs){
   const sh = cs.sheet, cc = sh.cc, id = cs.id; if(!cc) return '';
@@ -5451,7 +5619,7 @@ function buildRules(){
   <table><tr><th>Activity (organic / droid)</th><th>Thirst</th><th>Hunger</th><th>Hygiene</th><th>Fatigue (flat /hr)</th><th>🔋 Charge</th><th>🔧 Wear</th></tr>${actRows}</table>
 
   <h2>Characteristics &amp; encumbrance threshold</h2>
-  <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (fill in from the character sheets; sensible defaults provided). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
+  <p>Each card carries the six FFG characteristics — <b>Brawn, Agility, Intellect, Cunning, Willpower, Presence</b> (worked out on the Sheets tab from species, characteristics bought at creation and Dedication). <b>Encumbrance threshold auto-sets to Brawn + 5</b> whenever Brawn is changed (still hand-editable for talents like Burly). Cal's Brawn 2 ⇒ threshold 7.</p>
 
   <h2>🎒 Inventory, auto-tracked consumables &amp; standard weights</h2>
   <p>The inventory is edited on each character's <b>sheet</b> (Sheets tab) and listed on the Tracker card. Only items ticked <b>Carry</b> on the sheet appear on the card, weigh anything, or can be eaten or used; the card's own <b>Eq</b> tick marks what is in hand or worn. Every item links to an entry in the Items database, which supplies its description and starting stats; an <b>alias</b> is the name the card shows. Items with <b>Carry</b> unticked are stowed in the character's <b>Personal Item Storage Crate</b>, which holds <b>${CRATE_CAP} encumbrance</b> for everyone (stowed armor counts at its full encumbrance, a stowed bag counts ${BAG_STOWED_ENC}); going over only raises a warning. Every row has a <b>kind</b> and <b>sub-category</b> taken from its database entry (only an unlinked item is sorted by hand): Weapons, Armor, Clothing, Tools, Food &amp; Drink, Medical, Drugs &amp; Toxins, Gear, Cybernetics and Mods. Each hunger button eats <b>one</b> Food &amp; Drink item of its serving — <b>Snacks</b>, <b>Rations</b> or <b>Meals</b> — and the stimpack button uses one Stimpack. The canteen and droid power packs are tracked on the card and appear in the inventory in italics. Current encumbrance is always the computed sum (qty × enc, rounded up); ~1 enc ≈ 2 kg carried. <b>Armor never counts toward encumbrance</b> (its weight is ignored whatever you enter); <b>weapons and Gear (worn)</b> both do count.</p>
@@ -6219,9 +6387,15 @@ function renderXpAward(){
       <label title="XP for each ticked character. A negative number takes XP back.">XP each <input type="number" id="xpAmt" style="width:80px" value="${esc(GM_UI.xpAmt)}" placeholder="e.g. 15" oninput="GM_UI.xpAmt=this.value" onkeydown="if(event.key==='Enter')xpAward()"></label>
       <input type="text" id="xpWhy" style="flex:1;min-width:160px" maxlength="120" value="${esc(GM_UI.xpWhy)}" placeholder="what for (optional) — goes in the log" oninput="GM_UI.xpWhy=this.value" onkeydown="if(event.key==='Enter')xpAward()">
       <button onclick="xpAward()" title="Add the XP to each ticked character's available and total XP">⭐ award to ${n} character${n===1?'':'s'}</button></div>
-    <table class="sktable" style="max-width:560px"><tr><th class="c"><input type="checkbox" ${n===S.chars.length?'checked':''} onchange="xpAll(this.checked)" title="Tick or untick everyone"></th><th>Character</th><th class="c">Available</th><th class="c">Total earned</th></tr>
-    ${S.chars.map(cs=>`<tr><td class="c"><input type="checkbox" ${sel[cs.id]?'checked':''} onchange="xpToggle('${cs.id}',this.checked)"></td><td class="skn">${esc(cfg(cs.id).name)}</td><td class="c">${cs.sheet.xp}</td><td class="c">${cs.sheet.xpTotal}</td></tr>`).join('')}</table>
-    <p class="tinfo">An award adds to both numbers on each sheet. Players spend the available XP on the Sheets and Talents tabs.</p>`);
+    <table class="sktable" style="max-width:640px"><tr><th class="c"><input type="checkbox" ${n===S.chars.length?'checked':''} onchange="xpAll(this.checked)" title="Tick or untick everyone"></th><th>Character</th><th class="c" title="Total XP earned, starting XP included. Type to set it outright.">Total earned</th><th class="c">Spent</th><th class="c">Available</th><th class="c" title="GM adjustments on the sheet (those carried over from the old sheet need a look)">Adjustments</th></tr>
+    ${S.chars.map(cs=>{ const b = cs.sheet.b, adj = b ? Object.keys(b.adj) : [], old = b ? adj.filter(k=>b.adj[k].why===ADJ_OLD).length : 0, sp = b ? buildCalc(cs).spent : null;
+      return `<tr><td class="c"><input type="checkbox" ${sel[cs.id]?'checked':''} onchange="xpToggle('${cs.id}',this.checked)"></td><td class="skn">${esc(cfg(cs.id).name)}</td>
+      <td class="c"><input type="number" class="xpn" min="0" value="${cs.sheet.xpTotal}" onchange="xpSetTotal('${cs.id}',this.value)"></td>
+      <td class="c" title="${sp ? `characteristics ${sp.chars} · skills ${sp.skills} · talents & specializations ${sp.trees}` : ''}">${sp ? sp.chars+sp.skills+sp.trees : '—'}</td>
+      <td class="c" style="${cs.sheet.xp<0?'color:var(--bad)':''}">${cs.sheet.xp}</td>
+      <td class="c">${adj.length ? `<a style="cursor:pointer;${old?'color:var(--warn)':''}" onclick="SHEET_UI.id='${cs.id}';showTab('sheet')" title="${esc(adj.map(k=>ADJ_KEYS[k]+' '+(b.adj[k].v>0?'+':'')+b.adj[k].v).join(', '))}">${adj.length}${old ? ` (${old} old)` : ''}</a>` : '—'}</td></tr>`; }).join('')}</table>
+    <p class="tinfo">An award raises the total; what is available is the total minus what each sheet has bought. Every number on a sheet is worked out from its purchases — change one by hand with an adjustment on that sheet (visible to the player).</p>
+    <label style="display:block;margin-top:8px" title="On: players can refund skill ranks, characteristics, talents and specializations to rebuild. Off: only the GM (with GM mode on) can refund."><input type="checkbox" ${(S.hr||{}).gmRefund ? '' : 'checked'} onchange="respecSet(this.checked)"> 🔁 <b>Players may refund</b> (respec window open)</label>`);
 }
 
 /* ---- Ships: read-only starship profiles for the GM (SHIPS_DB, ships.js) ----
@@ -6571,9 +6745,8 @@ const trainCat = a => a.cat || (a.ty==='f' ? 'force' : abilCat(a.n, { e:a.e }));
 function trainFrSync(){   // Force rating given by training: added to the sheet once, and taken off again if the entry goes
   for(const cs of S.chars){ const sh = cs.sheet; if(!sh) continue;
     const want = trainOf(cs.id, 'a_').reduce((a,k)=>a + (S.train[k].fr||0), 0), have = Math.round(+sh.trainFr)||0; if(want===have) continue;
-    sh.fr = clamp((Math.round(+sh.fr)||0) + want - have, 0, SHEET_NUM.fr[1]); if(want) sh.trainFr = want; else delete sh.trainFr;
-    if(cs.force > forceCap(cs)) cs.force = forceCap(cs);
-    logMsg(`✦ ${cfg(cs.id).name}'s Force rating is now <b>${sh.fr}</b> (${want>have ? '+' : ''}${want-have} from training).`, 'lf');
+    if(want) sh.trainFr = want; else delete sh.trainFr;   // buildDerive adds it to the Force rating
+    logMsg(`✦ ${cfg(cs.id).name}'s Force rating ${want>have ? 'rises' : 'drops'} by ${Math.abs(want-have)} (training).`, 'lf');
   }
 }
 function trainSession(k){   // a study's session: still running, or over and waiting for its roll
@@ -6645,7 +6818,7 @@ function trainFinish(k){   // a full bar: the GM says what the tier gives, and w
   if(s.kind==='s' && s.sk){
     const sk = SKILLS.find(x=>x.k===s.sk);
     if(!confirm(`${s.n} is complete. Add a rank of ${sk.n} for ${trainNames(s.who)}?`)) return;
-    for(const id of trainWho(s.who)){ const cs = st(id); if(!cs) continue; const o = cs.sheet.sk[s.sk] || (cs.sheet.sk[s.sk] = {}); o.r = Math.min(SKILL_RANK_MAX, (Math.round(+o.r)||0) + 1); }
+    for(const id of trainWho(s.who)){ const cs = st(id); if(!cs) continue; const o = cs.sheet.sk[s.sk] || (cs.sheet.sk[s.sk] = {}); if((Math.round(+o.r)||0) < SKILL_RANK_MAX){ o.r = (Math.round(+o.r)||0) + 1; o.f = (Math.round(+o.f)||0) + 1; } }   // paid in time, not XP
     logMsg(`📚 <b>${esc(trainNames(s.who))}</b> finish${trainWho(s.who).length>1 ? '' : 'es'} ${esc(s.n)}: +1 rank of ${sk.n}.`, 'lg');
   } else {
     const e = prompt(`What does ${s.n} tier ${s.tier} give ${trainNames(s.who)}?\n\nThe GM's wording. It goes on the sheet and among the encounter options.`, ''); if(e===null) return;
@@ -7193,9 +7366,13 @@ const HR_DEFS = [
   ['clean', 'Clean deflection', 'Parry, Reflect and Dodge: a hit with no more net Successes than your ranks (for Dodge, the ranks you used on that attack) is stopped outright. No damage and no critical. Parry and Reflect still cost 3 strain.'],
   ['redir', 'Easier redirects', 'Parry (Improved) and Reflect (Improved) answer 2 Threat or a Despair, not 3 Threat. A ranged hit that is stopped cleanly may be sent at a minion group within short range for the weapon\'s base damage.'],
   ['duel',  'Duel rolls', 'When the attacker or the defender is a Nemesis, Parry and Reflect are rolled: 3 strain, Lightsaber dice plus a Boost die per rank. Each Success cancels one of the attacker\'s, each Advantage gives 1 strain back (3 at most), a Triumph is a riposte. A roll that cancels nothing stops nothing.'] ];
+function respecSet(open){   // the respec window: players may refund, or only the GM can
+  S.hr = Object.assign({ clean:0, redir:0, duel:0 }, S.hr, { gmRefund: open ? 0 : 1 });
+  logMsg(open ? '🔁 Respec window open — players may refund skills, characteristics, talents and specializations.' : '🔒 Respec window closed — refunds are GM-only.'); render(); if(TAB==='gm') renderGM();
+}
 function hrSet(k, on){
   const d = HR_DEFS.find(x=>x[0]===k); if(!d) return;
-  S.hr = Object.assign({ clean:0, redir:0, duel:0 }, S.hr, { [k]: on ? 1 : 0 });
+  S.hr = Object.assign({ clean:0, redir:0, duel:0, gmRefund:0 }, S.hr, { [k]: on ? 1 : 0 });
   logMsg(`📜 House rule ${on ? '<b>on</b>' : 'off'}: ${d[1]}.`); render();
 }
 function hrHtml(gm){   // the GM ticks them; the players see which are on

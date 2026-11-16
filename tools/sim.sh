@@ -25,6 +25,12 @@ var window = { addEventListener(){} }, location = { hash:'', href:'', pathname:'
 var navigator = {}, localStorage = { getItem:()=>null, setItem(){} };
 var Image = function(){ Object.defineProperty(this,'src',{ set(){ this.onerror && this.onerror(); } }); };
 var setInterval = ()=>0, setTimeout = ()=>0, clearTimeout = ()=>0, alert = ()=>{}, prompt = ()=>null, confirm = ()=>true;
+// test helpers: the sheet's numbers are worked out from the build, so tests set them through it
+function adjTo(cs, k, want, now){ const b = cs.sheet.b, v = ((b.adj[k]||{}).v||0) + want - now; if(v) b.adj[k] = { v, why:'test' }; else delete b.adj[k]; buildDerive(cs); return want; }
+function xpTo(cs, n){ cs.sheet.xpTotal += n - buildCalc(cs).xp; buildDerive(cs); return n; }
+function frTo(cs, n){ return adjTo(cs, 'fr', n, buildCalc(cs).fr); }
+function stTo(cs, n){ return adjTo(cs, 'st', n, buildCalc(cs).st); }
+function attrTo(cs, k, n){ return adjTo(cs, k, n, buildCalc(cs).attr[k]); }
 STUB
 # the item catalog (the page loads it from items.js before its own script), then
 # the tracker's script, minus its init() call
@@ -222,6 +228,30 @@ print('\n=== SMOKE TEST — UI code paths ===');
   if(wig.ref!=='Wig' || eva.ref!=='Combat-Rated EVA Suit' || eva.type!=='Armor' || armorState(eva).soak!==2) throw new Error('new custom items not linked');
   if(!/Field rations/.test(invSection(st('cal')).split('Food & Drink')[1].split('Medical')[0])) throw new Error('rations should sit under Food & Drink on the card');
   const cardInv = invSection(st('cal')); if((cardInv.match(/<details/g)||[]).length!==8 || !/class="inv invall"/.test(cardInv) || !/🎒 Inventory/.test(cardInv) || !/repairs by/.test(cardInv) || !/Food & Drink/.test(cardInv) || !/Clothing/.test(cardInv) || !/Medical/.test(cardInv) || !/Tools/.test(cardInv) || !/Weapons/.test(cardInv) || !/Armor/.test(cardInv) || /undefined|NaN/.test(cardInv)) throw new Error('card should have an Inventory dropdown holding five more');
+  { // the build: every number is worked out from what was bought; an old typed-in sheet converts without anything changing
+    fresh(); const cs = st('cal'), sh = cs.sheet;
+    const old = JSON.parse(JSON.stringify(syncSubset(S))), oc = old.chars.find(x=>x.id==='cal');
+    delete oc.sheet.b; oc.attr.ag = 4; oc.wt = 17; oc.st = 12; oc.sheet.fr = 2; oc.sheet.xp = 37; oc.sheet.xpTotal = 1260; oc.sheet.species = 'Human'; oc.sheet.career = 'Jedi';
+    S = migrate(old); render(); const c2 = st('cal'), b = c2.sheet.b;
+    if(c2.attr.ag!==4 || c2.wt!==17 || c2.st!==12 || c2.sheet.fr!==2 || c2.sheet.xp!==37 || !b || b.sp!=='Human') throw new Error('converting a typed sheet changed its numbers');
+    if(!Object.values(b.adj).some(a=>a.why===ADJ_OLD) || !(b.ca.ag>0)) throw new Error('conversion should read characteristic purchases off and label the rest');
+    const nc = SKILLS.find(x=>!careerSet(c2).has(x.k) && !(c2.sheet.sk[x.k]||{}).r).k, xp0 = c2.sheet.xp; if(!skillBuy('cal',nc) || c2.sheet.xp!==xp0-10) throw new Error('rank 1 non-career should cost 10');
+    if(!skillRefund('cal',nc) || c2.sheet.xp!==xp0) throw new Error('skill refund should give the XP back');
+    S.hr.gmRefund = 1; GM_UI.gm = false; skillBuy('cal',nc); if(skillRefund('cal',nc)) throw new Error('refund should be GM-only with the window closed');
+    GM_UI.gm = true; if(!skillRefund('cal',nc)) throw new Error('the GM can always refund'); GM_UI.gm = false; S.hr.gmRefund = 0;
+    c2.sheet.sk.medicine = { r:2, f:2 }; render(); if(c2.sheet.xp!==xp0) throw new Error('free ranks (creation / training) should cost nothing');
+    delete c2.sheet.sk.medicine; render();
+    const sb = buildCalc(c2); b.ca = {}; render(); const free = buildCalc(c2).startXp;   // characteristics: starting XP only
+    let n = 0; while(charBuy('cal','int',1)) n++; if(buildCalc(c2).spent.chars > free) throw new Error('characteristics bought past the starting XP');
+    b.ca = sb.attr ? b.ca : b.ca; render();
+    const wt0 = c2.wt; adjSet('cal','wt',(b.adj.wt||{v:0}).v + 3, 'cybernetic legs'); if(c2.wt!==wt0+3 || b.adj.wt.why!=='cybernetic legs') throw new Error('GM adjustment not applied');
+    sheetSet('cal','fr',5); if(c2.sheet.fr!==5) throw new Error('typing a Force rating should become an adjustment');
+    const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal'); if(!same(prune(JSON.parse(JSON.stringify(w.sheet.b))), prune(JSON.parse(JSON.stringify(b))))) throw new Error('build lost on the wire');
+    SHEET_UI.id = 'cal'; render(); const h = document.getElementById('sheetBody').innerHTML;
+    if(/onchange="setAttr|onchange="setThresh\('cal','wt'|sheetSet\('cal','xp'/.test(h) || !/GM adjustments/.test(h) || /undefined|NaN/.test(adjustHtml(c2))) throw new Error('sheet should show worked-out numbers, not inputs');
+    print(`  build: old sheets convert with nothing changing (differences become labelled adjustments), ranks and characteristics cost what the rules say, refunds can be closed, the GM adjusts`);
+    fresh();
+  }
   { // item kinds: the database link decides the kind; clothing is weightless while worn and protects only without armor
     fresh(); const k = st('kata'); k.inv = k.inv.filter(x=>!isArmor(x) && !isClothing(x)); k.attr.br = 2;
     invAdd('kata','Gear','Heavy Clothing'); const hc = k.inv[k.inv.length-1];
@@ -315,7 +345,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
       if(seen.size!==t.nodes.length) throw new Error('unreachable box in '+t.id);
       const cells = new Set(); for(const n of t.nodes) for(let i=0;i<n.w;i++){ const c = n.y+':'+(n.x+i); if(cells.has(c)) throw new Error('overlapping boxes in '+t.id+' at '+c); cells.add(c); }
     }
-    sh.tr = {}; sh.xp = 100; sh.career = 'Consular'; sh.specs = ''; sh.fr = 1;
+    sh.tr = {}; sh.career = sh.b.car = 'Consular'; sh.specs = ''; frTo(cal,1); xpTo(cal,100);
     const H = TREE_BY['healer'];
     if(treeBuy('cal','healer','r1c1')) throw new Error('bought a talent without the specialization');
     if(specCost(cal,H)!==0 || !specAdd('cal','healer') || sh.xp!==100 || sh.specs!=='Healer') throw new Error('first specialization should be free');
@@ -325,8 +355,8 @@ print('\n=== SMOKE TEST — UI code paths ===');
     if(treeRefund('cal','healer','r1c1')) throw new Error('refund stranded r2c1');
     if(!treeBuy('cal','healer','r1c2') || !treeRefund('cal','healer','r1c1') || sh.xp!==75) throw new Error('refund with another route failed');
     const ph = talentRanks(cal).find(r=>r.n==='Physician'); if(!ph || ph.rank!==2) throw new Error('ranks not added up');
-    sh.xp = 5; if(treeBuy('cal','healer','r3c1')) throw new Error('bought with too little XP'); sh.xp = 100;
-    sh.fr = 0; if(treeBuy('cal','fp-move','basic')) throw new Error('bought a Force power with Force rating 0'); sh.fr = 1;
+    xpTo(cal,5); if(treeBuy('cal','healer','r3c1')) throw new Error('bought with too little XP'); xpTo(cal,100);
+    frTo(cal,0); if(treeBuy('cal','fp-move','basic')) throw new Error('bought a Force power with Force rating 0'); frTo(cal,1);
     if(treeBuy('cal','fp-move','r1c1') || !treeBuy('cal','fp-move','basic') || !treeBuy('cal','fp-move','r1c1') || sh.xp!==85) throw new Error('Force power purchase order wrong');
     if(treeRefund('cal','fp-move','basic') || !treeRefund('cal','fp-move','r1c1') || !treeRefund('cal','fp-move','basic') || sh.tr['fp-move'] || sh.xp!==100) throw new Error('Force power refund wrong');
     specAdd('cal','arbiter-consular'); if(sh.xp!==80 || xpSpentOnTrees(cal)!==45) throw new Error('second specialization should cost 20');
@@ -339,7 +369,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     for(const t of RULES_DB.trees) tBad += (treeHtml(t, cal).match(/undefined|NaN|\[object/g)||[]).length + (treeHtml(t, null).match(/undefined|NaN|\[object/g)||[]).length;
     if(tBad || !/tnode own/.test(tv)) throw new Error('trees tab smoke test failed');
     // Grit / Toughened / Dedication / Force Rating change the sheet when bought and change it back on refund
-    { const st0 = cal.st, wt0 = cal.wt, fr0 = sh.fr, ag0 = cal.attr.ag, br0 = cal.attr.br, xp0 = (sh.xp = 500), tr0 = JSON.stringify(sh.tr);
+    { const st0 = cal.st, wt0 = cal.wt, fr0 = sh.fr, ag0 = cal.attr.ag, br0 = cal.attr.br, xp0 = xpTo(cal,500), tr0 = JSON.stringify(sh.tr);
       const A = 'arbiter-consular';   // r1c3 Grit → r2c3 Toughened → r3c3 → r4c3 → r5c3 Dedication → r5c2 → r5c1 Force Rating
       for(const nid of ['r1c3','r2c3','r3c3','r4c3']) if(!treeBuy('cal',A,nid)) throw new Error('could not buy '+nid);
       if(cal.st!==st0+1 || cal.wt!==wt0+2) throw new Error('Grit / Toughened not applied');
@@ -351,11 +381,11 @@ print('\n=== SMOKE TEST — UI code paths ===');
       const wire = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal'); if(wire.sheet.tr[A].r5c3!=='br' || wire.sheet.tr[A].r1c3!==2 || wire.st!==st0+1) throw new Error('applied talents lost on the wire');
       sh.tr[A].r1c3 = 1;   // a Grit bought before auto-apply existed: refunding it must not take a point away
       for(const nid of ['r5c1','r5c2','r5c3','r4c3','r3c3','r2c3','r1c3']) if(!treeRefund('cal',A,nid)) throw new Error('could not refund '+nid);
-      if(cal.st!==st0+1 || cal.wt!==wt0 || sh.fr!==fr0 || cal.attr.br!==br0 || sh.xp!==xp0) throw new Error('refund did not undo exactly what was applied');
-      cal.st = st0; treeBuy('cal',A,'r1c3'); treeBuy('cal',A,'r2c3'); specRemove('cal',A); if(cal.st!==st0 || cal.wt!==wt0) throw new Error('removing a specialization did not undo its talents');
-      specAdd('cal',A,true); sh.tr = JSON.parse(tr0); sh.xp = 80; sh.specs = 'Healer, Arbiter'; }
-    { const ps = TREE_BY['padawan-survivor-universal'], fr0 = sh.fr; if(ps.grantFr!==1 || ps.skills.join()!=='Deception,Stealth,Streetwise,Vigilance' || !ps.hbSkills || TREE_BY['force-sensitive-exile-universal'].skills.length) throw new Error('Padawan Survivor should grant Force rating 1 and its house-rule skills'); sh.fr = 0; const dc0 = (sh.sk.deception||{}).c; specAdd('cal',ps.id,true); if(!sh.sk.deception.c || !sh.sk.streetwise.c) throw new Error('house-rule career skills not ticked'); if(!dc0) skCareer(sh,'deception',false); skCareer(sh,'streetwise',false); if(sh.fr!==1 || !/Grants Force rating 1/.test(treeHtml(ps, cal))) throw new Error('Force rating not granted'); specRemove('cal',ps.id); sh.fr = fr0; }
-    { const bg = 'bodyguard-hired-gun', sm0 = sh.soakMod, x0 = sh.xp; sh.xp = 500; specAdd('cal',bg,true); for(const n of ['r1c2','r2c2','r2c1','r3c1','r4c1']) treeBuy('cal',bg,n); if(sh.soakMod!==sm0+1) throw new Error('Enduring should add 1 soak'); treeRefund('cal',bg,'r4c1'); if(sh.soakMod!==sm0) throw new Error('refunding Enduring should take the soak back'); specRemove('cal',bg); for(const n of TREE_BY[bg].skills){ const k = skillKeyByName(n); if(k && sh.sk[k] && !sh.sk[k].r) delete sh.sk[k]; } sh.xp = x0; sh.specs = sh.specs.replace(/,? ?Bodyguard/,''); }
+      if(cal.st!==st0 || cal.wt!==wt0 || sh.fr!==fr0 || cal.attr.br!==br0 || sh.xp!==xp0) throw new Error('refund did not undo exactly what was applied');   // the numbers follow what is owned, whatever the box remembers
+      treeBuy('cal',A,'r1c3'); treeBuy('cal',A,'r2c3'); specRemove('cal',A); if(cal.st!==st0 || cal.wt!==wt0) throw new Error('removing a specialization did not undo its talents');
+      specAdd('cal',A,true); sh.tr = JSON.parse(tr0); xpTo(cal,80); sh.specs = 'Healer, Arbiter'; }
+    { const ps = TREE_BY['padawan-survivor-universal'], fr0 = sh.fr; if(ps.grantFr!==1 || ps.skills.join()!=='Deception,Stealth,Streetwise,Vigilance' || !ps.hbSkills || TREE_BY['force-sensitive-exile-universal'].skills.length) throw new Error('Padawan Survivor should grant Force rating 1 and its house-rule skills'); const car0 = sh.b.car; sh.career = sh.b.car = 'Smuggler'; buildDerive(cal); if(sh.fr!==0) throw new Error('a Smuggler should have no Force rating'); const dc0 = (sh.sk.deception||{}).c; specAdd('cal',ps.id,true); if(!sh.sk.deception.c || !sh.sk.streetwise.c) throw new Error('house-rule career skills not ticked'); if(!dc0) skCareer(sh,'deception',false); skCareer(sh,'streetwise',false); if(sh.fr!==1 || !/Grants Force rating 1/.test(treeHtml(ps, cal))) throw new Error('Force rating not granted'); specRemove('cal',ps.id); sh.career = sh.b.car = car0; buildDerive(cal); if(sh.fr!==fr0) throw new Error('Force rating not restored'); }
+    { const bg = 'bodyguard-hired-gun', sm0 = sh.soakMod, x0 = sh.xp; xpTo(cal,500); specAdd('cal',bg,true); for(const n of ['r1c2','r2c2','r2c1','r3c1','r4c1']) treeBuy('cal',bg,n); if(sh.soakMod!==sm0+1) throw new Error('Enduring should add 1 soak'); treeRefund('cal',bg,'r4c1'); if(sh.soakMod!==sm0) throw new Error('refunding Enduring should take the soak back'); specRemove('cal',bg); for(const n of TREE_BY[bg].skills){ const k = skillKeyByName(n); if(k && sh.sk[k] && !sh.sk[k].r) delete sh.sk[k]; } xpTo(cal,x0); sh.specs = sh.specs.replace(/,? ?Bodyguard/,''); }
     specRemove('cal','healer'); if(sh.xp!==105 || sh.tr.healer || /Healer/.test(sh.specs)) throw new Error('removing a specialization should refund it');
     print(`  trees: ${RULES_DB.trees.length} trees and ${Object.keys(RULES_DB.talents).length} talents load, every box is reachable and on the grid, buy / refund / specialization costs check out`);
     S = migrate(JSON.parse(keep)); showTab('tracker');
@@ -383,11 +413,11 @@ print('\n=== SMOKE TEST — UI code paths ===');
     if(tallyRoll('obl', 36).hit || tallyRoll('obl', 1).hit.who!==first || !tallyRoll('obl', 22).dbl || tallyRoll('obl', 35).hit.who===first) throw new Error('obligation table wrong');
     const mw = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal').sheet;
     if(mw.mor!==85 || mw.obl.length!==1 || mw.obl[0].n!=='Bounty' || !Array.isArray(mw.duty)) throw new Error('morality / obligation lost on the wire');
-    sh.tr = {}; sh.sk = {}; sh.xp = 100; sh.specs = ''; specAdd('cal','healer');
+    sh.tr = {}; sh.sk = {}; xpTo(cal,100); sh.specs = ''; specAdd('cal','healer');
     if(!sh.sk.medicine || !sh.sk.medicine.c || !sh.sk.xenology.c || !sh.sk.education.c || !sh.sk.discipline.c) throw new Error('specialization career skills not ticked');
     const noKey = [...new Set(RULES_DB.trees.filter(t=>t.k==='spec').flatMap(t=>t.skills).filter(n=>!skillKeyByName(n) && !/choice|any/i.test(n)))]; if(noKey.length) throw new Error('career skills with no sheet skill: '+noKey.join(', '));
     if(!skillBuy('cal','medicine') || sh.xp!==95 || !skillBuy('cal','medicine') || sh.xp!==85 || !skillBuy('cal','stealth') || sh.xp!==75 || sh.sk.stealth.r!==1) throw new Error('skill purchase cost wrong');
-    sh.xp = 4; if(skillBuy('cal','medicine')) throw new Error('bought a skill rank without the XP');
+    xpTo(cal,4); if(skillBuy('cal','medicine')) throw new Error('bought a skill rank without the XP');
     SHEET_UI.id = 'cal'; render(); const h = document.getElementById('sheetBody').innerHTML;
     if(!/Morality, Obligation/.test(h) || !/Bounty/.test(h) || /undefined|NaN|\[object/.test(moralityHtml(cal))) throw new Error('morality section broken');
     print(`  morality: conflict resolves, the dark side sticks until 70, obligation / duty table rolls (${ROLLS.length-n0} feed entries), specializations tick career skills, skill ranks cost XP`);
@@ -419,7 +449,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     { if(RULES_DB.careers.length!==20 || RULES_DB.careers.find(x=>x.n==='Jedi').fr!==1 || RULES_DB.careers.find(x=>x.n==='Jedi').free!==3 || RULES_DB.trees.filter(t=>t.k==='spec' && t.career==='Clone Soldier').length!==6 || TREE_BY['fp-bind'].fr!==2) throw new Error('careers or Bind prerequisite wrong'); const sk1 = JSON.stringify(sh.sk), car1 = sh.cc.car, fr1 = sh.fr, spec1 = sh.cc.spec;
       ccSetCareer('cal','Smuggler'); if(sh.fr!==0 || !sh.sk.streetwise.c || ccPickLimit(cal,'fc')!==4 || sh.sk.cool && sh.sk.cool.c && !TREE_BY[spec1].skills.includes('Cool')) throw new Error('Edge career not applied');
       for(const k of ['coordination','deception','perception','streetwise']) if(!ccPick('cal','fc',k)) throw new Error('four free career ranks expected'); if(ccPick('cal','fc','skulduggery')) throw new Error('fifth free rank allowed');
-      if(!RULES_DB.trees.some(t=>t.k==='spec' && t.career==='Smuggler')) throw new Error('no Smuggler trees'); ccSetCareer('cal',car1); if(sh.fr!==1) throw new Error('Force rating not restored'); sh.fr = fr1; }
+      if(!RULES_DB.trees.some(t=>t.k==='spec' && t.career==='Smuggler')) throw new Error('no Smuggler trees'); ccSetCareer('cal',car1); if(sh.fr!==1) throw new Error('Force rating not restored'); frTo(cal,fr1); }
     { const dr = RULES_DB.species.find(x=>x.n==='Droid'); if(!dr || dr.hb || !dr.droid || dr.careerFree!==6 || dr.specFree!==3 || dr.soak!==1 || dr.xp!==175) throw new Error('Droid species did not import');
       const kb = JSON.stringify(S); ccStart('bd1'); const bd = st('bd1'), bs = bd.sheet; ccSetSpecies('bd1','Droid'); ccSetCareer('bd1','Explorer');
       if(bd.attr.int!==1 || bd.wt!==11 || bs.xp!==175 || bs.soakMod!==1 || ccPickLimit(bd,'fc')!==6 || ccPickLimit(bd,'fs')!==3 || !/Droid/.test(creationHtml(bd)) && false) throw new Error('Droid species not applied');
@@ -1011,7 +1041,7 @@ print('\n=== SMOKE TEST — UI code paths ===');
     const keep = JSON.stringify(S), cal = st('cal'), sh = cal.sheet, n0 = ROLLS.length;
     const nd = Object.values(RULES_DB.talents).filter(t=>t.d); if(nd.length<40) throw new Error('talent dice did not import');
     for(const t of nd) for(const e of t.d){ if(!TD_WORD[e.t] || !(e.n>0) || !e.sk.length) throw new Error('bad talent dice entry'); for(const n of e.sk) if(!tdSkillKeys(n).length) throw new Error('talent dice names an unknown skill: '+n); }
-    sh.tr = {}; sh.sk = { stealth:{r:2}, mechanics:{r:1}, ranged_light:{r:2} }; sh.xp = 900; cal.attr.ag = 3; cal.attr.int = 2;
+    sh.tr = {}; sh.sk = { stealth:{r:2}, mechanics:{r:1}, ranged_light:{r:2} }; attrTo(cal,'ag',3); attrTo(cal,'int',2); xpTo(cal,900);
     specAdd('cal','padawan-survivor-universal',true); for(const n of ['r1c1','r2c1','r2c2','r2c3']) treeBuy('cal','padawan-survivor-universal',n);   // Sleight of Mind: +1 Boost to Stealth
     specAdd('cal','mechanic-technician',true); for(const n of ['r1c1','r2c1','r2c2','r2c3']) treeBuy('cal','mechanic-technician',n);                 // Gearhead ×2: ignore 2 Setback on Mechanics
     specAdd('cal','gunslinger-smuggler',true); for(const n of ['r1c2','r1c3','r2c3']) treeBuy('cal','gunslinger-smuggler',n);                       // Quick Strike ×2: situational
