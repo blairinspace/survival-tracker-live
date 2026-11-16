@@ -177,7 +177,8 @@
   .sbox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;align-items:center;text-align:center}
   .sbox .vals{display:flex;gap:5px;align-items:center;color:var(--dim);font-size:12px;text-transform:none;letter-spacing:0}
   .sbox input[type=number]{width:46px;font-size:15px;font-weight:700;text-align:center}
-  .sbox input.big{width:92px}
+  .sbox input.big{width:132px}
+  .sbox input.cradj{width:84px;font-size:12px;font-weight:400}
   .sbox small{font-size:9.5px;text-transform:none;letter-spacing:0}
   .sbox.chr{min-width:86px} .sbox.chr input{font-size:20px;width:58px;border-radius:50%;height:58px;border-width:2px;border-color:var(--gold)}
   .skillcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start}
@@ -205,7 +206,7 @@
   .sktable input.wname{width:150px} .sktable input.wq{width:170px} .sktable input.n2{width:54px}
   .sktable tr.uneq td{opacity:.6} .sktable tr.uneq td.keep{opacity:1}
   button.eqbtn{font-size:13px;padding:1px 6px;opacity:.45} button.eqbtn.on{opacity:1;border-color:var(--gold);color:var(--gold)}
-  .sbox input.xpn{width:58px}
+  .sbox input.xpn{width:86px}
   .sbox b.derived{font-size:20px;color:var(--text)}
   .wcard{border:1px solid #5a1d1d;background:#1a1012;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:12.5px}
   .wcard b{color:var(--text)} .wcard .q{color:var(--dim);font-size:11.5px;display:block;margin-top:2px}
@@ -739,6 +740,7 @@
   <div id="gmNpcs" style="display:none"></div>
   <div id="gmScenes" style="display:none"></div>
   <div id="gmShips" style="display:none"></div>
+  <div id="gmXp" style="display:none"></div>
 </div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
@@ -3060,6 +3062,13 @@ function sheetSkill(id, key, field, v){
   if(!Object.keys(o).length) delete cs.sheet.sk[key];
   render();
 }
+function creditAdj(id, sign){   // add or spend the typed amount, so nobody has to do the sum
+  const cs = st(id), el = document.getElementById('cr_amt_'+id), n = Math.round(Math.abs(parseFloat(el && el.value))) || 0; if(!cs || !n) return;
+  const have = cs.sheet.credits||0;
+  if(sign<0 && n>have){ alert(`${cfg(id).name} has ${have.toLocaleString()} credits — ${n.toLocaleString()} is more than that.`); return; }
+  cs.sheet.credits = clamp(have + sign*n, ...SHEET_NUM.credits); if(el) el.value = '';
+  logMsg(`💰 ${cfg(id).name} ${sign>0 ? 'gains' : 'spends'} ${n.toLocaleString()} credits (${cs.sheet.credits.toLocaleString()} on hand).`); render();
+}
 function sheetSet(id, k, v){
   const sh = st(id).sheet;
   if(SHEET_TEXT.includes(k)) sh[k] = String(v).slice(0,120);
@@ -3512,7 +3521,7 @@ function renderSheet(){
         (cs.force===undefined ? '' : `<input type="number" min="0" max="${forceCap(cs)}" value="${cs.force}" onchange="setForce('${id}',this.value)"> / `) + num('fr') +
         ` <button class="mini force" onclick="rollForce('${id}')" ${sh.fr-(cs.force||0)>0?'':'disabled'} title="Load ${Math.max(0,sh.fr-(cs.force||0))} uncommitted Force dice into the Dice tab">roll</button>`, cs.force===undefined ? 'rating' : 'committed / rating')}
       ${box('XP','Experience: available to spend / total earned. Skills cost 5 × new rank (+5 non-career); talents cost 5–25 by row; raising a characteristic is only possible at creation or with the Dedication talent.', num('xp','xpn')+' / '+num('xpTotal','xpn'), 'available / total')}
-      ${box('Credits','Credits on hand.', num('credits','big'))}
+      ${box('Credits','Credits on hand. Type an amount underneath and add or spend it: the sum is done for you.', num('credits','big') + `</div><div class="vals"><input type="number" class="cradj" id="cr_amt_${id}" min="0" placeholder="amount" title="How many credits to add or spend" onkeydown="if(event.key==='Enter')creditAdj('${id}',1)"><button class="mini" onclick="creditAdj('${id}',1)" title="Add this many credits">＋ add</button><button class="mini" onclick="creditAdj('${id}',-1)" title="Spend this many credits">− spend</button>`)}
     </div>
     <div class="sboxes">` + ATTRS.map(([k,n])=>
       `<div class="sbox chr" title="${esc(ATTR_TIPS[k])}"><input type="number" min="1" max="7" value="${cs.attr[k]}" onchange="setAttr('${id}','${k}',this.value)">${n}</div>`).join('') + `</div>
@@ -4173,9 +4182,21 @@ function buildDownload(id){
   const blob = new Blob([JSON.stringify(buildExport(id), null, 1)], {type:'application/json'}), a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `build_${cfg(id).name.replace(/[^A-Za-z0-9]+/g,'_')}.json`; a.click();
 }
+/* A file picker that lives on <body>, outside anything render() rewrites. A picker inside rendered HTML is
+   replaced whenever the page redraws (a room update, a clock tick) while the dialog is open, and the chosen
+   file is then dropped without a word. */
+let PICK_INP = null;
+function pickFile(accept, cb){
+  if(PICK_INP) PICK_INP.remove();
+  const inp = PICK_INP = document.createElement('input');
+  inp.type = 'file'; inp.accept = accept; inp.style.display = 'none';
+  inp.onchange = () => { try{ cb(inp); } finally { inp.remove(); if(PICK_INP===inp) PICK_INP = null; } };
+  document.body.appendChild(inp); inp.click();
+}
 function buildUpload(id, inp){
   const f = inp.files[0]; if(!f) return;
   const r = new FileReader();
+  r.onerror = () => alert('That file could not be read. If it is in iCloud, make sure it has finished downloading.');
   r.onload = e => { let err; try{ const b = JSON.parse(e.target.result);
       if(!confirm(`Replace ${cfg(id).name}'s sheet with this build${b && b.name ? ` (“${b.name}”)` : ''}? Skills, talents, XP, bio and Morality are overwritten. Inventory and credits are kept.`)) return;
       err = buildApply(id, b); }catch(x){ err = 'That file could not be read.'; }
@@ -4207,8 +4228,7 @@ function creationHtml(cs){
     <p>The species, career and specializations shown beside the name are set by the steps below. Go in order: choosing a species sets characteristics, thresholds and starting XP, so do it <b>before</b> spending any XP.</p>
     <p><button class="mini" onclick="if(confirm('Blank ${esc(cfg(id).name).replace(/'/g,'’')}’s species, career, specializations, skills, talents, XP and Morality? Gear and credits are kept.'))ccBlank('${id}')" title="Clear what creation fills in. Gear, credits and the tracker's needs are kept.">⟲ start from a blank sheet</button>
       <button class="mini" onclick="buildDownload('${id}')" title="Save this character's build (sheet, skills, talents, XP, bio, Morality) to a file. Inventory and credits are not included.">⬇ export build</button>
-      <button class="mini" onclick="document.getElementById('buildFile_${id}').click()" title="Load a build file onto this character. It replaces the sheet and keeps the inventory and credits.">⬆ import build</button>
-      <input type="file" id="buildFile_${id}" accept=".json" style="display:none" onchange="buildUpload('${id}',this)"></p>`;
+      <button class="mini" onclick="pickFile('.json', inp=>buildUpload('${id}',inp))" title="Load a build file onto this character. It replaces the sheet and keeps the inventory and credits.">⬆ import build</button></p>`;
   else if(step===2) body = `<p><b>Morality</b> starts at 50. Pick <b>one</b> starting option:</p>
     <div class="ccsteps">${Object.keys(CC_BONUS).filter(Boolean).map(k=>`<button class="chip ${cc.bonus===k?'on':''}" onclick="ccBonus('${id}','${cc.bonus===k?'':k}')">${CC_BONUS[k].label}</button>`).join('')}</div>
     <p>Then choose an <b>emotional strength</b> and its paired <b>weakness</b>, or roll for them. They have no rules effect; they tell you what tempts the character.</p>
@@ -5761,7 +5781,7 @@ async function roomCopyLink(){
                     wt, st, xp, ab [[name,text]], sub [{n, ab, a?, wt?, st?, xp?}] }
    ================================================================ */
 let SPECIES_DB = null, SPECIES_WAIT = null;
-const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3, shq:'', ship:-1 };
+const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3, shq:'', ship:-1, xpSel:null, xpAmt:'', xpWhy:'' };
 function speciesLoad(cb){
   if(SPECIES_DB) return cb();
   if(typeof SPECIES!=='undefined'){ SPECIES_DB = SPECIES; return cb(); }
@@ -5858,14 +5878,42 @@ function gmSec(s){ GM_UI.sec = s; renderGM(); }
 function renderGM(){
   const nav = document.getElementById('gmNav'); if(!nav || !SPECIES_DB) return;
   const u = GM_UI; if(!u.gm) u.sec = 'species';
-  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`], ['ships', `Ships${(SHIPS_DB||[]).length ? ' ('+SHIPS_DB.length+')' : ''}`]] : []);
+  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`], ['ships', `Ships${(SHIPS_DB||[]).length ? ' ('+SHIPS_DB.length+')' : ''}`], ['xp','Award XP']] : []);
   nav.innerHTML = secs.map(([k,l])=>`<button class="chip ${u.sec===k?'on':''}" onclick="gmSec('${k}')">${l}</button>`).join('') +
     `<label style="margin-left:auto" title="For whoever is running the game: shows the NPC builder and library on this device. Honor system — it hides the GM's tools, it does not lock them."><input type="checkbox" ${u.gm?'checked':''} onchange="gmMode(this.checked)"> 🎭 GM mode</label>`;
   document.getElementById('gmSpecies').style.display = u.sec==='species' ? '' : 'none';
   document.getElementById('gmNpcs').style.display    = u.sec==='npcs' ? '' : 'none';
   document.getElementById('gmScenes').style.display  = u.sec==='scenes' ? '' : 'none';
   document.getElementById('gmShips').style.display   = u.sec==='ships' ? '' : 'none';
-  if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else if(u.sec==='ships') renderShips(); else renderSpecies();
+  document.getElementById('gmXp').style.display      = u.sec==='xp' ? '' : 'none';
+  if(u.sec==='xp') renderXpAward(); else if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else if(u.sec==='ships') renderShips(); else renderSpecies();
+}
+
+/* ---- Award XP: the GM hands out experience at the end of a session. An award raises both numbers on the
+   sheet — available to spend and total earned — for everyone ticked. A negative amount takes a mistake back. */
+function xpSel(){ return GM_UI.xpSel || (GM_UI.xpSel = Object.fromEntries(S.chars.filter(cs=>S.visible[cs.id]!==false).map(cs=>[cs.id,1]))); }
+function xpToggle(id, on){ const sel = xpSel(); if(on) sel[id] = 1; else delete sel[id]; renderXpAward(); }
+function xpAll(on){ GM_UI.xpSel = on ? Object.fromEntries(S.chars.map(cs=>[cs.id,1])) : {}; renderXpAward(); }
+function xpAward(){
+  const n = Math.round(parseFloat(GM_UI.xpAmt)) || 0, sel = xpSel(), who = S.chars.filter(cs=>sel[cs.id]);
+  if(!n){ alert('Type how much XP to award.'); return; }
+  if(!who.length){ alert('Tick at least one character.'); return; }
+  for(const cs of who){ const sh = cs.sheet;
+    sh.xp = clamp(sh.xp + n, ...SHEET_NUM.xp); sh.xpTotal = clamp(sh.xpTotal + n, ...SHEET_NUM.xpTotal); }
+  const why = String(GM_UI.xpWhy||'').trim().slice(0,120), names = who.length===S.chars.length ? 'everyone' : who.map(cs=>cfg(cs.id).name).join(', ');
+  logMsg(`⭐ GM ${n>0 ? 'awards' : 'takes back'} ${Math.abs(n)} XP ${n>0 ? 'to' : 'from'} ${names}${why ? ' — '+esc(why) : ''}.`);
+  GM_UI.xpAmt = ''; GM_UI.xpWhy = ''; render(); renderGM();
+}
+function renderXpAward(){
+  const box = document.getElementById('gmXp'); if(!box) return;
+  const sel = xpSel(), n = S.chars.filter(cs=>sel[cs.id]).length;
+  setHtml(box, `<div class="itembar">
+      <label title="XP for each ticked character. A negative number takes XP back.">XP each <input type="number" id="xpAmt" style="width:80px" value="${esc(GM_UI.xpAmt)}" placeholder="e.g. 15" oninput="GM_UI.xpAmt=this.value" onkeydown="if(event.key==='Enter')xpAward()"></label>
+      <input type="text" id="xpWhy" style="flex:1;min-width:160px" maxlength="120" value="${esc(GM_UI.xpWhy)}" placeholder="what for (optional) — goes in the log" oninput="GM_UI.xpWhy=this.value" onkeydown="if(event.key==='Enter')xpAward()">
+      <button onclick="xpAward()" title="Add the XP to each ticked character's available and total XP">⭐ award to ${n} character${n===1?'':'s'}</button></div>
+    <table class="sktable" style="max-width:560px"><tr><th class="c"><input type="checkbox" ${n===S.chars.length?'checked':''} onchange="xpAll(this.checked)" title="Tick or untick everyone"></th><th>Character</th><th class="c">Available</th><th class="c">Total earned</th></tr>
+    ${S.chars.map(cs=>`<tr><td class="c"><input type="checkbox" ${sel[cs.id]?'checked':''} onchange="xpToggle('${cs.id}',this.checked)"></td><td class="skn">${esc(cfg(cs.id).name)}</td><td class="c">${cs.sheet.xp}</td><td class="c">${cs.sheet.xpTotal}</td></tr>`).join('')}</table>
+    <p class="tinfo">An award adds to both numbers on each sheet. Players spend the available XP on the Sheets and Talents tabs.</p>`);
 }
 
 /* ---- Ships: read-only starship profiles for the GM (SHIPS_DB, ships.js) ----
@@ -6147,7 +6195,7 @@ function npcEditor(n){
       ${sp ? `<button class="mini" onclick="npcSpeciesNumbers('${id}',true)" title="Set characteristics, soak and thresholds from this species (replaces the current numbers)">↺ use ${esc(sp.n)} numbers</button>` : ''}</div>
     <div class="npcrow"><label title="Shown in the library, on encounter cards and as the map token. Automatic unless you change it.">picture ${npcIcon(n) || '<span style="color:var(--dim)">none</span>'}</label>
       <label title="Use another species' icon without changing this NPC's species">icon from <input type="text" list="npcSpeciesList" placeholder="a species…" style="width:130px" onchange="npcSetIcon('${id}',this.value)"></label>
-      <button class="mini" onclick="document.getElementById('npcImgFile').click()" title="Pick a picture from this device. It is cropped square and shrunk to token size.">⬆ upload</button><input type="file" id="npcImgFile" accept="image/*" style="display:none" onchange="npcUploadImg('${id}',this)">
+      <button class="mini" onclick="pickFile('image/*', inp=>npcUploadImg('${id}',inp))" title="Pick a picture from this device. It is cropped square and shrunk to token size.">⬆ upload</button>
       <label title="Paste a link to a picture on the web">or link <input type="text" placeholder="https://…" style="width:150px" value="${n.img.startsWith('https:') ? esc(n.img) : ''}" onchange="npcSetImg('${id}',this.value)"></label>
       ${n.img || (n.k && n.k!==((sp||{}).k||'')) ? `<button class="mini" onclick="npcResetImg('${id}')" title="Go back to the automatic picture">↺ default</button>` : `<span style="color:var(--dim);font-size:11px">automatic</span>`}</div>
     <div class="spattrs npcattrs">${n.a.map((v,i)=>`<div><input type="number" min="0" max="9" value="${v}" title="${ATTRS[i][1]}" onchange="npcAttr('${id}',${i},this.value)"><span>${ATTRS[i][1].slice(0,3)}</span></div>`).join('')}</div>
@@ -6391,7 +6439,7 @@ function renderTrain(){
   const withSel = id => grp ? '' : `<label title="A study two characters hold together, such as a Force bond">shared with <select id="${id}"><option value="">nobody</option>${CHARS.filter(c=>c.id!==who).map(c=>`<option value="${c.id}">${esc(c.name.split(' ')[0])}</option>`).join('')}</select></label>`;
   box.innerHTML = `<div class="itembar">${CHARS.map(c=>chip(c.id, c.name.split(' ')[0])).join('')}${chip('group', 'Group research')}
       <span style="margin-left:auto"></span><button class="mini" onclick="trainExport()" title="Save everything on this tab to a file">⬇ export</button>
-      <button class="mini" onclick="document.getElementById('trainFile').click()" title="Load training from a file (it replaces what is here)">⬆ import</button><input type="file" id="trainFile" accept=".json" style="display:none" onchange="trainImport(this)"></div>
+      <button class="mini" onclick="pickFile('.json', trainImport)" title="Load training from a file (it replaces what is here)">⬆ import</button></div>
     ${any ? '' : `<p style="color:var(--dim);font-size:12.5px;margin-bottom:10px">Nothing here yet. Add a study below, or use ⬆ import to load the group's training from a file.</p>`}
     <h4>${grp ? 'Group research' : esc(cfg(who).name)+' — in training'}</h4>
     ${ss.length ? `<div class="tlist">${ss.map(k=>trainRowHtml(k, true)).join('')}</div>` : `<p style="color:var(--dim);font-size:12px">No studies under way.</p>`}
@@ -7240,7 +7288,7 @@ function renderMap(){
     (gm && !sp ? `<span style="margin-left:auto"></span>` + (src ? tool('cal','📏 Set scale','Drag across a distance you call Short range. Every other band follows from it.') +
         `<span title="Token size. It follows the scale (about one person wide); nudge it here if this map needs bigger or smaller tokens." style="font-size:11.5px;color:var(--dim);white-space:nowrap">tokens <button class="mini" onclick="mapTokenSize(-1)">−</button><button class="mini" onclick="mapTokenSize(1)">+</button></span><button class="mini atk" onclick="sceneSave()" title="Keep this map, its scale and lines, and the NPCs in the encounter with their positions, to bring back later from the GM tab">💾 save as scene</button><button class="mini" onclick="mapClear('d')">erase lines</button><button class="mini" onclick="mapClear('t')">reset tokens</button><button class="mini" onclick="mapRemove()">✕ remove map</button>` : `<span style="color:var(--dim);font-size:12px">Put a map on the table:</span>`) +
       (files.length ? `<select onchange="mapSetSrc(this.value);this.value=''" title="Pictures in the img/maps folder"><option value="">a map from img/maps…</option>${files.map(f=>`<option value="${esc(f)}">${esc(f.replace(/^img\/maps\//,''))}</option>`).join('')}</select>` : '') +
-      `<button class="mini" onclick="document.getElementById('mapFile').click()" title="Pick a picture from this device. It is shrunk and shared with the room.">⬆ upload</button><input type="file" id="mapFile" accept="image/*" style="display:none" onchange="mapUpload(this)">
+      `<button class="mini" onclick="pickFile('image/*', mapUpload)" title="Pick a picture from this device. It is shrunk and shared with the room.">⬆ upload</button>
        <input type="text" placeholder="or paste an image link (https://…)" onchange="mapSetSrc(this.value);this.value=''">` : '');
   const frame = document.getElementById('mapFrame'); if(frame && src) frame.className = MAP_UI.tool==='move' ? '' : 'tooling';
   if(src) renderMapLayers();
