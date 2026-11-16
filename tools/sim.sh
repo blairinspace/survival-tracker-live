@@ -249,6 +249,15 @@ print('\n=== SMOKE TEST — UI code paths ===');
     const w = migrate(JSON.parse(JSON.stringify(syncSubset(S)))).chars.find(x=>x.id==='cal'); if(!same(prune(JSON.parse(JSON.stringify(w.sheet.b))), prune(JSON.parse(JSON.stringify(b))))) throw new Error('build lost on the wire');
     SHEET_UI.id = 'cal'; render(); const h = document.getElementById('sheetBody').innerHTML;
     if(/onchange="setAttr|onchange="setThresh\('cal','wt'|sheetSet\('cal','xp'/.test(h) || !/GM adjustments/.test(h) || /undefined|NaN/.test(adjustHtml(c2))) throw new Error('sheet should show worked-out numbers, not inputs');
+    { const file = JSON.parse(JSON.stringify(buildExport('cal'))); file.rebuild = 1; file.sheet.bio.age = '99'; file.sheet.mor = 5; file.sheet.xpTotal = 2000;
+      c2.sheet.bio.age = '24'; c2.sheet.mor = 63; const err = buildApply('cal', file); render();
+      if(err || c2.sheet.bio.age!=='24' || c2.sheet.mor!==63 || c2.sheet.xpTotal!==2000) throw new Error('a rebuild file should replace purchases and keep bio and Morality'); }
+    { const g = { kind:'st-gear', v:1, credits:500, inv:[ { name:'Basic Lightsaber', alias:'Main', eq:1, dam:7, mods:['Extended Hilt'] }, { name:'Stimpack', qty:3 }, { name:'Mystery box', kind:'Gear', sub:'Data' }, { name:'Dueling Pistol', carry:0 } ] };
+      if(gearApply('cal', g)) throw new Error('gear file refused'); render();
+      const sab = c2.inv.find(x=>x.alias==='Main'), box = c2.inv.find(x=>x.name==='Mystery box'), dp = c2.inv.find(x=>x.ref==='Dueling Pistol');
+      if(!sab || sab.dam!==7 || !sab.eq || sab.mods[0]!=='Extended Hilt' || stockOf(c2,'Stim')!==3 || !box || box.sub!=='Data' || dp.carry!==0 || c2.sheet.credits!==500 || !c2.inv.some(x=>x.auto==='canteen')) throw new Error('gear file applied wrong');
+      if(gearApply('ship', { kind:'st-gear', cargo:[{ name:'Slugthrower Rifle', qty:4 }], smuggle:[{ name:'Syndicat ledgers', kind:'Gear', sub:'Documents' }] }) || S.ship.cargo[0].qty!==4 || S.ship.smuggle[0].name!=='Syndicat ledgers') throw new Error('cargo file applied wrong');
+      if(!/Extended Hilt/.test(invSection(c2)) || gearApply('cal', { kind:'nope' })==='') throw new Error('mods not shown, or a bad file accepted'); }
     print(`  build: old sheets convert with nothing changing (differences become labelled adjustments), ranks and characteristics cost what the rules say, refunds can be closed, the GM adjusts`);
     fresh();
   }

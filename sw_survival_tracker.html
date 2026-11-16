@@ -2422,7 +2422,7 @@ function invSection(cs){
     return `<div class="gearitem" style="${eq?'':'opacity:.7'}">
       <div class="gearline"><span class="gearname">${eqBox(it,i,'in hand or holstered ready. An equipped weapon shows its wear track and lends Defensive / Deflection to your defense.')} ${nameCell(it)}</span>
         ${eq ? `<span class="tierbadge" style="background:${t.color};color:#000">${t.name}</span>` : ''}</div>
-      <div class="gearfx">${esc(ws.skill.n)} · damage ${ws.brn?`${ws.total} (Brawn +${ws.dam})`:ws.dam} · crit ${ws.crit||'—'} · ${ws.rng}${ws.q?` · ${esc(ws.q)}`:''}</div>
+      <div class="gearfx">${esc(ws.skill.n)} · damage ${ws.brn?`${ws.total} (Brawn +${ws.dam})`:ws.dam} · crit ${ws.crit||'—'} · ${ws.rng}${ws.q?` · ${esc(ws.q)}`:''}${modsText(it) ? ` · ${modsText(it)}` : ''}</div>
       ${eq ? wearRow(it, i, t, wr, '⚔ attack', `Roll an attack with this weapon: opens the Dice tab with its pool loaded (wear penalties included). Each attack rolled adds ${WEAR_PER_ATTACK} wear.`, 'rollAttack') : ''}
     </div>`;
   }).join('');
@@ -2432,7 +2432,7 @@ function invSection(cs){
     return `<div class="gearitem" style="${eq?'':'opacity:.7'}">
       <div class="gearline"><span class="gearname">${eqBox(it,i,'worn. Equipped armor adds its soak and defense, and shows its wear track.')} ${nameCell(it)}</span>
         ${eq ? `<span class="tierbadge" style="background:${a.tier.color};color:#000">${a.tier.name}</span>` : ''}</div>
-      <div class="gearfx">${rating(a.def, a.baseDef, 'defense')} · ${rating(a.soak, a.baseSoak, 'soak')}</div>
+      <div class="gearfx">${rating(a.def, a.baseDef, 'defense')} · ${rating(a.soak, a.baseSoak, 'soak')}${modsText(it) ? ` · ${modsText(it)}` : ''}</div>
       ${eq ? wearRow(it, i, a.tier, wr, 'hit', `The armor took a solid hit — adds ${WEAR_PER_USE} wear`, 'useItem') : ''}
     </div>`;
   }).join('');
@@ -2837,7 +2837,7 @@ function renderShip(){
       <table class="weaptable"><tr><th>Weapon</th><th>Skill</th><th>Dmg</th><th>Range</th><th>Crit</th></tr>${weaponRows}</table>
     </div>
 
-    <div class="shipsec"><h2>🎒 Cargo Hold <span class="reserve" title="Total cargo encumbrance vs. the ${SHIP.encumbrance}-point hold" style="color:${cargoOver>0?'var(--bad)':'var(--gold)'}">enc ${cargoWt.toFixed(1)} / ${SHIP.encumbrance}</span> <button class="mini" style="vertical-align:middle" onclick="addCargo('cargo')">＋ add item</button></h2>
+    <div class="shipsec"><h2>🎒 Cargo Hold <span class="reserve" title="Total cargo encumbrance vs. the ${SHIP.encumbrance}-point hold" style="color:${cargoOver>0?'var(--bad)':'var(--gold)'}">enc ${cargoWt.toFixed(1)} / ${SHIP.encumbrance}</span> <button class="mini" style="vertical-align:middle" onclick="addCargo('cargo')">＋ add item</button> <button class="mini" style="vertical-align:middle" onclick="pickFile('.json', inp=>gearUpload('ship',inp))" title="Load a gear file into the cargo hold and the smuggling compartment (replaces what is there now)">⬆ import cargo</button></h2>
       ${cargoOver>0?`<div class="cfx" style="color:var(--bad);margin-bottom:8px">⚠ Overloaded by ${cargoOver} — RAW: the ship's silhouette-based handling/speed suffers until cargo is dropped (GM's call).</div>`:''}
       <table class="invtable">
         <tr><th>Item</th><th>Type</th><th>Qty</th><th>Enc ea</th><th>Total</th><th></th></tr>
@@ -3390,7 +3390,7 @@ function gearHtml(cs){
     const body = rec ? (esc(d) || '<i>No description in the database yet.</i>') + (rec.hb||rec.id||rec.cu ? ` <span class="badge b-hb" title="House item — ${rec.cu ? 'from items-custom.js' : 'added at the table'}, not from the workbook">HB</span>` : '')
       : it.name ? `<span class="nomatch">⚠ “${esc(it.name)}” is not in the Items database.</span> Pick a database item in the name box, or <button class="mini" onclick="invCreateEntry('${id}',${i})" title="Create a homebrew entry for this item on the Items tab and link it">✨ create an entry</button>`
       : `<span class="nomatch">Type a name — matching database items are suggested as you type.</span>`;
-    return `<tr class="idesc ${isCarried(it)?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${eqTag(it)}${body}</td></tr>`;
+    return `<tr class="idesc ${isCarried(it)?'':'uneq'}"><td></td><td colspan="${span-1}">${extra||''}${eqTag(it)}${modsText(it) ? `<span class="badge b-cond" title="Installed modifications">${modsText(it)}</span> ` : ''}${body}</td></tr>`;
   };
   const addRow = (type, span, ph) => `<tr><td colspan="${span}"><input type="text" class="addin" list="dbNames" placeholder="＋ add ${ph} — type a name" title="Type a database item's name to bring it in with its stats, or any other name for an unlinked item. Press Enter." onchange="invAdd('${id}','${type}',this.value)"></td></tr>`;
   const weps = rows.filter(x=>isWeapon(x.it)).map(({it,i})=>{
@@ -3655,7 +3655,9 @@ function renderSheet(){
       ${g==='Custom' ? `<tr><td colspan="4"><button class="mini" onclick="sheetAddSkill('${id}')" title="Add a skill that is not on the standard list (homebrew, or from another book)">＋ add custom skill</button></td></tr>` : ''}</table>`;
   });
   document.getElementById('sheetBody').innerHTML = `
-    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the name, bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">👤 Character Creator</button>`}<button class="mini" onclick="loreOpen('${id}')" title="This character's page in the campaign Lore">📖 lore</button>
+    <div class="shead"><h2>${esc(c.name)}</h2>${sh.cc ? '' : `<button class="mini atk" onclick="ccStart('${id}')" title="Edit the name, bio, species, career and specializations shown here, step by step: concept, Morality, species, career, specialization, free skill ranks, spending starting XP.">👤 Character Creator</button>`}
+      <button class="mini" onclick="pickFile('.json', inp=>buildUpload('${id}',inp))" title="Load a build file onto this character. A rebuild file replaces species, career and everything bought, and keeps name, bio, Morality and gear.">⬆ import build</button>
+      <button class="mini" onclick="pickFile('.json', inp=>gearUpload('${id}',inp))" title="Load a gear file: replaces this character's inventory (and credits, if the file has them). The canteen and power packs on the card are kept.">⬆ import gear</button><button class="mini" onclick="loreOpen('${id}')" title="This character's page in the campaign Lore">📖 lore</button>
       ${ro('Species', sh.species, 'Species sets your starting characteristics, wound and strain thresholds, starting XP and a special ability.')}
       ${ro('Career', sh.career, 'Your career gives six career skills and decides which specializations are cheap to buy. It never changes.')}
       ${ro('Specializations', sh.specs, 'Each specialization adds career skills and a talent tree. A new one costs 10 × the number you will then have (+10 if it is outside your career).')}
@@ -4480,11 +4482,18 @@ function buildExport(id){
   delete sheet.credits; delete sheet.cc; delete sheet.cmd;   // orders and authorized users are live state, not part of a build
   return { kind:'st-build', v:1, name:cfg(id).name, droid:!!cfg(id).droid, attr:{...cs.attr}, wt:cs.wt, st:cs.st, sheet };
 }
+const REBUILD_KEYS = ['species','career','specs','fr','xp','xpTotal','sk','cust','tr','b','soakMod','defRMod','defMMod','sil'];   // what a rebuild file replaces
 function buildApply(id, b){
   const cs = st(id), c = cfg(id);
   if(!cs || !b || b.kind!=='st-build' || !b.sheet || typeof b.sheet!=='object' || !b.attr) return 'That file is not a character build.';
   if(!!b.droid !== !!c.droid) return `That build is for ${b.droid?'a droid':'an organic character'} and ${c.name} is not.`;
-  const credits = cs.sheet.credits, cmd = cs.sheet.cmd, sheet = JSON.parse(JSON.stringify(b.sheet));
+  const credits = cs.sheet.credits, cmd = cs.sheet.cmd;
+  let sheet = JSON.parse(JSON.stringify(b.sheet));
+  if(b.rebuild){   // a rebuild: only what was bought comes in — name, bio, Morality, Obligation, Duty and training stay as they are
+    const keep = JSON.parse(JSON.stringify(cs.sheet));
+    for(const k of REBUILD_KEYS) if(k in sheet) keep[k] = sheet[k]; else delete keep[k];
+    sheet = keep;
+  }
   delete sheet.cc; delete sheet.cmd; sheet.credits = credits; if(cmd) sheet.cmd = cmd;
   for(const [k] of ATTRS) cs.attr[k] = clamp(Math.round(+b.attr[k])||1, 1, 7);
   cs.encThresh = cs.attr.br + 5;
@@ -4492,7 +4501,8 @@ function buildApply(id, b){
   if(Number.isFinite(+b.st)) cs.st = clamp(Math.round(+b.st), 0, 99);
   cs.sheet = sheet; normSheet(cs, c);
   if(cs.force!==undefined && cs.force > forceCap(cs)) cs.force = forceCap(cs);
-  logMsg(`👤 ${c.name}'s sheet was replaced by an imported build${b.name && b.name!==c.name ? ` (“${cleanName(b.name)}”)` : ''}. Inventory and credits unchanged.`);
+  logMsg(b.rebuild ? `👤 ${c.name} was rebuilt from a file${b.label ? ` (“${esc(String(b.label).slice(0,80))}”)` : ''}: species, career, purchases and XP replaced; name, bio, Morality and gear kept.`
+                   : `👤 ${c.name}'s sheet was replaced by an imported build${b.name && b.name!==c.name ? ` (“${cleanName(b.name)}”)` : ''}. Inventory and credits unchanged.`);
   render(); return '';
 }
 function buildDownload(id){
@@ -4515,11 +4525,64 @@ function buildUpload(id, inp){
   const r = new FileReader();
   r.onerror = () => alert('That file could not be read. If it is in iCloud, make sure it has finished downloading.');
   r.onload = e => { let err; try{ const b = JSON.parse(e.target.result);
-      if(!confirm(`Replace ${cfg(id).name}'s sheet with this build${b && b.name ? ` (“${b.name}”)` : ''}? Skills, talents, XP, bio and Morality are overwritten. Inventory and credits are kept.`)) return;
+      if(!confirm(b && b.rebuild
+        ? `Rebuild ${cfg(id).name} from this file${b.name ? ` (“${b.name}”)` : ''}? Species, career, characteristics, skills, talents, Force powers and XP are replaced. Name, bio, Morality, Obligation, Duty, inventory and credits are kept.`
+        : `Replace ${cfg(id).name}'s sheet with this build${b && b.name ? ` (“${b.name}”)` : ''}? Skills, talents, XP, bio and Morality are overwritten. Inventory and credits are kept.`)) return;
       err = buildApply(id, b); }catch(x){ err = 'That file could not be read.'; }
     if(err) alert(err); };
   r.readAsText(f); inp.value = '';
 }
+/* ---- gear files: a character's whole inventory (or the Mantis's cargo) in one go.
+   { kind:'st-gear', v:1, label, credits?, inv:[row…] }            — a character's sheet (⬆ import gear)
+   { kind:'st-gear', v:1, label, cargo:[row…], smuggle:[row…] }     — the Mantis tab (⬆ import cargo)
+   A row: { name (a database item, linked when it matches), alias, qty, eq 1 worn / in hand, carry 0 stowed in the crate,
+            dam crit q def soak (override the item's stats), mods [names of installed modifications], kind + sub (an item not in the database) }
+   Importing REPLACES the inventory (or the holds): the canteen and droid power packs, tracked on the card, are kept. ---- */
+const GEAR_STATS = ['dam','crit','def','soak'];
+function gearRow(x){   // a file row → an inventory row
+  if(!x || typeof x!=='object' || !String(x.name||'').trim()) return null;
+  const name = String(x.name).trim().slice(0,80), rec = dbFind(name);
+  const row = rec ? rowFromDb(rec) : { name, type:KINDS[x.kind] ? x.kind : 'Gear', sub:String(x.sub||''), qty:1, wt:numOr(x.wt) };
+  row.qty = Math.max(0, +(+x.qty||1).toFixed(2));
+  if(x.alias) row.alias = String(x.alias).trim().slice(0,60);
+  if(x.eq) row.eq = 1;
+  if(x.carry===0) { row.carry = 0; row.eq = 0; }
+  for(const k of GEAR_STATS) if(Number.isFinite(+x[k]) && x[k]!=='' && x[k]!=null) row[k] = clamp(Math.round(+x[k]), -5, 99);
+  if(typeof x.q==='string') row.q = x.q.slice(0,160);
+  if(Number.isFinite(+x.wt) && x.wt!=null && rec) row.wt = Math.max(0, +x.wt);
+  const mods = arrayify(x.mods); if(Array.isArray(mods) && mods.length) row.mods = mods.map(m=>String(m).trim().slice(0,60)).filter(Boolean).slice(0,8);
+  kindRow(row); return row;
+}
+function gearApply(id, g){   // id = a character, or 'ship'
+  if(!g || g.kind!=='st-gear') return 'That file is not a gear file.';
+  if(id==='ship'){
+    if(!Array.isArray(g.cargo) && !Array.isArray(g.smuggle)) return 'That gear file has no cargo for the Mantis.';
+    const hold = list => (Array.isArray(list) ? list : []).map(gearRow).filter(Boolean).map(r=>({ name:invLabel(r), ref:r.ref, type:r.type, qty:r.qty, wt:+r.wt||0 }));
+    if(Array.isArray(g.cargo)) S.ship.cargo = hold(g.cargo);
+    if(Array.isArray(g.smuggle)) S.ship.smuggle = hold(g.smuggle);
+    logMsg(`📦 The Mantis's hold was loaded from a gear file${g.label ? ` (“${esc(String(g.label).slice(0,80))}”)` : ''}: ${S.ship.cargo.length} in the cargo hold, ${S.ship.smuggle.length} in the smuggling compartment.`);
+    render(); return '';
+  }
+  const cs = st(id); if(!cs) return 'No such character.';
+  if(!Array.isArray(g.inv)) return 'That gear file has no inventory for a character.';
+  const rows = g.inv.map(gearRow).filter(Boolean), miss = rows.filter(r=>!r.ref).map(r=>r.name);
+  cs.inv = cs.inv.filter(it=>it && it.auto).concat(rows);
+  if(Number.isFinite(+g.credits) && g.credits!=null) cs.sheet.credits = clamp(Math.round(+g.credits), ...SHEET_NUM.credits);
+  logMsg(`🎒 ${cfg(id).name}'s inventory was loaded from a gear file${g.label ? ` (“${esc(String(g.label).slice(0,80))}”)` : ''}: ${rows.length} items${Number.isFinite(+g.credits) && g.credits!=null ? `, ${cs.sheet.credits.toLocaleString('en-US')} credits` : ''}${miss.length ? ` — not in the Items database: ${esc(miss.join(', '))}` : ''}.`);
+  render(); return '';
+}
+function gearUpload(id, inp){
+  const f = inp.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onerror = () => alert('That file could not be read. If it is in iCloud, make sure it has finished downloading.');
+  r.onload = e => { let err; try{ const g = JSON.parse(e.target.result);
+      const who = id==='ship' ? "the Mantis's cargo hold and smuggling compartment" : `${cfg(id).name}'s inventory`;
+      if(!confirm(`Replace ${who} with this gear file${g && g.label ? ` (“${g.label}”)` : ''}? Everything there now is replaced${id==='ship' ? '' : ' (the canteen and power packs on the card are kept; credits are set if the file has them)'}.`)) return;
+      err = gearApply(id, g); }catch(x){ err = 'That file could not be read.'; }
+    if(err) alert(err); };
+  r.readAsText(f); inp.value = '';
+}
+const modsText = it => (Array.isArray(it.mods) && it.mods.length) ? `🔩 ${it.mods.map(esc).join(', ')}` : '';
 function ccAttr(id, k, d){ return charBuy(id, k, d>0 ? 1 : -1); }   // creation is the only time XP buys a characteristic (see charBuy)
 function ccCredits(id){ const sh = st(id).sheet; sh.credits = CC_START_CREDITS + CC_BONUS[(sh.cc||{}).bonus||''].cr; render(); }
 function creationHtml(cs){
