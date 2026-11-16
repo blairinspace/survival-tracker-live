@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Survival Tracker — FFG Star Wars</title>
+<title>SW FFG Tracker: Through Darkness</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#30363d;
@@ -522,6 +522,15 @@
   .npctable input[type=text]{width:100%;min-width:70px} .npctable input.sm{width:48px;min-width:0} .npctable td.x{width:1%}
   .npced textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:12px;padding:4px 6px;resize:vertical}
   .npced input.wide{width:100%}
+  .fgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:820px;margin:8px 0}
+  .fgrid button{min-height:46px;padding:4px 6px;text-align:left;line-height:1.25;overflow:hidden}
+  .fgrid button.empty{border-style:dashed;color:var(--dim);text-align:center}
+  .fgrid button.sel{border-color:var(--gold);background:#2a2412} .fgrid button.rootn{background:#221c33}
+  .fgrid button small{display:block;color:var(--dim);font-size:10px}
+  .fgform{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:6px 0;padding:8px;background:var(--panel2);border:1px solid var(--border);border-radius:8px}
+  .fgform label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--dim)} .fgform textarea{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font:inherit;font-size:12.5px;width:100%;min-height:54px}
+  .fgform label.wide{flex:1 1 100%}
+  .catrow td{background:var(--panel2,#1a1f2b);color:var(--gold);font-weight:600;padding:6px 8px}
   .b-minion{background:#22303c;color:#9fc3e6} .b-rival{background:#3d3212;color:#ffd97a} .b-nemesis{background:#3a1010;color:#ff9c9c}
   @media(max-width:820px){ .npccols{grid-template-columns:1fr} }
   @media print{ body{background:#fff;color:#000} #tracker,#ship,#items,#trees,#train,#gm,#enc,#lore,#core,#dice,#sheet,.topbar,.tabs,#ambience{display:none!important} #rules{display:block!important;border:none;color:#000} #rules p,#rules td{color:#000} }
@@ -531,7 +540,7 @@
 
 <div class="topbar" id="titleBar">
   <div class="group">
-    <h1 style="margin:0">Survival Tracker</h1>
+    <h1 style="margin:0">SW FFG Tracker: Through Darkness</h1>
   </div>
   <div class="group" style="margin-left:auto">
     <span class="label">🔗 Live</span>
@@ -637,9 +646,10 @@
     <span class="group" id="viewChips"></span>
   </div>
   <div class="group" style="margin-left:auto">
-    <span class="label">👥 Party</span>
+    <span class="label" id="partyWho" title="Party controls act only on the characters whose chips are lit in the Show row">👥 Party</span>
     <select id="partyAct" onchange="partySetAct(this.value);this.value=''" title="Set the activity of every visible character"></select>
-    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to every visible eligible character — hover an option for its effect"></select>
+    <select id="partyCond" onchange="partyAddCond(this.value);this.value=''" title="Apply a condition to ONLY the characters selected in the Show row — hover an option for its effect"></select>
+    <select id="partyRm" onchange="partyRmCond(this.value);this.value=''" title="Remove a condition from ONLY the characters selected in the Show row (lists the conditions they carry)"></select>
   </div>
 </div>
 <div class="grid" id="cards"></div>
@@ -651,9 +661,10 @@
   <div class="itembar">
     <input type="text" id="itemQ" placeholder="search name, qualities, features…" oninput="itemsSet('q',this.value)">
     <span class="group" id="itemGroups"></span>
+    <span class="group" id="itemCats" style="flex-basis:100%" title="Every item sorted by what it is for — handy for finding what carries a condition or effect"></span>
     <select id="itemSub" onchange="itemsSet('c',this.value)" title="Sub-category (one per workbook sheet)"></select>
     <select id="itemSkill" onchange="itemsSet('sk',this.value)" title="Weapon skill"></select>
-    <label title="Sort the results">sort <select id="itemSort" onchange="itemsSet('sort',this.value)"><option value="name">name</option><option value="price">price</option><option value="rare">rarity</option></select></label>
+    <label title="Sort the results">sort <select id="itemSort" onchange="itemsSet('sort',this.value)"><option value="cat">category</option><option value="name">name</option><option value="price">price</option><option value="rare">rarity</option></select></label>
     <label title="Hide (R) restricted items"><input type="checkbox" id="itemHideR" onchange="itemsSet('hideR',this.checked)"> hide restricted</label>
     <label title="On: sending an item to a character with → 🎒 takes its price from their credits (it asks first if they cannot afford it). Off: the item is handed over free, for loot and gifts. Remembered on this device."><input type="checkbox" id="itemBuy" checked onchange="itemsSet('buy',this.checked)"> 🛒 charge credits</label>
     <button class="mini" onclick="hbAdd()" title="Add a homebrew item — shared with the room and saved with everything else">✨ add homebrew item</button>
@@ -741,6 +752,7 @@
   <div id="gmScenes" style="display:none"></div>
   <div id="gmShips" style="display:none"></div>
   <div id="gmXp" style="display:none"></div>
+  <div id="gmForge" style="display:none"></div>
 </div></div>
 
 <!-- Firebase browser SDK (loaded from CDN; the app still runs solo if these fail) -->
@@ -895,7 +907,7 @@ const AUTO_ITEMS = {
 };
 
 /* Standard inventory type categories (used by cargo + character inventory dropdowns) */
-const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal','Medical','Other'];
+const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal','Drink','Medical','Other'];
 
 // carry: on the character's person (ticked on the sheet; unticked = stowed on the ship or at camp). Only carried
 // items show on the Tracker card, count toward encumbrance, and can be eaten, used or equipped.
@@ -903,7 +915,7 @@ const INV_TYPES = ['Weapon','Armor','Tool','Gear','Bag','Snack','Ration','Meal',
 // items get a wear track and feed soak and defense; worn-down armor protects less (ATIERS). (This replaced the 'Gear (worn)' type.)
 const isCarried  = it => !!it && (it.auto || it.carry!==0);
 const isTool = it => (it.type||'').toLowerCase()==='tool';
-const isCons = it => ['snack','ration','meal'].includes((it.type||'').toLowerCase());   // consumables: what the hunger buttons eat
+const isCons = it => ['snack','ration','meal','drink'].includes((it.type||'').toLowerCase());   // consumables: what the hunger buttons eat, and drinks (Caf) that carry a use effect
 const isEquipped = it => !!it && !it.auto && !!it.eq && it.carry!==0 && (isWeapon(it) || isArmor(it) || isTool(it));   // weapons, armor and tools can be equipped
 /* Build a <select> of inventory types; preserves any custom saved value as its own option. */
 function typeSelect(val, onchangeExpr, width){
@@ -1334,7 +1346,7 @@ function newCharState(c){
 function freshState(){
   return { hour:0, env:'temperate', ambImg:'', location:'', counters:[], obj:[],
     visible: Object.fromEntries(CHARS.map(c=>[c.id,true])),
-    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], npcs: [], scenes: [], enc: {}, map: {}, destiny: {light:0, dark:0}, hr: {clean:0, redir:0, duel:0}, train: {} };
+    chars: CHARS.map(newCharState), ship: freshShip(), log: [], homebrew: [], hbTrees: [], npcs: [], scenes: [], enc: {}, map: {}, destiny: {light:0, dark:0}, hr: {clean:0, redir:0, duel:0}, train: {} };
 }
 function migrate(s){ // patch older saves (and room snapshots)
   s.chars = arrayify(s.chars); if(!Array.isArray(s.chars)) s.chars = [];
@@ -1382,6 +1394,7 @@ function migrate(s){ // patch older saves (and room snapshots)
   s.homebrew = arrayify(s.homebrew); if(!Array.isArray(s.homebrew)) s.homebrew=[];
   s.homebrew = s.homebrew.filter(h=>h && typeof h==='object');
   for(const h of s.homebrew){ if(!h.id) h.id=randomId(); for(const k of ['n','c','d']) if(typeof h[k]!=='string') h[k]=''; if(!h.g) h.g=HB_GROUPS[0]; }
+  s.hbTrees = normHbTrees(s.hbTrees);   // the GM's own Force powers and specializations (GM tab > Forge)
   s.npcs = normNpcs(s.npcs);   // the GM's NPC library (GM tab) — same RTDB caveat
   s.enc = normEnc(s.enc);      // the running encounter; {} (pruned on the wire) when there is none
   s.map = normMap(s.map);      // the map on the table, same idea
@@ -1925,6 +1938,24 @@ function useStim(id){
   }
   render();
 }
+/* ---- items with a use effect: the database record's u = a condition id (Caf → Caffeinated). The card's
+   Consumables and Gear lists show a "use" button for a carried item that has one; using it takes one from the
+   stack and applies the condition (a dose already running just restarts its timer). ---- */
+const ITEM_USE = { 'stimcaf powder':'caffeinated' };   // catalog entries the workbook wrote, given an effect here
+const useCondOf = it => { const rec = dbOf(it), k = (rec && rec.u) || ITEM_USE[(it.ref||it.name||'').toLowerCase()] || ''; return CONDS[k] ? k : ''; };
+function useEffectItem(id, i){
+  const cs = st(id), it = cs.inv[i], c = cfg(id); if(!it) return;
+  const k = useCondOf(it), def = CONDS[k];
+  if(!def){ logMsg(`${esc(invLabel(it)||'That item')} has no use effect.`, 'lw'); render(); return; }
+  if(!!def.droid !== !!c.droid){ logMsg(`${c.name} cannot use ${esc(invLabel(it))} — ${def.label} does not apply to ${c.droid?'a droid':'an organic'}.`, 'lw'); render(); return; }
+  if((+it.qty||0) < 1){ logMsg(`${c.name} has no ${esc(invLabel(it))} left.`, 'lw'); render(); return; }
+  it.qty = +((+it.qty) - 1).toFixed(2);
+  const had = cs.conds.find(x=>x.id===k);
+  if(had) had.hrs = -(cs.hourAcc||0);   // another dose: the timer restarts at the full decay
+  else cs.conds.push(def.lvls ? {id:k, lvl:1} : {id:k});
+  logMsg(`${def.label} — ${c.name} uses ${esc(invLabel(it))}${had ? ' (another dose: the timer restarts)' : ''}.`, 'lw');
+  render();
+}
 function setForce(id, v){
   const cs = st(id);
   if(cs.force===undefined) return;   // droids have no Force points
@@ -2362,7 +2393,7 @@ function invSection(cs){
     const tot = (it.qty||0)*(it.wt||0);
     const totCell = isPack(it) ? `<td class="tot" style="color:var(--gold)" title="Capacity this pack grants (adds to threshold)">+${tot.toFixed(2)}</td>` : `<td class="tot">${tot.toFixed(2)}</td>`;
     return `<tr><td><span class="${it.auto?'auto':''}" title="${esc(it.alias && it.alias!==it.name ? it.name : '')}">${esc(invLabel(it)||'(unnamed)')}</span></td>
-      <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}</td>${totCell}</tr>`;
+      <td><span class="auto">${esc(it.type||'—')}</span></td><td>${+it.qty||0}${useCondOf(it) && !it.auto ? ` <button class="mini" onclick="useEffectItem('${id}',${list.find(x=>x.it===it).i})" title="Use one: ${esc(CONDS[useCondOf(it)].label.replace(/^\S+\s/,''))}">use</button>` : ''}</td>${totCell}</tr>`;
   }).join('') + `</table>`;
   const gearBody = listBody(gear), consBody = listBody(cons);
   const nCarried = carried.filter(x=>!x.it.auto).length;
@@ -2372,7 +2403,7 @@ function invSection(cs){
     ${sect('gearOpen', '🗡', 'Weapons', weps, wepBody, 'No weapons carried.')}
     ${sect('armorOpen', '🛡', 'Armor', arms, armBody, 'No armor carried.')}
     ${sect('toolsOpen', '🔧', 'Tools', tools, toolBody, 'No tools carried.')}
-    ${sect('consOpen', '🍞', 'Consumables', cons, consBody, 'No snacks, rations or meals carried.')}
+    ${sect('consOpen', '🍞', 'Consumables', cons, consBody, 'No snacks, rations, meals or drinks carried.')}
     ${sect('invOpen', '🎒', 'Gear', gear, gearBody, 'No gear carried.')}
   </details>`;
 }
@@ -2536,6 +2567,7 @@ function droidCard(cs, c, div){
 }
 
 function render(){
+  hbTreesApply();   // the GM's own trees join the rules before anything draws
   trainFrSync();   // Force rating that training has given, onto the sheets
   document.getElementById('clock').textContent = clockStr();
   const envSel = document.getElementById('envSel');
@@ -2755,11 +2787,21 @@ function renderShip(){
 }
 
 function renderChips(){
+  partyNote();
   const el = document.getElementById('viewChips');
   const allOn = CHARS.every(c=>S.visible[c.id]);
   el.innerHTML =
     `<button class="chip ${allOn?'on':''}" onclick="viewAll()">👥 All</button>` +
     CHARS.map(c=>`<button class="chip ${S.visible[c.id]?'on':''}" onclick="toggleView('${c.id}')">${c.name.split(' ')[0]}</button>`).join('');
+}
+function partyNote(){   // the Party label says who the controls will touch
+  const el = document.getElementById('partyWho'); if(!el) return;
+  const on = S.chars.filter(cs=>S.visible[cs.id]);
+  el.textContent = `👥 Party · ${on.length ? on.map(cs=>cfg(cs.id).name.split(' ')[0]).join(', ') : 'nobody selected'}`;
+  const rm = document.getElementById('partyRm'); if(!rm) return;
+  const have = new Map(); for(const cs of on) for(const cd of cs.conds) if(!cd.custom && CONDS[cd.id]) have.set(cd.id, CONDS[cd.id]);
+  const html = `<option value="">remove condition…</option>` + [...have].map(([k,d])=>`<option value="${k}">${d.label}</option>`).join('');
+  if(rm.innerHTML!==html) rm.innerHTML = html;
 }
 function toggleView(id){ S.visible[id]=!S.visible[id]; render(); }
 function viewAll(){
@@ -2841,11 +2883,23 @@ function partyAddCond(v){
   for(const cs of S.chars){
     if(!S.visible[cs.id]) continue;
     if(!!def.droid !== !!cfg(cs.id).droid) continue;    // organic conds skip droids & vice versa
-    if(cs.conds.some(x=>x.id===v)) continue;
-    cs.conds.push(def.lvls ? {id:v, lvl:1} : {id:v});
+    const had = cs.conds.find(x=>x.id===v);
+    if(had){ if(def.decayHrs) had.hrs = -(cs.hourAcc||0); else continue; }   // a timed condition already running restarts; others are left alone
+    else cs.conds.push(def.lvls ? {id:v, lvl:1} : {id:v});
     names.push(cfg(cs.id).name.split(' ')[0]);
   }
-  logMsg(names.length ? `${def.label} — applied to ${names.join(', ')}.` : `${def.label}: no eligible visible characters.`, 'lw');
+  logMsg(names.length ? `${def.label} — applied to ${names.join(', ')} (the characters selected in the Show row).` : `${def.label}: no eligible selected characters (turn on a Show chip first).`, 'lw');
+  render();
+}
+function partyRmCond(v){
+  if(!v) return;
+  const def = CONDS[v], names = [];
+  for(const cs of S.chars){
+    if(!S.visible[cs.id] || !cs.conds.some(x=>x.id===v)) continue;
+    cs.conds = cs.conds.filter(x=>x.id!==v);
+    names.push(cfg(cs.id).name.split(' ')[0]);
+  }
+  if(names.length) logMsg(`${def.label} — removed from ${names.join(', ')}.`, 'lw');
   render();
 }
 function setThresh(id,k,v){ st(id)[k]=parseInt(v)||0; render(); }
@@ -5059,8 +5113,27 @@ function invTypeFor(it){
   if(it.g==='Gear' && /carrying capacity|encumbrance (threshold|capacity)/i.test(it.f||'')) return 'Bag';   // backpacks, satchels, pouches
   return (it.g==='Gear' && ITEM_MEDICAL_SUBS.includes(it.c)) ? 'Medical' : (ITEM_INV_TYPE[it.g] || 'Other');
 }
+/* Effect categories: every catalog and homebrew item is sorted automatically by what it is FOR (separate from
+   the workbook's sheets), so the things that carry a condition or effect sit together. */
+const ITEM_CATS = [['food','🍞 Food & Drink'],['med','💊 Medical'],['drug','💉 Stims & Drugs'],['tox','☠ Toxins'],['weap','🗡 Weapons'],['armor','🛡 Armor'],
+  ['tool','🔧 Tools & Equipment'],['surv','🧭 Survival'],['elec','📡 Comms & Sensors'],['cyb','🦾 Cybernetics'],['relic','✨ Relics & Force'],['mod','🔩 Modifications'],['misc','📦 Other']];
+const ITEM_CAT_LABEL = Object.fromEntries(ITEM_CATS);
+const ITEM_SUB_CAT = { Medical:'med', Drugs:'drug', Toxins:'tox', Industrial:'tool', Specialist:'tool', Equipment:'tool', Survival:'surv',
+  Communication:'elec', Surveillance:'elec', Security:'elec', Cybernetics:'cyb', Relics:'relic' };
+function itemCatOf(it){
+  if(it.g==='Armour') return 'armor';
+  if(it.g==='Modifications') return it.c==='Kyber Crystals' ? 'relic' : 'mod';
+  if(it.g==='Lightsabers' && it.c==='Hilts') return 'relic';
+  if(WEAPON_GROUPS.includes(it.g)) return 'weap';
+  const t = invTypeFor(it);
+  if(['Snack','Ration','Meal','Drink'].includes(t) || it.u==='caffeinated' || /\b(ration|meal|snack|canteen|caf|water)\b/i.test(it.n||'')) return 'food';
+  if(t==='Tool' || t==='Bag') return 'tool';
+  return ITEM_SUB_CAT[it.c] || 'misc';
+}
+const itemCat = it => it.hb ? itemCatOf(it) : (it._cat ??= itemCatOf(it));   // catalog records cache it
+const useBadge = it => { const k = it.u || ITEM_USE[(it.n||'').toLowerCase()]; return CONDS[k] ? ` <span class="badge b-cond" title="Using one gives this condition (the use button on the character's card)">${CONDS[k].label}</span>` : ''; };
 /* per-device view state for the tab — never synced */
-const ITEMS_UI = { q:'', g:'', c:'', sk:'', sort:'name', hideR:false, edit:null, buy:true };   // buy: → 🎒 charges the price (per device)
+const ITEMS_UI = { q:'', g:'', c:'', cat:'', sk:'', sort:'cat', hideR:false, edit:null, buy:true };   // buy: → 🎒 charges the price (per device)
 try{ ITEMS_UI.buy = localStorage.getItem('st_buy')!=='0'; }catch(e){}
 const CATALOG_SKILLS = [...new Set(CATALOG.map(it=>it.sk).filter(Boolean))].sort();
 
@@ -5102,6 +5175,7 @@ function itemsFiltered(){
   const all = CATALOG.map((it,i)=>[it,'c'+i]).concat(hbList().map(h=>[h,'h'+h.id]));
   const list = all.filter(([it])=>{
     if(u.g && it.g!==u.g) return false;
+    if(u.cat && itemCat(it)!==u.cat) return false;
     if(u.c && it.c!==u.c) return false;
     if(u.sk && it.sk!==u.sk) return false;
     if(u.hideR && it.r) return false;
@@ -5110,7 +5184,8 @@ function itemsFiltered(){
     return words.every(w=>h.includes(w));
   });
   const last = v => v==null ? Infinity : v;
-  if(u.sort==='price') list.sort((a,b)=>last(a[0].p)-last(b[0].p) || a[0].n.localeCompare(b[0].n));
+  if(u.sort==='cat') list.sort((a,b)=>ITEM_CATS.findIndex(x=>x[0]===itemCat(a[0]))-ITEM_CATS.findIndex(x=>x[0]===itemCat(b[0])) || a[0].n.localeCompare(b[0].n));
+  else if(u.sort==='price') list.sort((a,b)=>last(a[0].p)-last(b[0].p) || a[0].n.localeCompare(b[0].n));
   else if(u.sort==='rare') list.sort((a,b)=>last(a[0].ra)-last(b[0].ra) || a[0].n.localeCompare(b[0].n));
   else list.sort((a,b)=>a[0].n.localeCompare(b[0].n));
   return list;
@@ -5120,6 +5195,9 @@ function renderItemsBar(){
   document.getElementById('itemGroups').innerHTML =
     `<button class="chip ${u.g?'':'on'}" onclick="itemsSet('g','')">All</button>` +
     CATALOG_GROUPS.map(g=>`<button class="chip ${u.g===g.g?'on':''}" onclick="itemsSet('g','${g.g}')">${g.g}</button>`).join('');
+  const counts = {}; for(const it of CATALOG.concat(hbList())) counts[itemCat(it)] = (counts[itemCat(it)]||0) + 1;
+  document.getElementById('itemCats').innerHTML = `<button class="chip ${u.cat?'':'on'}" onclick="itemsSet('cat','')">Any use</button>` +
+    ITEM_CATS.map(([k,l])=>`<button class="chip ${u.cat===k?'on':''}" onclick="itemsSet('cat','${k}')">${l}${counts[k]?` <small>${counts[k]}</small>`:''}</button>`).join('');
   const sub = document.getElementById('itemSub');
   sub.innerHTML = `<option value="">${grp ? 'all '+grp.g.toLowerCase() : 'any category'}</option>` +
     (grp ? grp.subs : CATALOG_GROUPS.flatMap(g=>g.subs)).filter((s,i,a)=>a.indexOf(s)===i).map(s=>`<option value="${esc(s)}"${u.c===s?' selected':''}>${esc(s)}</option>`).join('');
@@ -5140,13 +5218,13 @@ function renderItems(){
   if(u.edit && !editing) u.edit = null;
   const list = itemsFiltered().filter(([it])=>!(editing && it.hb && it.id===editing.id));
   const shown = list.slice(0, ITEMS_MAX_ROWS);
-  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':it.cu?' <span class="badge b-cu" title="Custom entry from items-custom.js">custom</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
+  const row = ([it,key]) => `<tr class="${it.hb?'hbrow':''}"><td class="iname">${esc(it.n)}${useBadge(it)}${it.hb?' <span class="badge b-hb" title="Homebrew — added at the table">HB</span>':it.cu?' <span class="badge b-cu" title="Custom entry from items-custom.js">custom</span>':''}</td>${cols.map(([h,f,cls])=>`<td class="${cls||''}${cls==='txt'?'':' inl'}" data-l="${h}">${f(it)}</td>`).join('')}<td style="white-space:nowrap">${givePicker(key)}${it.hb?` <button class="mini" onclick="ITEMS_UI.edit='${it.id}';renderItems()" title="Edit this homebrew item">✎</button> <button class="mini" onclick="hbDel('${it.id}')" title="Delete this homebrew item">✕</button>`:''}</td></tr>`;
   const editRow = editing ? `<tr class="hbrow"><td colspan="${cols.length+2}">${hbForm(editing)}</td></tr>` : '';
   body.innerHTML = `
     <div class="itemcount">${CATALOG.length ? `showing <b>${shown.length}</b> of ${list.length} matching · ${CATALOG.length} catalog items${hbN?` + ${hbN} homebrew`:''}${list.length>shown.length?` — <span style="color:var(--warn)">refine the search to see the rest</span>`:''}` : `<span style="color:var(--bad)">⚠ Catalog not loaded (items.js missing)</span>${hbN?` · ${hbN} homebrew`:''}`}</div>
     <div class="itemscroll"><table class="itemtable">
       <tr><th>Name</th>${cols.map(([h])=>`<th>${h}</th>`).join('')}<th></th></tr>
-      ${editRow}${shown.map(row).join('') || `<tr><td colspan="${cols.length+2}" style="color:var(--dim)">nothing matches — try fewer words, another category, or ✨ add it as homebrew</td></tr>`}
+      ${editRow}${(()=>{ let last = ''; return shown.map(x=>{ const k = u.sort==='cat' && !u.cat ? itemCat(x[0]) : '', head = k && k!==last ? `<tr class="catrow"><td colspan="${cols.length+2}">${ITEM_CAT_LABEL[k]}</td></tr>` : ''; if(k) last = k; return head + row(x); }).join(''); })() || `<tr><td colspan="${cols.length+2}" style="color:var(--dim)">nothing matches — try fewer words, another category, or ✨ add it as homebrew</td></tr>`}
     </table></div>`;
 }
 /* ---- homebrew items: S.homebrew = [{id, n, g, c, p, pt, r, ra, e, hp, d}] ---- */
@@ -5162,6 +5240,7 @@ function hbForm(h){
     <label>rarity ${inp('ra','number','min="0" max="10" step="1"')}</label>
     <label>enc ${inp('e','number','min="0" step="1"')}</label>
     <label>HP ${inp('hp','number','min="0" step="1"')}</label>
+    <label title="A condition applied to whoever uses one (a use button appears on their card for consumables and gear)">on use <select onchange="hbSet('${h.id}','u',this.value)"><option value="">nothing</option>${Object.entries(CONDS).filter(([k,d])=>!d.droid).map(([k,d])=>`<option value="${k}"${h.u===k?' selected':''}>${d.label}</option>`).join('')}</select></label>
     <label>details ${inp('d','text','class="wide" placeholder="stats, qualities, what it does…"')}</label>
     <button class="mini primary" onclick="ITEMS_UI.edit=null;renderItems()">done</button>
   </div>`;
@@ -5177,6 +5256,7 @@ function hbSet(id, k, v){
   const h = (S.homebrew||[]).find(x=>x.id===id); if(!h) return;
   if(k==='r') h.r = v ? 1 : 0;
   else if(['p','ra','e','hp'].includes(k)){ const n = parseFloat(v); if(isNaN(n)) delete h[k]; else h[k] = Math.max(0, n); }
+  else if(k==='u'){ if(v) h.u = String(v); else delete h.u; }
   else h[k] = String(v).trim();
   if(ITEMS_UI.edit===id) scheduleSync();   // mid-edit: save/sync without rebuilding the form under the cursor
   else render();
@@ -5335,7 +5415,7 @@ function buildRules(){
 
   <h2>🤕 Other conditions (stackable)</h2>
   <p>Add conditions from each card's <b>＋ condition…</b> menu; they stack, multiply need rates, and all penalties are listed together in the effects box. <b>Hover a badge or menu option to see its effect.</b> Leveled conditions (🤒 stacks 1–5, 😨 fear 1–3) adjust with −/+ on the badge; × removes them (after treatment).</p>
-  <p><b>🏷 Custom conditions:</b> the <b>custom…</b> option at the bottom of the menu opens a small form right on the card — type a name and an effect line, then ✓ add (or press Enter). It appears as a badge (effect on hover), in the effects box, and in the log; it carries no automatic mechanics, so apply its effects at the table. <b>👥 Party controls</b> (next to Travel) set the <b>activity</b> of every visible character at once, or apply a <b>condition</b> to all visible eligible characters — use the Show chips to choose who's affected.</p>
+  <p><b>🏷 Custom conditions:</b> the <b>custom…</b> option at the bottom of the menu opens a small form right on the card — type a name and an effect line, then ✓ add (or press Enter). It appears as a badge (effect on hover), in the effects box, and in the log; it carries no automatic mechanics, so apply its effects at the table. <b>👥 Party controls</b> act <b>only on the characters selected in the Show row</b> (the label lists them): set their <b>activity</b> at once, <b>apply a condition</b> to every eligible one (a timed condition already running restarts), or <b>remove a condition</b> from all of them. <b>☕ Items with a use effect</b> (Caf gives Caffeinated) show a <b>use</b> button in the card's Consumables list: it takes one from the stack and applies the condition; another dose restarts the timer. The GM can give a homebrew item an <b>on use</b> condition on the Items tab.</p>
   <table><tr><th>Condition</th><th>Effect (at max level shown)</th></tr>${condRows}</table>
 
   <h2>Organic characters (per day, temperate)</h2>
@@ -5621,8 +5701,8 @@ function loadLocalState(){
 function resetAll(){
   const shared = CLOUD.db && CLOUD.room;
   if(!confirm(`Start a fresh session? Clock back to Day 1, 00:00, every need at 0.${shared?' This resets the shared room for everyone in it.':''} (💾 Save first to keep this one.)`)) return;
-  const homebrew = S.homebrew || [], npcs = S.npcs || [], scenes = S.scenes || [];   // homebrew items, the GM's NPC library and saved scenes are not session state — they survive a new session
-  S = freshState(); S.homebrew = homebrew; S.npcs = npcs; S.scenes = scenes;
+  const homebrew = S.homebrew || [], hbTrees = S.hbTrees || [], npcs = S.npcs || [], scenes = S.scenes || [];   // homebrew items, the GM's NPC library and saved scenes are not session state — they survive a new session
+  S = freshState(); S.homebrew = homebrew; S.hbTrees = hbTrees; S.npcs = npcs; S.scenes = scenes;
   logMsg('🆕 New session — Day 1, 00:00. All needs at 0, canteens full, droid packs charged.');
   rebuildLog(); render();
 }
@@ -5787,7 +5867,7 @@ async function roomCopyLink(){
                     wt, st, xp, ab [[name,text]], sub [{n, ab, a?, wt?, st?, xp?}] }
    ================================================================ */
 let SPECIES_DB = null, SPECIES_WAIT = null;
-const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3, shq:'', ship:-1, xpSel:null, xpAmt:'', xpWhy:'' };
+const GM_UI = { q:'', attr:'', sort:'name', sel:-1, sec:'species', gm:false, npc:'', nq:'', grp:3, shq:'', ship:-1, xpSel:null, xpAmt:'', xpWhy:'', fg:'', fgn:'' };
 function speciesLoad(cb){
   if(SPECIES_DB) return cb();
   if(typeof SPECIES!=='undefined'){ SPECIES_DB = SPECIES; return cb(); }
@@ -5884,7 +5964,7 @@ function gmSec(s){ GM_UI.sec = s; renderGM(); }
 function renderGM(){
   const nav = document.getElementById('gmNav'); if(!nav || !SPECIES_DB) return;
   const u = GM_UI; if(!u.gm) u.sec = 'species';
-  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`], ['ships', `Ships${(SHIPS_DB||[]).length ? ' ('+SHIPS_DB.length+')' : ''}`], ['xp','Award XP']] : []);
+  const secs = [['species','Species']].concat(u.gm ? [['npcs', `NPCs${(S.npcs||[]).length ? ' ('+S.npcs.length+')' : ''}`], ['scenes', `Scenes${(S.scenes||[]).length ? ' ('+S.scenes.length+')' : ''}`], ['ships', `Ships${(SHIPS_DB||[]).length ? ' ('+SHIPS_DB.length+')' : ''}`], ['xp','Award XP'], ['forge', `Forge${(S.hbTrees||[]).length ? ' ('+S.hbTrees.length+')' : ''}`]] : []);
   nav.innerHTML = secs.map(([k,l])=>`<button class="chip ${u.sec===k?'on':''}" onclick="gmSec('${k}')">${l}</button>`).join('') +
     `<label style="margin-left:auto" title="For whoever is running the game: shows the NPC builder and library on this device. Honor system — it hides the GM's tools, it does not lock them."><input type="checkbox" ${u.gm?'checked':''} onchange="gmMode(this.checked)"> 🎭 GM mode</label>`;
   document.getElementById('gmSpecies').style.display = u.sec==='species' ? '' : 'none';
@@ -5892,7 +5972,159 @@ function renderGM(){
   document.getElementById('gmScenes').style.display  = u.sec==='scenes' ? '' : 'none';
   document.getElementById('gmShips').style.display   = u.sec==='ships' ? '' : 'none';
   document.getElementById('gmXp').style.display      = u.sec==='xp' ? '' : 'none';
-  if(u.sec==='xp') renderXpAward(); else if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else if(u.sec==='ships') renderShips(); else renderSpecies();
+  document.getElementById('gmForge').style.display   = u.sec==='forge' ? '' : 'none';
+  if(u.sec==='forge') renderForge(); else if(u.sec==='xp') renderXpAward(); else if(u.sec==='npcs') renderNpcs(); else if(u.sec==='scenes') renderScenes(); else if(u.sec==='ships') renderShips(); else renderSpecies();
+}
+
+/* ---- Forge: the GM's own Force powers and specializations. Stored in S.hbTrees in the same shape as the
+   generated trees in rules.js ({k:'spec'|'power', n, career, skills, fr, basic, rows, nodes:[{id,n,c,x,y,w,to,root,t,f,e}]}),
+   synced whole like the NPC library, kept through 🆕 New, and merged into RULES_DB.trees (flag gmcu) by hbTreesApply()
+   so the Talents tab, sheets and XP spending treat them exactly like book trees. Grid: 4 columns; a specialization's
+   first row is row 0 (the roots), a Force power has its Basic Power in row 0 and upgrades from row 1. ---- */
+const FG_TYPES = ['Passive','Active','Active (Action)','Active (Maneuver)','Active (Incidental)','Active (Out of Turn Incidental)'];
+function normHbTrees(v){
+  v = arrayify(v); if(!Array.isArray(v)) return [];
+  const strs = a => { a = arrayify(a); return (Array.isArray(a) ? a : []).map(x=>String(x).trim().slice(0,60)).filter(Boolean).slice(0,12); };
+  return v.filter(t=>t && typeof t==='object' && (t.k==='spec' || t.k==='power')).slice(0,60).map(t=>{
+    const P = t.k==='power', o = { id:String(t.id || 'hbt-'+randomId().slice(0,8)), k:t.k, n:String(t.n||'').slice(0,60), book:'Homebrew', rows:clamp(Math.round(+t.rows)||(P?3:5), 1, 8) };
+    if(P){ o.fr = clamp(Math.round(+t.fr)||1, 1, 6); o.basic = String(t.basic||'').slice(0,1500); }
+    else { o.career = String(t.career||'Universal').slice(0,40); o.skills = strs(t.skills); }
+    const nodes = arrayify(t.nodes), seen = {};
+    o.nodes = (Array.isArray(nodes) ? nodes : []).filter(n=>n && typeof n==='object' && n.id && !seen[n.id] && (seen[n.id]=1)).map(n=>{
+      const x = clamp(Math.round(+n.x)||0, 0, 3), y = clamp(Math.round(+n.y)||0, 0, P ? o.rows : o.rows-1);
+      const m = { id:String(n.id), n:String(n.n||'').slice(0,60), c:clamp(Math.round(+n.c)||0, 0, 500), x, y, w:(P && n.id==='basic') ? 4 : clamp(Math.round(+n.w)||1, 1, 4-x), to:strs(n.to) };
+      if(P ? n.id==='basic' : y===0) m.root = 1;
+      if(!P){ m.t = FG_TYPES.includes(n.t) ? n.t : 'Passive'; if(n.f) m.f = 1; }
+      if(n.e) m.e = String(n.e).slice(0,1200);
+      return m;
+    });
+    for(const n of o.nodes) n.to = n.to.filter(id=>seen[id] && id!==n.id);
+    return o;
+  });
+}
+let HBT_SIG = '', HBT_IDS = [];
+function hbTreesApply(){   // rebuild the GM's trees inside RULES_DB when S.hbTrees changed (cheap check each render)
+  if(typeof S==='undefined' || !S) return;
+  const sig = JSON.stringify(S.hbTrees||[]); if(sig===HBT_SIG) return; HBT_SIG = sig;
+  for(const id of HBT_IDS) delete TREE_BY[id];
+  RULES_DB.trees = RULES_DB.trees.filter(t=>!t.gmcu); HBT_IDS = [];
+  for(const t of S.hbTrees||[]){
+    const c = JSON.parse(sig).find(x=>x.id===t.id);
+    c.hb = 1; c.gmcu = 1; c.n = c.n || 'Untitled'; c.by = {}; for(const n of c.nodes){ n.n = n.n || '(unnamed)'; c.by[n.id] = n; }
+    TREE_BY[c.id] = c; RULES_DB.trees.push(c); HBT_IDS.push(c.id);
+  }
+}
+const fgTree = () => (S.hbTrees||[]).find(t=>t.id===GM_UI.fg) || null;
+const fgNode = t => (t && t.nodes.find(n=>n.id===GM_UI.fgn)) || null;
+const fgCover = (t, x, y) => t.nodes.find(n=>n.y===y && x>=n.x && x<n.x+n.w);
+const fgAdj = (t, n) => t.nodes.filter(m=>m!==n && ((Math.abs(m.y-n.y)===1 && m.x<n.x+n.w && n.x<m.x+m.w) || (m.y===n.y && (m.x+m.w===n.x || n.x+n.w===m.x))));
+const fgTouch = () => { S.hbTrees = normHbTrees(S.hbTrees); render(); renderGM(); };   // kept in wire shape, so a round trip is not a change
+function fgNew(kind){
+  if(!Array.isArray(S.hbTrees)) S.hbTrees = [];
+  const P = kind==='power', t = { id:'hbt-'+randomId().slice(0,8), k:kind, n:P ? 'New Force Power' : 'New Specialization', book:'Homebrew', rows:P ? 3 : 5,
+    nodes:P ? [{ id:'basic', n:'Basic Power', c:15, x:0, y:0, w:4, to:[], root:1 }] : [] };
+  if(P){ t.fr = 1; t.basic = ''; } else { t.career = 'Universal'; t.skills = []; }
+  S.hbTrees.push(t); GM_UI.fg = t.id; GM_UI.fgn = ''; fgTouch();
+}
+function fgPick(id){ GM_UI.fg = id; GM_UI.fgn = ''; renderGM(); }
+function fgDel(){
+  const t = fgTree(); if(!t) return;
+  const owners = S.chars.filter(cs=>cs.sheet.tr[t.id]).map(cs=>cfg(cs.id).name);
+  if(!confirm(`Delete “${t.n||'this tree'}” for everyone in the room?${owners.length ? `\n\n${owners.join(', ')} own${owners.length===1?'s':''} it; their XP is not refunded and the tree disappears from their sheets.` : ''}`)) return;
+  S.hbTrees.splice(S.hbTrees.indexOf(t), 1); GM_UI.fg = ''; GM_UI.fgn = ''; fgTouch();
+}
+function fgSet(k, v){
+  const t = fgTree(); if(!t) return;
+  if(k==='skills') t.skills = String(v).split(',').map(x=>x.trim()).filter(Boolean).slice(0,12);
+  else if(k==='fr') t.fr = clamp(+v||1, 1, 6);
+  else t[k] = String(v).trim();
+  fgTouch();
+}
+function fgRows(d){
+  const t = fgTree(); if(!t) return;
+  const P = t.k==='power', rows = clamp(t.rows + d, 1, 8); if(rows===t.rows) return;
+  if(d<0){
+    const gone = new Set(t.nodes.filter(n=>n.y > (P ? rows : rows-1)).map(n=>n.id));
+    if(gone.size && !confirm(`Remove the bottom row and its ${gone.size} box${gone.size===1?'':'es'}?`)) return;
+    t.nodes = t.nodes.filter(n=>!gone.has(n.id)); for(const n of t.nodes) n.to = n.to.filter(id=>!gone.has(id));
+  }
+  t.rows = rows; fgTouch();
+}
+function fgCell(x, y){
+  const t = fgTree(); if(!t) return;
+  const P = t.k==='power', n = { id:`r${P ? y : y+1}c${x+1}`, n:'', c:5*(P ? y : y+1), x, y, w:1, to:[] };
+  if(!P){ n.t = 'Passive'; if(y===0) n.root = 1; }
+  for(const m of fgAdj(t, n)) if(Math.abs(m.y-n.y)===1){ n.to.push(m.id); m.to.push(n.id); }   // a new box joins the ones above and below; sideways paths are optional
+  t.nodes.push(n); GM_UI.fgn = n.id; fgTouch();
+}
+function fgSelect(id){ GM_UI.fgn = id; renderGM(); }
+function fgNodeSet(k, v){
+  const t = fgTree(), n = fgNode(t); if(!n) return;
+  if(k==='c') n.c = clamp(Math.round(+v)||0, 0, 500);
+  else if(k==='f'){ if(v) n.f = 1; else delete n.f; }
+  else if(k==='w'){
+    const w = clamp(Math.round(+v)||1, 1, 4-n.x);
+    for(let x=n.x+1; x<n.x+w; x++) if(fgCover(t, x, n.y) && fgCover(t, x, n.y)!==n){ alert('Another box is in the way — clear the cells to its right first.'); fgTouch(); return; }
+    n.w = w;
+  }
+  else if(k==='n'){
+    n.n = String(v).trim();
+    const tal = RULES_DB.talents[n.n]; if(tal && t.k==='spec' && tal.a && FG_TYPES.includes(tal.a)) n.t = tal.a;   // a published talent brings its activation along
+  }
+  else n[k] = String(v).trim();
+  if(k==='e' && !n.e) delete n.e;
+  fgTouch();
+}
+function fgLink(mid, on){
+  const t = fgTree(), n = fgNode(t), m = t && t.nodes.find(x=>x.id===mid); if(!n || !m) return;
+  n.to = n.to.filter(x=>x!==mid); m.to = m.to.filter(x=>x!==n.id);
+  if(on){ n.to.push(mid); m.to.push(n.id); }
+  fgTouch();
+}
+function fgNodeDel(){
+  const t = fgTree(), n = fgNode(t); if(!n || n.id==='basic') return;
+  t.nodes = t.nodes.filter(x=>x!==n); for(const m of t.nodes) m.to = m.to.filter(id=>id!==n.id);
+  GM_UI.fgn = ''; fgTouch();
+}
+function renderForge(){
+  const box = document.getElementById('gmForge'); if(!box) return;
+  const list = S.hbTrees || [], t = fgTree(); if(!t) GM_UI.fg = '';
+  const n = fgNode(t); if(!n) GM_UI.fgn = '';
+  const P = t && t.k==='power', careers = ['Universal'].concat(RULES_DB.careers.map(c=>c.n).filter(x=>x!=='Universal'));
+  let detail = '';
+  if(t){
+    const nr = P ? t.rows+1 : t.rows, cells = [];
+    for(let y=0; y<nr; y++) for(let x=0; x<4; x++) if(!fgCover(t, x, y)) cells.push(`<button class="empty" style="grid-column:${x+1};grid-row:${y+1}" onclick="fgCell(${x},${y})" title="Add a box here">＋</button>`);
+    const boxes = t.nodes.map(m=>`<button class="${m.id===GM_UI.fgn?'sel':''} ${m.root?'rootn':''}" style="grid-column:${m.x+1} / span ${m.w};grid-row:${m.y+1}" onclick="fgSelect('${m.id}')"><b>${esc(m.n||'(unnamed)')}</b><small>${m.c} XP${!P&&m.t&&m.t!=='Passive'?' · '+esc(m.t):''}${m.f?' · Force':''}</small></button>`);
+    const tal = n && !P ? RULES_DB.talents[n.n] : null;
+    const adj = n ? fgAdj(t, n) : [];
+    detail = `<div class="fgform">
+        <label>name <input type="text" value="${esc(t.n)}" onchange="fgSet('n',this.value)" style="width:200px"></label>
+        ${P ? `<label title="The character needs at least this Force rating to buy the Basic Power">Force rating <select onchange="fgSet('fr',this.value)">${[1,2,3,4,5,6].map(i=>`<option${t.fr===i?' selected':''}>${i}</option>`).join('')}</select></label>`
+            : `<label>career <select onchange="fgSet('career',this.value)">${careers.map(c=>`<option${t.career===c?' selected':''}>${esc(c)}</option>`).join('')}</select></label>
+               <label title="Comma-separated; these become career skills when the specialization is added">career skills <input type="text" value="${esc((t.skills||[]).join(', '))}" onchange="fgSet('skills',this.value)" style="width:280px" placeholder="Athletics, Mechanics, Negotiation, Perception"></label>`}
+        <label>rows <span><button class="mini" onclick="fgRows(-1)">−</button> <b>${t.rows}</b> <button class="mini" onclick="fgRows(1)">＋</button></span></label>
+        <button class="mini" onclick="fgDel()" style="margin-left:auto" title="Delete this ${P?'Force power':'specialization'} for the whole room">🗑 delete</button>
+        ${P ? `<label class="wide">Basic Power — what the power does <textarea onchange="fgSet('basic',this.value)">${esc(t.basic||'')}</textarea></label>` : ''}
+      </div>
+      <div class="fgrid" style="grid-template-rows:repeat(${nr},auto)">${cells.join('')}${boxes.join('')}</div>
+      ${n ? `<div class="fgform"><b style="flex-basis:100%;color:var(--gold)">${n.id==='basic' ? 'Basic Power' : `Box in row ${P ? n.y : n.y+1}, column ${n.x+1}`}</b>
+        ${n.id==='basic' ? '' : `<label>${P ? 'upgrade' : 'talent'} name <input type="text" ${P ? '' : 'list="fgTalents"'} value="${esc(n.n)}" onchange="fgNodeSet('n',this.value)" style="width:220px" placeholder="${P ? 'e.g. Range' : 'a published talent, or your own'}"></label>`}
+        <label>XP cost <input type="number" min="0" step="5" value="${n.c}" onchange="fgNodeSet('c',this.value)" style="width:70px"></label>
+        ${!P ? `<label>type <select onchange="fgNodeSet('t',this.value)">${FG_TYPES.map(x=>`<option${n.t===x?' selected':''}>${x}</option>`).join('')}</select></label>
+                <label title="A Force talent (shown with a ✦)"><span>Force talent <input type="checkbox" ${n.f?'checked':''} onchange="fgNodeSet('f',this.checked)"></span></label>` : ''}
+        ${P && n.id!=='basic' ? `<label title="How many columns the box spans">width <select onchange="fgNodeSet('w',this.value)">${[1,2,3,4].filter(i=>n.x+i<=4).map(i=>`<option${n.w===i?' selected':''}>${i}</option>`).join('')}</select></label>` : ''}
+        ${n.id==='basic' ? '' : `<label class="wide">${tal && !n.e ? 'effect — blank shows the published text' : 'what it does'} <textarea onchange="fgNodeSet('e',this.value)" placeholder="${esc(tal ? tal.e||'' : '')}">${esc(n.e||'')}</textarea></label>`}
+        ${adj.length ? `<div class="wide" style="flex-basis:100%;font-size:12px">Joined to (a path both ways): ${adj.map(m=>`<label style="display:inline-flex;flex-direction:row;gap:3px;margin-right:10px;color:var(--text)"><input type="checkbox" ${n.to.includes(m.id)?'checked':''} onchange="fgLink('${m.id}',this.checked)">${esc(m.n||'(unnamed)')}</label>`).join('')}</div>` : ''}
+        ${n.id==='basic' ? '' : `<button class="mini" onclick="fgNodeDel()">🗑 remove box</button>`}</div>` : `<p class="tinfo">Click a box to edit it, or ＋ to add one. ${P ? 'The wide box on top is the Basic Power; the boxes below are upgrades that join to it or to each other.' : 'A talent can be bought only if it is in row 1 or joined to one the character already owns. XP cost is normally 5 × the row.'}</p>`}
+      ${P ? '' : `<datalist id="fgTalents">${Object.keys(RULES_DB.talents).sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`}
+      <h4 style="margin:14px 0 2px">Preview — as players see it on the Talents tab</h4>
+      ${TREE_BY[t.id] ? treeHtml(TREE_BY[t.id], null) : ''}`;
+  }
+  box.innerHTML = `<div class="itembar"><button onclick="fgNew('spec')" title="A four-column talent tree, bought with XP once the specialization is added to a character">＋ specialization</button>
+      <button onclick="fgNew('power')" title="A Force power: a Basic Power plus upgrade boxes">＋ Force power</button>
+      ${list.map(x=>`<button class="chip ${x.id===GM_UI.fg?'on':''}" onclick="fgPick('${x.id}')">${x.k==='power'?'✦':'🌳'} ${esc(x.n||'Untitled')}</button>`).join('')}</div>
+    ${t ? detail : `<p class="tinfo">${list.length ? 'Pick one above to edit it, or start a new one.' : 'Make the group\'s own specializations and Force powers here. They are shared with the room, appear on the Talents tab marked HB, and are bought with XP like any book tree.'}</p>`}`;
 }
 
 /* ---- Award XP: the GM hands out experience at the end of a session. An award raises both numbers on the
@@ -7822,7 +8054,7 @@ function init(){
     Object.entries(ENVS).map(([k,e])=>`<option value="${k}">${e.label}</option>`).join('');
   document.getElementById('partyAct').innerHTML = `<option value="">activity…</option>` +
     Object.entries(ACTS).map(([k,a])=>`<option value="${k}">${a.label}</option>`).join('');
-  document.getElementById('partyCond').innerHTML = `<option value="">condition…</option>` +
+  document.getElementById('partyCond').innerHTML = `<option value="">apply condition…</option>` +
     Object.entries(CONDS).map(([k,d])=>`<option value="${k}" title="${condTitle(d)}">${d.label}${d.droid?' (droids)':''}</option>`).join('');
   buildRules();
   loadLocalRolls();
